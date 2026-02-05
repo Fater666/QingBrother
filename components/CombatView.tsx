@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { CombatState, CombatUnit, Ability, Item } from '../types.ts';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES } from '../constants.tsx';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS } from '../constants.tsx';
 import { Portrait } from './Portrait.tsx';
+import { executeAITurn, AIAction } from '../services/combatAI.ts';
 
 interface CombatViewProps {
   initialState: CombatState;
@@ -15,6 +16,113 @@ interface FloatingText {
     y: number;
     color: string;
 }
+
+// ==================== 单位卡片组件 ====================
+// 类型背景色映射
+const TYPE_STYLES: Record<string, { bg: string; accent: string }> = {
+  // 友军类型
+  FARMER: { bg: 'bg-emerald-950/90', accent: 'border-emerald-700' },
+  DESERTER: { bg: 'bg-slate-900/90', accent: 'border-slate-600' },
+  HUNTER: { bg: 'bg-amber-950/90', accent: 'border-amber-700' },
+  NOMAD: { bg: 'bg-cyan-950/90', accent: 'border-cyan-700' },
+  NOBLE: { bg: 'bg-purple-950/90', accent: 'border-purple-700' },
+  MONK: { bg: 'bg-indigo-950/90', accent: 'border-indigo-700' },
+  // 敌军类型
+  BANDIT: { bg: 'bg-red-950/90', accent: 'border-red-800' },
+  BEAST: { bg: 'bg-orange-950/90', accent: 'border-orange-800' },
+  ARMY: { bg: 'bg-zinc-900/90', accent: 'border-zinc-600' },
+  ARCHER: { bg: 'bg-lime-950/90', accent: 'border-lime-800' },
+  BERSERKER: { bg: 'bg-rose-950/90', accent: 'border-rose-800' },
+};
+
+const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isActive }) => {
+  // 血量百分比和颜色
+  const hpPercent = (unit.hp / unit.maxHp) * 100;
+  const hpColor = hpPercent > 50 ? 'bg-gradient-to-r from-green-600 to-green-400' : hpPercent > 25 ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : 'bg-gradient-to-r from-red-700 to-red-500';
+  const hpTextColor = hpPercent > 50 ? 'text-green-400' : hpPercent > 25 ? 'text-yellow-400' : 'text-red-400';
+
+  // 护甲信息
+  const armor = unit.equipment.armor;
+  const armorPercent = armor ? (armor.durability / armor.maxDurability) * 100 : 0;
+  const armorText = armor ? `${armor.durability}` : '--';
+
+  // 武器名称（截取前4字）
+  const weaponName = unit.equipment.mainHand?.name?.slice(0, 4) || '徒手';
+
+  // 获取类型名称
+  const bgKey = unit.team === 'ENEMY' ? (unit.aiType || 'BANDIT') : unit.background;
+  const typeStyle = TYPE_STYLES[bgKey] || TYPE_STYLES['BANDIT'];
+  const typeName = unit.team === 'ENEMY' 
+    ? (unit.aiType === 'BEAST' ? '野兽' : unit.aiType === 'ARMY' ? '军士' : unit.aiType === 'ARCHER' ? '弓手' : '贼寇')
+    : (BACKGROUNDS[unit.background]?.name || unit.background);
+
+  const isEnemy = unit.team === 'ENEMY';
+
+  // 立体感样式
+  const cardStyle: React.CSSProperties = isEnemy ? {
+    clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+    background: 'linear-gradient(135deg, rgba(127,29,29,0.95) 0%, rgba(69,10,10,0.98) 100%)',
+    boxShadow: isActive 
+      ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)'
+      : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.3)',
+  } : {
+    background: 'linear-gradient(135deg, rgba(30,58,138,0.95) 0%, rgba(23,37,84,0.98) 100%)',
+    boxShadow: isActive 
+      ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -2px 4px rgba(0,0,0,0.3)'
+      : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)',
+    borderRadius: '4px',
+  };
+
+  return (
+    <div
+      className={`
+        w-[72px] p-1.5 text-center font-mono relative overflow-hidden
+        border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
+        ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105' : ''}
+        transition-all duration-200
+      `}
+      style={cardStyle}
+    >
+      {/* 顶部高光效果 */}
+      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      
+      {/* 类型标签 */}
+      <div className={`text-[9px] font-bold truncate mb-1 drop-shadow-md ${isEnemy ? 'text-red-300' : 'text-blue-300'}`}>
+        {typeName}
+      </div>
+
+      {/* 血量条 - 带凹槽效果 */}
+      <div className="h-[8px] bg-black/70 rounded-sm overflow-hidden mb-0.5 border border-black/50" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>
+        <div className={`h-full ${hpColor} transition-all relative`} style={{ width: `${hpPercent}%` }}>
+          <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent h-1/2" />
+        </div>
+      </div>
+      <div className={`text-[8px] font-bold ${hpTextColor} drop-shadow-sm`}>
+        ♥ {unit.hp}/{unit.maxHp}
+      </div>
+
+      {/* 护甲条 */}
+      {armor && (
+        <>
+          <div className="h-[6px] bg-black/70 rounded-sm overflow-hidden mb-0.5 mt-1 border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)' }}>
+            <div className="h-full bg-gradient-to-r from-slate-500 to-slate-300 transition-all relative" style={{ width: `${armorPercent}%` }}>
+              <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent h-1/2" />
+            </div>
+          </div>
+          <div className="text-[7px] text-slate-300 drop-shadow-sm">⛨ {armorText}</div>
+        </>
+      )}
+
+      {/* 武器名称 - 底部区域 */}
+      <div className="text-[8px] text-amber-400 truncate mt-1 pt-1 border-t border-white/10 drop-shadow-sm font-semibold">
+        {weaponName}
+      </div>
+
+      {/* 底部阴影边缘 */}
+      <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-t from-black/40 to-transparent" />
+    </div>
+  );
+};
 
 export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEnd }) => {
   const [state, setState] = useState(initialState);
@@ -38,11 +146,48 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   // --- 风格常量 ---
   const HEX_SIZE = 45;
-  const HEX_GAP = 1.5;
-  const COLOR_PLAINS = "#2d3521";
-  const COLOR_FOREST = "#1b251a";
-  const COLOR_MOUNTAIN = "#2f2f2f";
-  const COLOR_FOG = "#050505";
+  const HEX_GAP = 2;
+  const HEIGHT_MULTIPLIER = 8; // 高度差乘数，增加立体感
+
+  // 地形类型定义 - 带高度和颜色
+  const TERRAIN_TYPES = {
+    PLAINS: { 
+      baseColor: '#3d4a2f', 
+      lightColor: '#4a5a3a', 
+      darkColor: '#2a3520',
+      height: 0, 
+      name: '平原' 
+    },
+    FOREST: { 
+      baseColor: '#1f3320', 
+      lightColor: '#2a4429', 
+      darkColor: '#152215',
+      height: 1, 
+      name: '森林' 
+    },
+    MOUNTAIN: { 
+      baseColor: '#4a4a4a', 
+      lightColor: '#5a5a5a', 
+      darkColor: '#333333',
+      height: 3, 
+      name: '山地' 
+    },
+    HILLS: { 
+      baseColor: '#5a4a32', 
+      lightColor: '#6a5a42', 
+      darkColor: '#3a3022',
+      height: 2, 
+      name: '丘陵' 
+    },
+    SWAMP: { 
+      baseColor: '#2a3a35', 
+      lightColor: '#3a4a45', 
+      darkColor: '#1a2a25',
+      height: -1, 
+      name: '沼泽' 
+    },
+  };
+  const COLOR_FOG = "#080808";
 
   const getPixelPos = (q: number, r: number) => {
     const x = HEX_SIZE * (Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
@@ -50,30 +195,43 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return { x, y };
   };
 
-  // 预生成地形数据，避免渲染时计算
-  const gridRange = 25;
+  // 预生成地形数据 - 优化：减少范围，增加地形细节
+  const gridRange = 15;
   const terrainData = useMemo(() => {
-    const data = new Map<string, { color: string, prop: string | null }>();
-    const noise = (q: number, r: number) => Math.sin(q * 0.25) * Math.cos(r * 0.25);
+    const data = new Map<string, { 
+      type: keyof typeof TERRAIN_TYPES,
+      height: number,
+    }>();
+    
+    // 使用多层噪声生成更自然的地形
+    const noise1 = (q: number, r: number) => Math.sin(q * 0.2) * Math.cos(r * 0.2);
+    const noise2 = (q: number, r: number) => Math.sin(q * 0.4 + 1) * Math.cos(r * 0.35 + 0.5);
+    const combinedNoise = (q: number, r: number) => (noise1(q, r) * 0.6 + noise2(q, r) * 0.4);
     
     for (let q = -gridRange; q <= gridRange; q++) {
       for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
-         const n = noise(q, r);
-         let color = COLOR_PLAINS;
-         let prop = null;
-         if (n > 0.6) { color = COLOR_FOREST; if(Math.random() > 0.7) prop = "🌲"; }
-         else if (n < -0.6) { color = COLOR_MOUNTAIN; prop = "⛰️"; }
-         data.set(`${q},${r}`, { color, prop });
+        const n = combinedNoise(q, r);
+        let type: keyof typeof TERRAIN_TYPES = 'PLAINS';
+        
+        if (n > 0.7) type = 'MOUNTAIN';
+        else if (n > 0.4) type = 'HILLS';
+        else if (n > 0.1) type = 'FOREST';
+        else if (n < -0.5) type = 'SWAMP';
+        
+        data.set(`${q},${r}`, { 
+          type, 
+          height: TERRAIN_TYPES[type].height 
+        });
       }
     }
     return data;
   }, []);
 
-  // 视野计算
+  // 视野计算 - 战斗中使用更大的视野范围
   const visibleSet = useMemo(() => {
     const set = new Set<string>();
     state.units.filter(u => u.team === 'PLAYER' && !u.isDead).forEach(u => {
-      const radius = 6;
+      const radius = 12; // 增大战斗视野范围
       for (let q = -radius; q <= radius; q++) {
         for (let r = Math.max(-radius, -q - radius); r <= Math.min(radius, -q + radius); r++) {
           if (getHexDistance({q:0, r:0}, {q, r}) <= radius) {
@@ -85,20 +243,52 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return set;
   }, [state.units]);
 
-  // --- 渲染系统 ---
+  // --- 优化：预计算六边形顶点 ---
+  const hexPoints = useMemo(() => {
+    const points: { x: number, y: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 180) * (60 * i + 30);
+      points.push({ x: Math.cos(angle), y: Math.sin(angle) });
+    }
+    return points;
+  }, []);
+
+  // --- 渲染系统（优化版）---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d', { alpha: false }); // 优化：禁用Alpha通道提升性能
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
+    // 优化：使用预计算的顶点
     const drawHex = (x: number, y: number, size: number) => {
       ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 180) * (60 * i + 30);
-        ctx.lineTo(x + size * Math.cos(angle), y + size * Math.sin(angle));
+      ctx.moveTo(x + size * hexPoints[0].x, y + size * hexPoints[0].y);
+      for (let i = 1; i < 6; i++) {
+        ctx.lineTo(x + size * hexPoints[i].x, y + size * hexPoints[i].y);
       }
       ctx.closePath();
+    };
+
+    // 计算可见范围内的地块
+    const getVisibleHexes = () => {
+      const visible: { q: number, r: number, key: string }[] = [];
+      const rect = canvas.getBoundingClientRect();
+      const viewWidth = rect.width / zoom + 200;
+      const viewHeight = rect.height / zoom + 200;
+      
+      terrainData.forEach((_, key) => {
+        const [q, r] = key.split(',').map(Number);
+        const { x, y } = getPixelPos(q, r);
+        const screenX = x + cameraRef.current.x;
+        const screenY = y + cameraRef.current.y;
+        
+        // 只渲染在视野范围内的地块
+        if (Math.abs(screenX) < viewWidth / 2 && Math.abs(screenY) < viewHeight / 2) {
+          visible.push({ q, r, key });
+        }
+      });
+      return visible;
     };
 
     let animId: number;
@@ -111,8 +301,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         ctx.scale(dpr, dpr);
       }
       
-      // 填充底色
-      ctx.fillStyle = "#000";
+      // 清屏
+      ctx.fillStyle = '#050505';
       ctx.fillRect(0, 0, rect.width, rect.height);
 
       ctx.save();
@@ -120,62 +310,149 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       ctx.scale(zoom, zoom);
       ctx.translate(cameraRef.current.x, cameraRef.current.y);
 
-      // 1. 批量渲染地块
-      terrainData.forEach((data, key) => {
-        const [q, r] = key.split(',').map(Number);
+      // 只渲染可见地块
+      const visibleHexes = getVisibleHexes();
+      
+      // 按高度排序，先绘制低处的（伪3D效果）
+      visibleHexes.sort((a, b) => {
+        const dataA = terrainData.get(a.key);
+        const dataB = terrainData.get(b.key);
+        return (dataA?.height || 0) - (dataB?.height || 0);
+      });
+
+      // 1. 绘制地块
+      visibleHexes.forEach(({ q, r, key }) => {
+        const data = terrainData.get(key);
+        if (!data) return;
+        
         const { x, y } = getPixelPos(q, r);
         const isVisible = visibleSet.has(key);
         const isHovered = hoveredHex?.q === q && hoveredHex?.r === r;
+        const terrain = TERRAIN_TYPES[data.type];
+        const heightOffset = data.height * HEIGHT_MULTIPLIER; // 高度偏移
 
-        // 仅在可视或悬停时使用更亮的颜色
-        ctx.fillStyle = isVisible ? (isHovered ? lightenColor(data.color, 15) : data.color) : COLOR_FOG;
-        drawHex(x, y, HEX_SIZE - HEX_GAP);
-        ctx.fill();
-
-        // 可视区域描边和装饰
         if (isVisible) {
-          ctx.strokeStyle = "rgba(255,255,255,0.05)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-
-          if (data.prop) {
-            ctx.font = "20px serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillStyle = "rgba(255,255,255,0.1)";
-            ctx.fillText(data.prop, x, y);
+          // 绘制侧面（高度效果）
+          if (data.height > 0) {
+            ctx.fillStyle = terrain.darkColor;
+            ctx.beginPath();
+            // 绘制底部轮廓形成侧面
+            for (let i = 2; i <= 5; i++) {
+              const px = x + (HEX_SIZE - HEX_GAP) * hexPoints[i].x;
+              const py = y + (HEX_SIZE - HEX_GAP) * hexPoints[i].y;
+              if (i === 2) ctx.moveTo(px, py + heightOffset);
+              else ctx.lineTo(px, py + heightOffset);
+            }
+            ctx.lineTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[5].x, y + (HEX_SIZE - HEX_GAP) * hexPoints[5].y - heightOffset);
+            for (let i = 5; i >= 2; i--) {
+              const px = x + (HEX_SIZE - HEX_GAP) * hexPoints[i].x;
+              const py = y + (HEX_SIZE - HEX_GAP) * hexPoints[i].y - heightOffset;
+              ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
           }
 
-          // 技能范围高亮
+          // 绘制顶面
+          const topY = y - heightOffset;
+          
+          // 基础颜色（带轻微渐变模拟）
+          ctx.fillStyle = isHovered ? terrain.lightColor : terrain.baseColor;
+          drawHex(x, topY, HEX_SIZE - HEX_GAP);
+          ctx.fill();
+
+          // 顶部高光（简化：只画上半部分边缘）
+          ctx.strokeStyle = `rgba(255,255,255,${isHovered ? 0.25 : 0.1})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[5].x, topY + (HEX_SIZE - HEX_GAP) * hexPoints[5].y);
+          for (let i = 0; i <= 2; i++) {
+            ctx.lineTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[i].x, topY + (HEX_SIZE - HEX_GAP) * hexPoints[i].y);
+          }
+          ctx.stroke();
+
+          // 底部暗边
+          ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[2].x, topY + (HEX_SIZE - HEX_GAP) * hexPoints[2].y);
+          for (let i = 3; i <= 5; i++) {
+            ctx.lineTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[i].x, topY + (HEX_SIZE - HEX_GAP) * hexPoints[i].y);
+          }
+          ctx.stroke();
+
+          // 地形图标（简化）
+          if (data.type === 'FOREST') {
+            ctx.fillStyle = 'rgba(100,180,100,0.3)';
+            ctx.font = '14px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🌲', x, topY);
+          } else if (data.type === 'MOUNTAIN') {
+            ctx.fillStyle = 'rgba(180,180,180,0.3)';
+            ctx.font = '12px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⛰', x, topY);
+          } else if (data.type === 'SWAMP') {
+            ctx.fillStyle = 'rgba(100,150,130,0.2)';
+            ctx.font = '12px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('〰', x, topY);
+          }
+
+          // 技能范围高亮（简化，无shadowBlur）
           if (isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
             const dist = getHexDistance(activeUnit.combatPos, {q, r});
             if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
-              ctx.strokeStyle = "rgba(220, 38, 38, 0.4)";
+              ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
               ctx.lineWidth = 2;
-              drawHex(x, y, HEX_SIZE - HEX_GAP - 3);
+              drawHex(x, topY, HEX_SIZE - HEX_GAP - 2);
               ctx.stroke();
+              // 内发光效果（用半透明填充替代shadowBlur）
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
+              drawHex(x, topY, HEX_SIZE - HEX_GAP - 2);
+              ctx.fill();
             }
           }
+        } else {
+          // 迷雾
+          ctx.fillStyle = COLOR_FOG;
+          drawHex(x, y, HEX_SIZE - HEX_GAP);
+          ctx.fill();
         }
       });
 
-      // 2. 渲染单位阴影/指示器
+      // 2. 渲染单位指示器（简化版）
       state.units.forEach(u => {
         if (u.isDead) return;
         const key = `${u.combatPos.q},${u.combatPos.r}`;
         if (!visibleSet.has(key) && u.team === 'ENEMY') return;
 
-        const { x, y } = getPixelPos(u.combatPos.q, u.combatPos.r);
+        const terrainAtUnit = terrainData.get(key);
+        const heightOffset = (terrainAtUnit?.height || 0) * HEIGHT_MULTIPLIER;
+        const { x, y: baseY } = getPixelPos(u.combatPos.q, u.combatPos.r);
+        const y = baseY - heightOffset;
+
+        // 单位脚下的阴影圈 - 在地块顶面上
+        ctx.fillStyle = u.team === 'PLAYER' ? 'rgba(59, 130, 246, 0.35)' : 'rgba(239, 68, 68, 0.35)';
         ctx.beginPath();
-        ctx.ellipse(x, y + 15, 20, 10, 0, 0, Math.PI * 2);
-        ctx.fillStyle = u.team === 'PLAYER' ? "rgba(59, 130, 246, 0.2)" : "rgba(239, 68, 68, 0.2)";
+        ctx.ellipse(x, y + 5, 22, 11, 0, 0, Math.PI * 2);
         ctx.fill();
 
+        // 当前单位高亮环
         if (activeUnit?.id === u.id) {
-          ctx.strokeStyle = "#fbbf24";
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.ellipse(x, y + 15, 24, 12, 0, 0, Math.PI * 2);
+          ctx.ellipse(x, y + 5, 26, 13, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          // 内圈
+          ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.ellipse(x, y + 5, 20, 10, 0, 0, Math.PI * 2);
           ctx.stroke();
         }
       });
@@ -183,11 +460,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       ctx.restore();
       animId = requestAnimationFrame(render);
     };
+    
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom]);
+  }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom, hexPoints]);
 
-  // DOM 图层同步 - 优化更新频率
+  // DOM 图层同步 - 考虑地形高度
   useEffect(() => {
     let anim: number;
     const sync = () => {
@@ -198,14 +476,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       state.units.forEach(u => {
         const el = unitRefs.current.get(u.id);
         if (el) {
-          const isVisible = visibleSet.has(`${u.combatPos.q},${u.combatPos.r}`);
+          const key = `${u.combatPos.q},${u.combatPos.r}`;
+          const isVisible = visibleSet.has(key);
           if (u.isDead || (!isVisible && u.team === 'ENEMY')) {
             el.style.display = 'none';
           } else {
             el.style.display = 'block';
             const { x, y } = getPixelPos(u.combatPos.q, u.combatPos.r);
-            const screenX = cx + (x + cameraRef.current.x) * zoom - 25;
-            const screenY = cy + (y + cameraRef.current.y) * zoom - 35;
+            // 获取地形高度偏移
+            const terrain = terrainData.get(key);
+            const heightOffset = (terrain?.height || 0) * HEIGHT_MULTIPLIER;
+            // 调整偏移量：卡片锚点在底部中心，让卡片"站"在地块上
+            const screenX = cx + (x + cameraRef.current.x) * zoom - 36; // 水平居中 (72px / 2)
+            const screenY = cy + (y - heightOffset + cameraRef.current.y) * zoom - 85; // 卡片底部对齐到地块顶部偏上
             el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${zoom})`;
           }
         }
@@ -214,14 +497,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     };
     anim = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(anim);
-  }, [state.units, zoom, visibleSet]);
+  }, [state.units, zoom, visibleSet, terrainData]);
 
   // --- 逻辑函数 ---
   const addToLog = (msg: string) => {
     setState(prev => ({ ...prev, combatLog: [msg, ...prev.combatLog].slice(0, 5) }));
   };
 
-  const nextTurn = () => {
+  const nextTurn = useCallback(() => {
     setState(prev => {
       const nextIdx = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
       return { 
@@ -232,7 +515,147 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       };
     });
     setSelectedAbility(null);
-  };
+  }, []);
+
+  // ==================== 敌人 AI 行动逻辑 ====================
+  const isProcessingAI = useRef(false);
+  
+  useEffect(() => {
+    console.log('[AI Effect] activeUnit:', activeUnit?.name, 'team:', activeUnit?.team, 'isDead:', activeUnit?.isDead);
+    
+    // 如果不是敌人回合，直接返回
+    if (!activeUnit) {
+      console.log('[AI] 没有活动单位');
+      isProcessingAI.current = false;
+      return;
+    }
+    
+    if (activeUnit.team === 'PLAYER') {
+      console.log('[AI] 玩家回合，跳过');
+      isProcessingAI.current = false;
+      return;
+    }
+    
+    if (activeUnit.isDead) {
+      console.log('[AI] 单位已死亡，跳过');
+      isProcessingAI.current = false;
+      nextTurn();
+      return;
+    }
+    
+    // 防止重复处理
+    if (isProcessingAI.current) {
+      console.log('[AI] 正在处理中，跳过');
+      return;
+    }
+    isProcessingAI.current = true;
+    
+    console.log(`[AI开始] ${activeUnit.name} 的回合, AP: ${activeUnit.currentAP}, 位置: (${activeUnit.combatPos.q}, ${activeUnit.combatPos.r})`);
+    
+    // 异步执行 AI 回合
+    const runAITurn = async () => {
+      let actionsPerformed = 0;
+      const maxActions = 3;
+      
+      // 复制当前状态用于 AI 决策
+      let currentAP = activeUnit.currentAP;
+      let currentPos = { ...activeUnit.combatPos };
+      
+      while (actionsPerformed < maxActions && currentAP >= 2) {
+        // 等待一下让玩家看清
+        await new Promise(r => setTimeout(r, 500));
+        
+        // 构造用于 AI 决策的单位状态
+        const unitForAI = { ...activeUnit, currentAP, combatPos: currentPos };
+        
+        console.log(`[AI决策前] 单位: ${unitForAI.name}, AP: ${unitForAI.currentAP}, 位置: (${unitForAI.combatPos.q}, ${unitForAI.combatPos.r})`);
+        console.log(`[AI决策前] 装备武器: ${unitForAI.equipment?.mainHand?.name || '无'}`);
+        console.log(`[AI决策前] state.units 数量: ${state.units.length}, 玩家单位: ${state.units.filter(u => u.team === 'PLAYER' && !u.isDead).length}`);
+        
+        // 获取 AI 决策
+        const action = executeAITurn(unitForAI, state);
+        console.log(`[AI决策] ${activeUnit.name}: ${action.type}`, JSON.stringify(action));
+        
+        if (action.type === 'WAIT') {
+          addToLog(`${activeUnit.name} 观望形势。`);
+          break;
+        }
+        
+        if (action.type === 'MOVE' && action.targetPos) {
+          const moveCost = getHexDistance(currentPos, action.targetPos) * 2;
+          currentAP -= moveCost;
+          currentPos = { ...action.targetPos };
+          
+          // 更新状态
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u => 
+              u.id === activeUnit.id 
+                ? { ...u, combatPos: action.targetPos!, currentAP }
+                : u
+            )
+          }));
+          addToLog(`${activeUnit.name} 移动。`);
+          actionsPerformed++;
+          
+        } else if (action.type === 'ATTACK' && action.targetUnitId && action.ability) {
+          const target = state.units.find(u => u.id === action.targetUnitId && !u.isDead);
+          if (target) {
+            const damage = action.damage || Math.floor(Math.random() * 20) + 10;
+            currentAP -= action.ability.apCost;
+            
+            // 显示伤害数字
+            setFloatingTexts(prev => [...prev, { 
+              id: Date.now(), 
+              text: `-${damage}`, 
+              x: target.combatPos.q, 
+              y: target.combatPos.r, 
+              color: '#ef4444' 
+            }]);
+            
+            // 更新状态
+            setState(prev => ({
+              ...prev,
+              units: prev.units.map(u => {
+                if (u.id === target.id) {
+                  const newHp = Math.max(0, u.hp - damage);
+                  return { ...u, hp: newHp, isDead: newHp <= 0 };
+                }
+                if (u.id === activeUnit.id) {
+                  return { ...u, currentAP };
+                }
+                return u;
+              })
+            }));
+            
+            addToLog(`${activeUnit.name} 攻击 ${target.name}，造成 ${damage} 伤害！`);
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            actionsPerformed++;
+          } else {
+            break; // 目标无效，结束行动
+          }
+        } else {
+          break; // 无法执行更多动作
+        }
+        
+        // 动作之间的间隔
+        await new Promise(r => setTimeout(r, 400));
+      }
+      
+      // AI 回合结束
+      console.log(`[AI结束] ${activeUnit.name} 完成 ${actionsPerformed} 个动作`);
+      await new Promise(r => setTimeout(r, 300));
+      isProcessingAI.current = false;
+      nextTurn();
+    };
+    
+    // 延迟开始 AI 回合
+    const timeoutId = setTimeout(runAITurn, 600);
+    return () => {
+      clearTimeout(timeoutId);
+      isProcessingAI.current = false;
+    };
+  }, [activeUnit?.id]); // 只依赖 activeUnit 的 id 变化
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0) { isDraggingRef.current = true; dragStartRef.current = { x: e.clientX, y: e.clientY }; }
@@ -301,6 +724,77 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     else if (!state.units.some(u => u.team === 'PLAYER' && !u.isDead)) onCombatEnd(false, []);
   }, [state.units]);
 
+  // ==================== 键盘快捷键 ====================
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 只在玩家回合响应
+      if (!isPlayerTurn || !activeUnit) return;
+
+      const abilities = getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE');
+      
+      // 数字键 1-9 选择技能
+      if (e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key) - 1;
+        if (index < abilities.length) {
+          setSelectedAbility(abilities[index]);
+          e.preventDefault();
+        }
+      }
+
+      // Space 或 Enter 结束回合
+      if (e.key === ' ' || e.key === 'Enter') {
+        nextTurn();
+        e.preventDefault();
+      }
+
+      // Escape 取消选择的技能
+      if (e.key === 'Escape') {
+        setSelectedAbility(null);
+        e.preventDefault();
+      }
+
+      // WASD 移动镜头
+      const cameraSpeed = 30;
+      if (e.key === 'w' || e.key === 'W') {
+        cameraRef.current.y += cameraSpeed;
+        e.preventDefault();
+      }
+      if (e.key === 's' || e.key === 'S') {
+        cameraRef.current.y -= cameraSpeed;
+        e.preventDefault();
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        cameraRef.current.x += cameraSpeed;
+        e.preventDefault();
+      }
+      if (e.key === 'd' || e.key === 'D') {
+        cameraRef.current.x -= cameraSpeed;
+        e.preventDefault();
+      }
+
+      // + / - 缩放
+      if (e.key === '=' || e.key === '+') {
+        setZoom(z => Math.min(2, z + 0.1));
+        e.preventDefault();
+      }
+      if (e.key === '-' || e.key === '_') {
+        setZoom(z => Math.max(0.4, z - 0.1));
+        e.preventDefault();
+      }
+
+      // R 重置镜头到当前单位
+      if (e.key === 'r' || e.key === 'R') {
+        const { x, y } = getPixelPos(activeUnit.combatPos.q, activeUnit.combatPos.r);
+        cameraRef.current.x = -x;
+        cameraRef.current.y = -y;
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlayerTurn, activeUnit, nextTurn]);
+
   return (
     <div className="flex flex-col h-full w-full bg-[#050505] font-serif select-none overflow-hidden relative">
       <div className="h-16 bg-black border-b border-amber-900/40 flex items-center px-6 gap-3 z-50 shrink-0">
@@ -322,13 +816,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         
         <div className="absolute inset-0 pointer-events-none">
           {state.units.map(u => (
-            <div key={u.id} ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} className="absolute w-[50px] h-[50px]">
-              <div className={`relative w-full h-full ${activeUnit?.id === u.id ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-black' : ''}`}>
-                <Portrait character={u} size="sm" className={`${u.team === 'PLAYER' ? 'border-blue-500' : 'border-red-700'} border-2 shadow-xl`} />
-                <div className="absolute -top-3 left-0 w-full h-1 bg-black/80 rounded-full overflow-hidden">
-                  <div className="h-full bg-red-600 transition-all" style={{ width: `${(u.hp/u.maxHp)*100}%` }} />
-                </div>
-              </div>
+            <div 
+              key={u.id} 
+              ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
+              className="absolute"
+              style={{ width: '72px', height: 'auto' }}
+            >
+              <UnitCard unit={u} isActive={activeUnit?.id === u.id} />
             </div>
           ))}
           {floatingTexts.map(ft => {
@@ -339,12 +833,33 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           })}
         </div>
 
-        {hoveredHex && isPlayerTurn && activeUnit && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`) && (
-          <div className="absolute pointer-events-none bg-black/90 border border-amber-900/50 p-2 text-[10px] text-amber-500 z-50" style={{ left: mousePos.x + 20, top: mousePos.y + 20 }}>
-            <div>消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</div>
-            <div className="text-slate-500 mt-1 uppercase text-[8px]">右键移动 / 左键攻击</div>
-          </div>
-        )}
+        {hoveredHex && isPlayerTurn && activeUnit && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`) && (() => {
+          const terrainAtHover = terrainData.get(`${hoveredHex.q},${hoveredHex.r}`);
+          const terrainInfo = terrainAtHover ? TERRAIN_TYPES[terrainAtHover.type] : null;
+          const heightDiff = terrainAtHover ? terrainAtHover.height - (terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0) : 0;
+          
+          return (
+            <div 
+              className="absolute pointer-events-none bg-gradient-to-b from-black/95 to-gray-900/95 border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
+              style={{ left: mousePos.x + 20, top: mousePos.y + 20, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+            >
+              {/* 地形信息 */}
+              {terrainInfo && (
+                <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-white/10">
+                  <span className="text-slate-300 font-bold">{terrainInfo.name}</span>
+                  {heightDiff > 0 && <span className="text-green-400 text-[9px]">↑高地+{heightDiff}</span>}
+                  {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
+                </div>
+              )}
+              <div className="font-bold">移动消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</div>
+              <div className="text-slate-400 mt-1.5 text-[9px] border-t border-white/10 pt-1.5">
+                <span className="bg-slate-700 px-1 rounded mr-1">右键</span> 移动
+                <span className="mx-2">|</span>
+                <span className="bg-slate-700 px-1 rounded mr-1">左键</span> 攻击
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="h-32 bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center px-10 justify-between shrink-0 shadow-2xl">
@@ -364,10 +879,26 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         </div>
 
         <div className="flex gap-3">
-          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map(skill => (
-            <button key={skill.id} onClick={() => setSelectedAbility(skill)} onMouseEnter={() => setHoveredSkill(skill)} onMouseLeave={() => setHoveredSkill(null)} className={`w-14 h-14 border-2 transition-all flex flex-col items-center justify-center ${selectedAbility?.id === skill.id ? 'border-amber-400 bg-amber-900/40 -translate-y-2' : 'border-amber-900/30 bg-black/40 hover:border-amber-600'}`}>
-              <span className="text-2xl">{skill.icon}</span>
-              <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-600">{skill.apCost}</span>
+          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => (
+            <button 
+              key={skill.id} 
+              onClick={() => setSelectedAbility(skill)} 
+              onMouseEnter={() => setHoveredSkill(skill)} 
+              onMouseLeave={() => setHoveredSkill(null)} 
+              className={`w-14 h-14 border-2 transition-all flex flex-col items-center justify-center relative
+                ${selectedAbility?.id === skill.id 
+                  ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-2 shadow-lg shadow-amber-500/30' 
+                  : 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20'
+                }
+              `}
+              style={{ boxShadow: selectedAbility?.id === skill.id ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
+            >
+              {/* 快捷键提示 */}
+              <span className="absolute -top-2 -left-1 w-4 h-4 bg-amber-700 text-[9px] font-bold text-white rounded flex items-center justify-center shadow">
+                {index + 1}
+              </span>
+              <span className="text-2xl drop-shadow-md">{skill.icon}</span>
+              <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-500">{skill.apCost}</span>
             </button>
           ))}
         </div>
@@ -377,7 +908,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             {state.combatLog.map((log, i) => <div key={i} className="opacity-80">{log}</div>)}
           </div>
           {isPlayerTurn ? (
-            <button onClick={nextTurn} className="px-8 py-2 bg-amber-900/10 border border-amber-600/50 text-amber-500 font-bold text-xs hover:bg-amber-600 hover:text-white transition-all tracking-widest uppercase">结束回合</button>
+            <button 
+              onClick={nextTurn} 
+              className="px-8 py-2 bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold text-xs hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all tracking-widest uppercase flex items-center gap-2"
+              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
+            >
+              结束回合
+              <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">Space</span>
+            </button>
           ) : (
             <div className="text-amber-900 animate-pulse font-bold tracking-widest text-sm uppercase">敌军行动...</div>
           )}
@@ -385,11 +923,35 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       </div>
 
       {hoveredSkill && (
-        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 w-64 bg-black border border-amber-900/50 p-3 z-[100] shadow-2xl">
-          <div className="text-amber-500 font-bold text-xs mb-1">{hoveredSkill.name}</div>
-          <p className="text-[10px] text-slate-400 italic">“{hoveredSkill.description}”</p>
+        <div 
+          className="fixed bottom-36 left-1/2 -translate-x-1/2 w-72 bg-gradient-to-b from-gray-900/98 to-black/98 border border-amber-900/50 p-3 z-[100] rounded shadow-2xl"
+          style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)' }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-amber-400 font-bold text-sm">{hoveredSkill.name}</div>
+            <div className="flex gap-2 text-[9px]">
+              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">AP {hoveredSkill.apCost}</span>
+              <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {hoveredSkill.fatCost}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-300 leading-relaxed">"{hoveredSkill.description}"</p>
+          {hoveredSkill.range[1] > 0 && (
+            <div className="text-[9px] text-slate-500 mt-2 pt-2 border-t border-white/10">
+              射程: {hoveredSkill.range[0]}-{hoveredSkill.range[1]} 格
+            </div>
+          )}
         </div>
       )}
+
+      {/* 快捷键帮助面板 */}
+      <div className="fixed bottom-2 left-2 text-[8px] text-slate-600 z-50 bg-black/50 px-2 py-1 rounded">
+        <span className="text-slate-500">快捷键:</span>
+        <span className="ml-2"><b className="text-slate-400">1-9</b> 技能</span>
+        <span className="ml-2"><b className="text-slate-400">WASD</b> 移动视角</span>
+        <span className="ml-2"><b className="text-slate-400">+/-</b> 缩放</span>
+        <span className="ml-2"><b className="text-slate-400">R</b> 聚焦</span>
+        <span className="ml-2"><b className="text-slate-400">Esc</b> 取消</span>
+      </div>
     </div>
   );
 };
@@ -398,4 +960,12 @@ function lightenColor(color: string, percent: number) {
     const num = parseInt(color.replace("#",""), 16), amt = Math.round(2.55 * percent),
     R = (num >> 16) + amt, B = (num >> 8 & 0x00FF) + amt, G = (num & 0x0000FF) + amt;
     return "#" + (0x1000000 + (R<255?R<1?0:R:255)*0x10000 + (B<255?B<1?0:B:255)*0x100 + (G<255?G<1?0:G:255)).toString(16).slice(1);
+}
+
+function darkenColor(color: string, percent: number) {
+    const num = parseInt(color.replace("#",""), 16), amt = Math.round(2.55 * percent),
+    R = Math.max(0, (num >> 16) - amt), 
+    G = Math.max(0, (num >> 8 & 0x00FF) - amt), 
+    B = Math.max(0, (num & 0x0000FF) - amt);
+    return "#" + (0x1000000 + R*0x10000 + G*0x100 + B).toString(16).slice(1);
 }

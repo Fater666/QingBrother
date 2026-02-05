@@ -225,18 +225,93 @@ export const App: React.FC = () => {
 
   const startCombat = useCallback((entity: WorldEntity) => {
     setTimeScale(0);
-    const enemies: CombatUnit[] = Array.from({ length: 4 }).map((_, i) => ({
-      ...createMercenary(`e${i}`, '叛卒', 'BANDIT'),
-      team: 'ENEMY', combatPos: { q: 3, r: i - 2 }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false
+    
+    // 根据实体类型生成不同的敌人配置
+    type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER';
+    interface EnemyConfig {
+      count: number;
+      compositions: { name: string; bg: string; aiType: AIType }[];
+    }
+    
+    const enemyConfigs: Record<string, EnemyConfig> = {
+      'BANDIT': {
+        count: 4,
+        compositions: [
+          { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+          { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+          { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+          { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
+        ]
+      },
+      'ARMY': {
+        count: 5,
+        compositions: [
+          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+          { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+          { name: '叛将', bg: 'NOBLE', aiType: 'ARMY' },
+          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+        ]
+      },
+      'BEAST': {
+        count: 3,
+        compositions: [
+          { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+          { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+          { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+        ]
+      },
+      'NOMAD': {
+        count: 4,
+        compositions: [
+          { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+          { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+          { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+          { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+        ]
+      }
+    };
+
+    // 获取敌人配置，默认使用匪徒配置
+    const config = enemyConfigs[entity.type] || enemyConfigs['BANDIT'];
+    
+    const enemies: CombatUnit[] = config.compositions.slice(0, config.count).map((comp, i) => ({
+      ...createMercenary(`e${i}`, comp.name, comp.bg),
+      team: 'ENEMY' as const,
+      combatPos: { q: 2, r: i - Math.floor(config.count / 2) }, // 敌人初始位置更近
+      currentAP: 9,
+      isDead: false,
+      isShieldWall: false,
+      isHalberdWall: false,
+      movedThisTurn: false,
+      hasWaited: false,
+      freeSwapUsed: false,
+      aiType: comp.aiType
     }));
+    
     const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map(m => {
-        const q = m.formationIndex! >= 9 ? -4 : -3, r = (m.formationIndex! % 9) - 4;
-        return { ...m, team: 'PLAYER', combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false };
+        // 调整玩家位置：前排 q=-2，后排 q=-3，r 在 -2 到 2 之间
+        const row = m.formationIndex! >= 9 ? 1 : 0; // 0=前排, 1=后排
+        const col = m.formationIndex! % 9;
+        const q = -2 - row;
+        const r = Math.min(2, Math.max(-2, col - 4)); // 限制在 -2 到 2 范围
+        return { ...m, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false };
     });
     const allUnits = [...playerUnits, ...enemies];
+    
+    // 根据先手值排序回合顺序
+    const sortedTurnOrder = allUnits
+      .map(u => ({ id: u.id, init: u.stats.initiative + Math.random() * 10 }))
+      .sort((a, b) => b.init - a.init)
+      .map(u => u.id);
+    
     setCombatState({
-      units: allUnits, turnOrder: allUnits.map(u => u.id).sort(() => Math.random() - 0.5),
-      currentUnitIndex: 0, round: 1, combatLog: [`与 ${entity.name} 激战开始！`], terrainType: 'PLAINS'
+      units: allUnits, 
+      turnOrder: sortedTurnOrder,
+      currentUnitIndex: 0, 
+      round: 1, 
+      combatLog: [`与 ${entity.name} 激战开始！`], 
+      terrainType: 'PLAINS'
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
     setView('COMBAT');

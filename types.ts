@@ -182,6 +182,9 @@ export interface Party {
   activeQuest: Quest | null;
 }
 
+// 敌人AI类型
+export type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER';
+
 export interface CombatUnit extends Character {
   combatPos: { q: number; r: number };
   team: 'PLAYER' | 'ENEMY';
@@ -191,7 +194,8 @@ export interface CombatUnit extends Character {
   isHalberdWall: boolean;
   movedThisTurn: boolean;
   hasWaited: boolean; 
-  freeSwapUsed: boolean; 
+  freeSwapUsed: boolean;
+  aiType?: AIType; // 敌人AI行为类型
 }
 
 export interface CombatState {
