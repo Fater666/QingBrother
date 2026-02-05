@@ -1,11 +1,12 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS } from './constants.tsx';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
 import { CityView } from './components/CityView.tsx';
+import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -127,22 +128,174 @@ const generateMap = (): { tiles: WorldTile[], cities: City[] } => {
   return { tiles, cities };
 };
 
-const generateEntities = (cities: City[]): WorldEntity[] => {
+const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => {
     const ents: WorldEntity[] = [];
-    for(let i=0; i<20; i++) {
-        const x = Math.floor(Math.random() * MAP_SIZE), y = Math.floor(Math.random() * MAP_SIZE);
+    
+    // 生成土匪 - 倾向于在道路附近生成
+    for(let i = 0; i < 12; i++) {
+        let x = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(Math.random() * MAP_SIZE);
+        
+        // 尝试在道路附近生成
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const tx = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(Math.random() * MAP_SIZE);
+            const tile = tiles[ty * MAP_SIZE + tx];
+            if (tile && (tile.type === 'ROAD' || tile.type === 'PLAINS')) {
+                x = tx;
+                y = ty;
+                break;
+            }
+        }
+        
+        const names = ['流寇', '山贼', '劫匪', '盗贼', '马贼'];
+        // 为土匪生成道路巡逻点
+        const patrolPoints = generateRoadPatrolPoints(x, y, tiles, 3, 12);
+        
         ents.push({ 
-            id: `ent-${i}`, name: i % 2 === 0 ? '流寇' : '乱军', type: 'BANDIT', faction: 'HOSTILE', 
-            x, y, targetX: x, targetY: y, speed: 0.7 + Math.random() * 0.3, aiState: 'IDLE', homeX: x, homeY: y 
+            id: `bandit-${i}`, 
+            name: names[Math.floor(Math.random() * names.length)], 
+            type: 'BANDIT', 
+            faction: 'HOSTILE', 
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 0.7 + Math.random() * 0.3, 
+            aiState: 'PATROL', 
+            homeX: x, 
+            homeY: y,
+            worldAIType: 'BANDIT',
+            alertRadius: 4 + Math.random() * 2,   // 4-6格发现玩家
+            chaseRadius: 10 + Math.random() * 4,  // 10-14格放弃追击
+            strength: 3 + Math.floor(Math.random() * 3), // 队伍实力 3-5
+            fleeThreshold: 0.2 + Math.random() * 0.1,
+            patrolPoints,
+            patrolIndex: 0
         });
     }
-    // 添加一些商队
+    
+    // 生成野兽 - 在森林和山地生成
+    for(let i = 0; i < 8; i++) {
+        let x = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(Math.random() * MAP_SIZE);
+        
+        // 尝试在森林或山地生成
+        for (let attempt = 0; attempt < 20; attempt++) {
+            const tx = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(Math.random() * MAP_SIZE);
+            const tile = tiles[ty * MAP_SIZE + tx];
+            if (tile && (tile.type === 'FOREST' || tile.type === 'MOUNTAIN')) {
+                x = tx;
+                y = ty;
+                break;
+            }
+        }
+        
+        const beastNames = ['野狼群', '猛虎', '野猪', '熊'];
+        ents.push({ 
+            id: `beast-${i}`, 
+            name: beastNames[Math.floor(Math.random() * beastNames.length)], 
+            type: 'BEAST', 
+            faction: 'HOSTILE', 
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 0.9 + Math.random() * 0.3,  // 野兽速度较快
+            aiState: 'WANDER', 
+            homeX: x, 
+            homeY: y,
+            worldAIType: 'BEAST',
+            alertRadius: 3,                    // 较小的警戒范围
+            chaseRadius: 6,                    // 不会追太远
+            territoryRadius: 4 + Math.random() * 3,  // 领地范围 4-7格
+            wanderCooldown: Math.random() * 5
+        });
+    }
+    
+    // 生成乱军 - 在城市附近生成，会追击土匪
+    for(let i = 0; i < 4; i++) {
+        const nearCity = cities[Math.floor(Math.random() * cities.length)];
+        const offsetX = (Math.random() - 0.5) * 10;
+        const offsetY = (Math.random() - 0.5) * 10;
+        const x = Math.max(1, Math.min(MAP_SIZE - 2, nearCity.x + offsetX));
+        const y = Math.max(1, Math.min(MAP_SIZE - 2, nearCity.y + offsetY));
+        
+        // 为军队生成城市周边巡逻点
+        const armyPatrolPoints = generateCityPatrolPoints(nearCity.x, nearCity.y, 6, 4);
+        
+        ents.push({ 
+            id: `army-${i}`, 
+            name: '巡防军', 
+            type: 'ARMY', 
+            faction: 'NEUTRAL',  // 军队对玩家中立
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 0.6 + Math.random() * 0.2, 
+            aiState: 'PATROL', 
+            homeX: nearCity.x, 
+            homeY: nearCity.y,
+            worldAIType: 'ARMY',
+            alertRadius: 6,    // 较大的警戒范围
+            chaseRadius: 12,   // 会追击较远
+            linkedCityId: nearCity.id,
+            strength: 5 + Math.floor(Math.random() * 3),
+            patrolPoints: armyPatrolPoints,
+            patrolIndex: 0
+        });
+    }
+    
+    // 生成游牧民 - 随机分布
+    for(let i = 0; i < 4; i++) {
+        const x = Math.floor(Math.random() * MAP_SIZE);
+        const y = Math.floor(Math.random() * MAP_SIZE);
+        const isHostile = Math.random() > 0.5;  // 50%概率敌对
+        
+        ents.push({ 
+            id: `nomad-${i}`, 
+            name: isHostile ? '胡人劫掠者' : '胡人游骑', 
+            type: 'NOMAD', 
+            faction: isHostile ? 'HOSTILE' : 'NEUTRAL', 
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 1.0 + Math.random() * 0.3,  // 游牧民速度最快
+            aiState: 'WANDER', 
+            homeX: x, 
+            homeY: y,
+            worldAIType: 'NOMAD',
+            alertRadius: 5,
+            chaseRadius: 8,
+            wanderCooldown: Math.random() * 5,
+            strength: 4 + Math.floor(Math.random() * 2)
+        });
+    }
+    
+    // 生成商队 - 在城市间往返
     cities.forEach((city, idx) => {
-        const target = cities[(idx + 1) % cities.length];
+        const targetCity = cities[(idx + 1) % cities.length];
         ents.push({
-            id: `trader-${idx}`, name: '商队', type: 'TRADER', faction: 'NEUTRAL', x: city.x, y: city.y, targetX: target.x, targetY: target.y, speed: 0.5, aiState: 'TRAVEL', homeX: city.x, homeY: city.y
+            id: `trader-${idx}`, 
+            name: '商队', 
+            type: 'TRADER', 
+            faction: 'NEUTRAL', 
+            x: city.x, 
+            y: city.y, 
+            targetX: targetCity.x, 
+            targetY: targetCity.y, 
+            speed: 0.5, 
+            aiState: 'TRAVEL', 
+            homeX: city.x, 
+            homeY: city.y,
+            worldAIType: 'TRADER',
+            alertRadius: 5,
+            chaseRadius: 0,  // 商队不会追击
+            linkedCityId: city.id,
+            destinationCityId: targetCity.id,
+            wanderCooldown: 5 + Math.random() * 5
         });
     });
+    
     return ents;
 };
 
@@ -151,7 +304,7 @@ export const App: React.FC = () => {
   const [mapData] = useState(() => generateMap());
   const [tiles, setTiles] = useState<WorldTile[]>(mapData.tiles);
   const [cities, setCities] = useState<City[]>(mapData.cities);
-  const [entities, setEntities] = useState<WorldEntity[]>(() => generateEntities(mapData.cities));
+  const [entities, setEntities] = useState<WorldEntity[]>(() => generateEntities(mapData.cities, mapData.tiles));
   const [timeScale, setTimeScale] = useState<number>(1); 
   const [preCombatEntity, setPreCombatEntity] = useState<WorldEntity | null>(null);
 
@@ -337,32 +490,33 @@ export const App: React.FC = () => {
             }
         }
         
-        // 实体移动逻辑
-        setEntities(prev => prev.map(ent => {
-            const distToPlayer = Math.hypot(ent.x - party.x, ent.y - party.y);
-            let nent = { ...ent };
+        // 使用行为树系统更新实体 AI
+        setEntities(prev => {
+            let combatTriggered = false;
+            let combatEntity: WorldEntity | null = null;
             
-            // 追击逻辑
-            if (ent.faction === 'HOSTILE' && distToPlayer < 4) {
-                nent.aiState = 'CHASE'; nent.targetX = party.x; nent.targetY = party.y;
-            } else if (nent.aiState === 'CHASE' && distToPlayer > 8) {
-                nent.aiState = 'IDLE'; nent.targetX = nent.homeX; nent.targetY = nent.homeY;
-            }
-
-            if (nent.targetX !== null && nent.targetY !== null) {
-                const edx = nent.targetX - nent.x, edy = nent.targetY - nent.y, edist = Math.hypot(edx, edy);
-                if (edist > 0.1) {
-                    const estep = nent.speed * dt * timeScale;
-                    nent.x += (edx/edist)*estep; nent.y += (edy/edist)*estep;
+            const updatedEntities = prev.map(ent => {
+                // 使用行为树更新 AI
+                const updatedEnt = updateWorldEntityAI(ent, party, prev, tiles, cities, dt * timeScale);
+                
+                // 碰撞检测
+                const distToPlayer = Math.hypot(updatedEnt.x - party.x, updatedEnt.y - party.y);
+                if (distToPlayer < 0.6 && updatedEnt.faction === 'HOSTILE' && !preCombatEntity && !combatTriggered) {
+                    combatTriggered = true;
+                    combatEntity = updatedEnt;
                 }
+                
+                return updatedEnt;
+            });
+            
+            // 触发战斗
+            if (combatEntity) {
+                setPreCombatEntity(combatEntity);
+                setTimeScale(0);
             }
             
-            // 碰撞检测
-            if (distToPlayer < 0.6 && nent.faction === 'HOSTILE' && !preCombatEntity) {
-                setPreCombatEntity(nent); setTimeScale(0);
-            }
-            return nent;
-        }));
+            return updatedEntities;
+        });
       }
       anim = requestAnimationFrame(loop);
     };

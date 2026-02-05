@@ -1,8 +1,23 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { CombatState, CombatUnit, Ability, Item } from '../types.ts';
+import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS } from '../constants.tsx';
 import { Portrait } from './Portrait.tsx';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
+import {
+  handleAllyDeath,
+  handleHeavyDamage,
+  handleEnemyKilled,
+  handleTurnStartRecovery,
+  applyMoraleResults,
+  getMoraleEffects,
+  getMoraleDisplayText,
+  checkTeamRouted,
+  getFleeTargetPosition,
+  shouldSkipAction,
+  MORALE_ICONS,
+  MORALE_COLORS,
+  MoraleCheckResult
+} from '../services/moraleService.ts';
 
 interface CombatViewProps {
   initialState: CombatState;
@@ -57,16 +72,25 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isA
     : (BACKGROUNDS[unit.background]?.name || unit.background);
 
   const isEnemy = unit.team === 'ENEMY';
+  
+  // 士气状态
+  const moraleIcon = MORALE_ICONS[unit.morale];
+  const moraleColor = MORALE_COLORS[unit.morale];
+  const isFleeing = unit.morale === MoraleStatus.FLEEING;
 
   // 立体感样式
   const cardStyle: React.CSSProperties = isEnemy ? {
     clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
-    background: 'linear-gradient(135deg, rgba(127,29,29,0.95) 0%, rgba(69,10,10,0.98) 100%)',
+    background: isFleeing 
+      ? 'linear-gradient(135deg, rgba(100,50,50,0.95) 0%, rgba(50,25,25,0.98) 100%)'
+      : 'linear-gradient(135deg, rgba(127,29,29,0.95) 0%, rgba(69,10,10,0.98) 100%)',
     boxShadow: isActive 
       ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)'
       : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.3)',
   } : {
-    background: 'linear-gradient(135deg, rgba(30,58,138,0.95) 0%, rgba(23,37,84,0.98) 100%)',
+    background: isFleeing
+      ? 'linear-gradient(135deg, rgba(50,50,100,0.95) 0%, rgba(25,25,50,0.98) 100%)'
+      : 'linear-gradient(135deg, rgba(30,58,138,0.95) 0%, rgba(23,37,84,0.98) 100%)',
     boxShadow: isActive 
       ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -2px 4px rgba(0,0,0,0.3)'
       : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)',
@@ -79,12 +103,22 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isA
         w-[72px] p-1.5 text-center font-mono relative overflow-hidden
         border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
         ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105' : ''}
+        ${isFleeing ? 'opacity-70' : ''}
         transition-all duration-200
       `}
       style={cardStyle}
     >
       {/* 顶部高光效果 */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      
+      {/* 士气图标 - 显示在右上角 */}
+      <div 
+        className="absolute top-0.5 right-0.5 text-[10px] drop-shadow-md"
+        style={{ color: moraleColor }}
+        title={unit.morale}
+      >
+        {moraleIcon}
+      </div>
       
       {/* 类型标签 */}
       <div className={`text-[9px] font-bold truncate mb-1 drop-shadow-md ${isEnemy ? 'text-red-300' : 'text-blue-300'}`}>
@@ -115,7 +149,7 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isA
 
       {/* 武器名称 - 底部区域 */}
       <div className="text-[8px] text-amber-400 truncate mt-1 pt-1 border-t border-white/10 drop-shadow-sm font-semibold">
-        {weaponName}
+        {isFleeing ? '逃跑中' : weaponName}
       </div>
 
       {/* 底部阴影边缘 */}
@@ -504,9 +538,195 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     setState(prev => ({ ...prev, combatLog: [msg, ...prev.combatLog].slice(0, 5) }));
   };
 
+  // ==================== 士气系统处理 ====================
+  
+  /**
+   * 显示士气变化的浮动文字
+   */
+  const showMoraleFloatingText = (result: MoraleCheckResult, unit: CombatUnit) => {
+    if (result.newMorale === result.previousMorale) return;
+    
+    const text = result.newMorale === MoraleStatus.FLEEING 
+      ? '溃逃!' 
+      : MORALE_ICONS[result.newMorale];
+    const color = MORALE_COLORS[result.newMorale];
+    
+    setFloatingTexts(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      text,
+      x: unit.combatPos.q,
+      y: unit.combatPos.r,
+      color
+    }]);
+    
+    setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1500);
+  };
+
+  /**
+   * 处理单位受伤后的士气检定
+   */
+  const processDamageWithMorale = useCallback((
+    targetId: string,
+    damage: number,
+    attackerId: string
+  ) => {
+    setState(prev => {
+      const target = prev.units.find(u => u.id === targetId);
+      const attacker = prev.units.find(u => u.id === attackerId);
+      if (!target) return prev;
+      
+      const previousHp = target.hp;
+      const newHp = Math.max(0, target.hp - damage);
+      const isDead = newHp <= 0;
+      
+      let updatedUnits = prev.units.map(u => {
+        if (u.id === targetId) {
+          return { ...u, hp: newHp, isDead };
+        }
+        return u;
+      });
+      
+      const newState = { ...prev, units: updatedUnits };
+      const allResults: MoraleCheckResult[] = [];
+      
+      // 1. 如果目标死亡，触发友军士气检定
+      if (isDead) {
+        const deathResults = handleAllyDeath(
+          { ...target, hp: 0, isDead: true },
+          newState
+        );
+        allResults.push(...deathResults);
+        
+        // 攻击者击杀敌人，尝试提升士气
+        if (attacker && !attacker.isDead) {
+          const killResult = handleEnemyKilled(attacker, newState);
+          if (killResult) {
+            allResults.push(killResult);
+          }
+        }
+      } else {
+        // 2. 目标未死但受重伤，触发自身士气检定
+        const updatedTarget = updatedUnits.find(u => u.id === targetId)!;
+        const heavyDmgResult = handleHeavyDamage(
+          updatedTarget,
+          previousHp,
+          newState
+        );
+        if (heavyDmgResult) {
+          allResults.push(heavyDmgResult);
+        }
+      }
+      
+      // 应用所有士气检定结果
+      if (allResults.length > 0) {
+        const { updatedUnits: finalUnits, chainResults } = applyMoraleResults(
+          { ...newState, units: updatedUnits },
+          allResults
+        );
+        updatedUnits = finalUnits;
+        
+        // 记录日志并显示浮动文字
+        [...allResults, ...chainResults].forEach(result => {
+          const displayText = getMoraleDisplayText(result);
+          if (displayText) {
+            addToLog(displayText);
+            const unit = finalUnits.find(u => u.id === result.unitId);
+            if (unit) {
+              showMoraleFloatingText(result, unit);
+            }
+          }
+        });
+      }
+      
+      return { ...prev, units: updatedUnits };
+    });
+  }, []);
+
+  /**
+   * 处理逃跑单位的自动行动
+   */
+  const executeFleeAction = useCallback(async (unit: CombatUnit) => {
+    const fleeTarget = getFleeTargetPosition(unit, state);
+    if (!fleeTarget) return;
+    
+    // 检查目标位置是否被占用
+    const isOccupied = state.units.some(u => 
+      !u.isDead && 
+      u.combatPos.q === fleeTarget.q && 
+      u.combatPos.r === fleeTarget.r
+    );
+    
+    if (isOccupied) {
+      // 尝试找一个相邻的空位置
+      const neighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r);
+      const emptyNeighbor = neighbors.find(n => 
+        !state.units.some(u => !u.isDead && u.combatPos.q === n.q && u.combatPos.r === n.r)
+      );
+      if (emptyNeighbor) {
+        setState(prev => ({
+          ...prev,
+          units: prev.units.map(u => 
+            u.id === unit.id 
+              ? { ...u, combatPos: emptyNeighbor, currentAP: 0 }
+              : u
+          )
+        }));
+        addToLog(`${unit.name} 惊慌逃窜！`);
+      }
+    } else {
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => 
+          u.id === unit.id 
+            ? { ...u, combatPos: fleeTarget, currentAP: 0 }
+            : u
+        )
+      }));
+      addToLog(`${unit.name} 惊慌逃窜！`);
+    }
+  }, [state]);
+
+  /**
+   * 回合开始时的士气恢复检定
+   */
+  const processTurnStartMorale = useCallback((unit: CombatUnit) => {
+    if (unit.morale === MoraleStatus.CONFIDENT || unit.morale === MoraleStatus.STEADY) {
+      return;
+    }
+    
+    const result = handleTurnStartRecovery(unit, state);
+    if (result) {
+      const { updatedUnits, chainResults } = applyMoraleResults(state, [result]);
+      
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          const updated = updatedUnits.find(uu => uu.id === u.id);
+          return updated ? { ...u, morale: updated.morale } : u;
+        })
+      }));
+      
+      const displayText = getMoraleDisplayText(result);
+      if (displayText) {
+        addToLog(displayText);
+        showMoraleFloatingText(result, unit);
+      }
+    }
+  }, [state]);
+
   const nextTurn = useCallback(() => {
     setState(prev => {
-      const nextIdx = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
+      let nextIdx = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
+      
+      // 跳过死亡单位
+      let attempts = 0;
+      while (attempts < prev.turnOrder.length) {
+        const nextUnit = prev.units.find(u => u.id === prev.turnOrder[nextIdx]);
+        if (nextUnit && !nextUnit.isDead) break;
+        nextIdx = (nextIdx + 1) % prev.turnOrder.length;
+        attempts++;
+      }
+      
       return { 
         ...prev, 
         currentUnitIndex: nextIdx,
@@ -533,6 +753,25 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (activeUnit.team === 'PLAYER') {
       console.log('[AI] 玩家回合，跳过');
       isProcessingAI.current = false;
+      
+      // 玩家回合开始时，处理逃跑单位和士气恢复
+      if (activeUnit.morale === MoraleStatus.FLEEING) {
+        // 逃跑单位自动行动
+        setTimeout(async () => {
+          await executeFleeAction(activeUnit);
+          await new Promise(r => setTimeout(r, 500));
+          nextTurn();
+        }, 300);
+      } else {
+        // 尝试士气恢复
+        processTurnStartMorale(activeUnit);
+        
+        // 检查崩溃状态是否跳过行动
+        if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
+          addToLog(`${activeUnit.name} 惊慌失措，无法行动！`);
+          setTimeout(nextTurn, 800);
+        }
+      }
       return;
     }
     
@@ -550,10 +789,31 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     isProcessingAI.current = true;
     
-    console.log(`[AI开始] ${activeUnit.name} 的回合, AP: ${activeUnit.currentAP}, 位置: (${activeUnit.combatPos.q}, ${activeUnit.combatPos.r})`);
+    console.log(`[AI开始] ${activeUnit.name} 的回合, AP: ${activeUnit.currentAP}, 士气: ${activeUnit.morale}, 位置: (${activeUnit.combatPos.q}, ${activeUnit.combatPos.r})`);
     
     // 异步执行 AI 回合
     const runAITurn = async () => {
+      // 处理逃跑单位
+      if (activeUnit.morale === MoraleStatus.FLEEING) {
+        await executeFleeAction(activeUnit);
+        await new Promise(r => setTimeout(r, 500));
+        isProcessingAI.current = false;
+        nextTurn();
+        return;
+      }
+      
+      // 尝试士气恢复
+      processTurnStartMorale(activeUnit);
+      
+      // 检查崩溃状态是否跳过行动
+      if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
+        addToLog(`${activeUnit.name} 惊慌失措，无法行动！`);
+        await new Promise(r => setTimeout(r, 800));
+        isProcessingAI.current = false;
+        nextTurn();
+        return;
+      }
+      
       let actionsPerformed = 0;
       const maxActions = 3;
       
@@ -601,7 +861,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         } else if (action.type === 'ATTACK' && action.targetUnitId && action.ability) {
           const target = state.units.find(u => u.id === action.targetUnitId && !u.isDead);
           if (target) {
-            const damage = action.damage || Math.floor(Math.random() * 20) + 10;
+            // 应用士气对伤害的影响
+            const moraleEffects = getMoraleEffects(activeUnit.morale);
+            const baseDamage = action.damage || Math.floor(Math.random() * 20) + 10;
+            const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
             currentAP -= action.ability.apCost;
             
             // 显示伤害数字
@@ -613,14 +876,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               color: '#ef4444' 
             }]);
             
-            // 更新状态
+            // 先更新攻击者AP
             setState(prev => ({
               ...prev,
               units: prev.units.map(u => {
-                if (u.id === target.id) {
-                  const newHp = Math.max(0, u.hp - damage);
-                  return { ...u, hp: newHp, isDead: newHp <= 0 };
-                }
                 if (u.id === activeUnit.id) {
                   return { ...u, currentAP };
                 }
@@ -630,6 +889,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             
             addToLog(`${activeUnit.name} 攻击 ${target.name}，造成 ${damage} 伤害！`);
             setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            
+            // 处理伤害和士气检定
+            processDamageWithMorale(target.id, damage, activeUnit.id);
+            
             actionsPerformed++;
           } else {
             break; // 目标无效，结束行动
@@ -680,6 +943,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const performAttack = () => {
     if (!hoveredHex || !activeUnit || !isPlayerTurn || !selectedAbility) return;
+    
+    // 检查玩家单位是否在逃跑状态
+    if (activeUnit.morale === MoraleStatus.FLEEING) {
+      addToLog(`${activeUnit.name} 正在逃跑，无法行动！`);
+      return;
+    }
+    
     const isVisible = visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`);
     if (!isVisible) return;
 
@@ -688,18 +958,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
         if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
             if (activeUnit.currentAP < selectedAbility.apCost) return;
-            const dmg = Math.floor(Math.random() * 20) + 15;
+            
+            // 应用士气对伤害的影响
+            const moraleEffects = getMoraleEffects(activeUnit.morale);
+            const baseDmg = Math.floor(Math.random() * 20) + 15;
+            const dmg = Math.floor(baseDmg * (1 + moraleEffects.damageMod / 100));
+            
             setFloatingTexts(prev => [...prev, { id: Date.now(), text: `-${dmg}`, x: hoveredHex.q, y: hoveredHex.r, color: '#ef4444' }]);
+            
+            // 先更新攻击者的 AP
             setState(prev => ({
                 ...prev,
                 units: prev.units.map(u => {
-                    if (u.id === target.id) return { ...u, hp: Math.max(0, u.hp - dmg), isDead: u.hp - dmg <= 0 };
                     if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - (selectedAbility.apCost || 4) };
                     return u;
                 })
             }));
+            
             addToLog(`${activeUnit.name} 攻击 ${target.name}，造成 ${dmg} 伤害。`);
             setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            
+            // 处理伤害和士气检定
+            processDamageWithMorale(target.id, dmg, activeUnit.id);
         }
     }
   };
@@ -707,6 +987,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const performMove = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!hoveredHex || !activeUnit || !isPlayerTurn) return;
+    
+    // 检查玩家单位是否在逃跑状态
+    if (activeUnit.morale === MoraleStatus.FLEEING) {
+      addToLog(`${activeUnit.name} 正在逃跑，无法控制！`);
+      return;
+    }
+    
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
     
     const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
@@ -720,8 +1007,22 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   };
 
   useEffect(() => {
-    if (!state.units.some(u => u.team === 'ENEMY' && !u.isDead)) onCombatEnd(true, state.units.filter(u => u.team === 'PLAYER' && !u.isDead));
-    else if (!state.units.some(u => u.team === 'PLAYER' && !u.isDead)) onCombatEnd(false, []);
+    // 检查是否有一方全部死亡或逃跑
+    const enemyRouted = checkTeamRouted('ENEMY', state);
+    const playerRouted = checkTeamRouted('PLAYER', state);
+    
+    // 传统胜负判定
+    const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
+    const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
+    
+    if (noEnemiesAlive || enemyRouted) {
+      // 敌人全部死亡或溃逃，玩家胜利
+      const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
+      onCombatEnd(true, survivors);
+    } else if (noPlayersAlive || playerRouted) {
+      // 玩家全部死亡或溃逃，玩家失败
+      onCombatEnd(false, []);
+    }
   }, [state.units]);
 
   // ==================== 键盘快捷键 ====================
@@ -863,7 +1164,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       </div>
 
       <div className="h-32 bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center px-10 justify-between shrink-0 shadow-2xl">
-        <div className="flex items-center gap-6 w-64">
+        <div className="flex items-center gap-6 w-72">
           {activeUnit && (
             <>
               <Portrait character={activeUnit} size="md" className="border-amber-600 border-2" />
@@ -872,6 +1173,22 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 <div className="flex gap-4 mt-1 text-[10px] font-mono">
                   <span className="text-slate-400">AP <b className="text-white">{activeUnit.currentAP}</b></span>
                   <span className="text-slate-400">生命 <b className="text-white">{activeUnit.hp}/{activeUnit.maxHp}</b></span>
+                </div>
+                {/* 士气状态显示 */}
+                <div className="flex items-center gap-2 mt-1">
+                  <span 
+                    className="text-[11px] font-bold px-1.5 py-0.5 rounded"
+                    style={{ 
+                      color: MORALE_COLORS[activeUnit.morale],
+                      backgroundColor: `${MORALE_COLORS[activeUnit.morale]}20`,
+                      border: `1px solid ${MORALE_COLORS[activeUnit.morale]}40`
+                    }}
+                  >
+                    {MORALE_ICONS[activeUnit.morale]} {activeUnit.morale}
+                  </span>
+                  {activeUnit.morale === MoraleStatus.FLEEING && (
+                    <span className="text-[9px] text-red-400 animate-pulse">无法控制!</span>
+                  )}
                 </div>
               </div>
             </>

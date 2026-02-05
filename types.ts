@@ -152,6 +152,9 @@ export interface WorldTile {
   explored: boolean; 
 }
 
+// 大地图AI行为类型
+export type WorldAIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'TRADER' | 'NOMAD';
+
 export interface WorldEntity {
   id: string;
   name: string;
@@ -162,11 +165,25 @@ export interface WorldEntity {
   targetX: number | null;
   targetY: number | null;
   speed: number;
-  aiState: 'IDLE' | 'PATROL' | 'CHASE' | 'TRAVEL' | 'FLEE';
+  aiState: 'IDLE' | 'PATROL' | 'CHASE' | 'TRAVEL' | 'FLEE' | 'WANDER' | 'AMBUSH' | 'RETURN';
   homeX: number; 
   homeY: number;
   targetEntityId?: string | null; 
-  isQuestTarget?: boolean; 
+  isQuestTarget?: boolean;
+  
+  // 行为树扩展属性
+  worldAIType: WorldAIType;                    // 大地图AI类型
+  patrolPoints?: {x: number, y: number}[];     // 巡逻路线点
+  patrolIndex?: number;                        // 当前巡逻点索引
+  alertRadius: number;                         // 警戒半径（发现玩家）
+  chaseRadius: number;                         // 追击半径（放弃追击）
+  territoryRadius?: number;                    // 领地半径（野兽专用）
+  fleeThreshold?: number;                      // 逃跑阈值（0-1）
+  lastSeenPlayerPos?: {x: number, y: number};  // 上次发现玩家位置
+  wanderCooldown?: number;                     // 游荡冷却计时器
+  strength?: number;                           // 队伍实力（用于判断是否追击）
+  linkedCityId?: string;                       // 绑定城市ID（军队/商队）
+  destinationCityId?: string;                  // 目的地城市ID（商队）
 }
 
 export interface Party {
