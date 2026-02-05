@@ -212,6 +212,7 @@ export interface CombatUnit extends Character {
   movedThisTurn: boolean;
   hasWaited: boolean; 
   freeSwapUsed: boolean;
+  hasUsedFreeAttack: boolean; // 本回合是否已使用过截击（控制区机制）
   aiType?: AIType; // 敌人AI行为类型
 }
 

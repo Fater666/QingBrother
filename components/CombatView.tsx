@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS } from '../constants.tsx';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes } from '../constants.tsx';
 import { Portrait } from './Portrait.tsx';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {
@@ -18,6 +18,12 @@ import {
   MORALE_COLORS,
   MoraleCheckResult
 } from '../services/moraleService.ts';
+import {
+  checkZoCOnMove,
+  processZoCAttacks,
+  getFreeAttackLogText,
+  FreeAttackResult
+} from '../services/zocService.ts';
 
 interface CombatViewProps {
   initialState: CombatState;
@@ -450,6 +456,32 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               ctx.fill();
             }
           }
+          
+          // 控制区可视化 - 显示敌方单位的控制区
+          if (isPlayerTurn && activeUnit) {
+            const enemyZoCSet = getAllEnemyZoCHexes(activeUnit.team, state);
+            if (enemyZoCSet.has(key)) {
+              // 用橙色边框标记敌方控制区
+              ctx.strokeStyle = 'rgba(249, 115, 22, 0.6)'; // 橙色
+              ctx.lineWidth = 1.5;
+              drawHex(x, topY, HEX_SIZE - HEX_GAP - 4);
+              ctx.stroke();
+              // 轻微的橙色填充
+              ctx.fillStyle = 'rgba(249, 115, 22, 0.08)';
+              drawHex(x, topY, HEX_SIZE - HEX_GAP - 4);
+              ctx.fill();
+            }
+            
+            // 如果当前单位在敌方控制区内，高亮显示（警告）
+            if (activeUnit.combatPos.q === q && activeUnit.combatPos.r === r && enemyZoCSet.has(key)) {
+              ctx.strokeStyle = 'rgba(239, 68, 68, 0.9)'; // 红色警告
+              ctx.lineWidth = 2;
+              ctx.setLineDash([4, 4]); // 虚线
+              drawHex(x, topY, HEX_SIZE - HEX_GAP);
+              ctx.stroke();
+              ctx.setLineDash([]); // 重置虚线
+            }
+          }
         } else {
           // 迷雾
           ctx.fillStyle = COLOR_FOG;
@@ -727,11 +759,26 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         attempts++;
       }
       
+      const isNewRound = nextIdx === 0;
+      
       return { 
         ...prev, 
         currentUnitIndex: nextIdx,
-        round: nextIdx === 0 ? prev.round + 1 : prev.round,
-        units: prev.units.map(u => u.id === prev.turnOrder[nextIdx] ? { ...u, currentAP: 9 } : u)
+        round: isNewRound ? prev.round + 1 : prev.round,
+        units: prev.units.map(u => {
+          // 新回合开始时重置所有单位的截击使用状态
+          if (isNewRound) {
+            if (u.id === prev.turnOrder[nextIdx]) {
+              return { ...u, currentAP: 9, hasUsedFreeAttack: false };
+            }
+            return { ...u, hasUsedFreeAttack: false };
+          }
+          // 当前单位回合开始时恢复AP
+          if (u.id === prev.turnOrder[nextIdx]) {
+            return { ...u, currentAP: 9 };
+          }
+          return u;
+        })
       };
     });
     setSelectedAbility(null);
@@ -844,6 +891,80 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (action.type === 'MOVE' && action.targetPos) {
           const moveCost = getHexDistance(currentPos, action.targetPos) * 2;
           currentAP -= moveCost;
+          
+          // ==================== AI移动时的控制区检查 ====================
+          const aiUnit = state.units.find(u => u.id === activeUnit.id);
+          if (aiUnit) {
+            const zocCheck = checkZoCOnMove(aiUnit, currentPos, action.targetPos, state);
+            
+            if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
+              // 处理截击攻击
+              const { results, movementAllowed, totalDamage } = processZoCAttacks(
+                aiUnit,
+                currentPos,
+                state
+              );
+              
+              // 显示截击结果
+              for (const result of results) {
+                addToLog(getFreeAttackLogText(result));
+                
+                if (result.hit && result.damage > 0) {
+                  setFloatingTexts(prev => [...prev, {
+                    id: Date.now() + Math.random(),
+                    text: `-${result.damage}`,
+                    x: currentPos.q,
+                    y: currentPos.r,
+                    color: '#3b82f6' // 蓝色表示玩家截击
+                  }]);
+                }
+              }
+              
+              // 更新状态
+              setState(prev => {
+                let newUnits = prev.units.map(u => {
+                  // 标记已使用截击的玩家单位
+                  const usedFreeAttack = results.find(r => r.attacker.id === u.id);
+                  if (usedFreeAttack) {
+                    return { ...u, hasUsedFreeAttack: true };
+                  }
+                  // 更新AI单位
+                  if (u.id === activeUnit.id) {
+                    const newHp = Math.max(0, u.hp - totalDamage);
+                    const isDead = newHp <= 0;
+                    return {
+                      ...u,
+                      hp: newHp,
+                      isDead,
+                      combatPos: movementAllowed && !isDead ? action.targetPos! : u.combatPos,
+                      currentAP
+                    };
+                  }
+                  return u;
+                });
+                return { ...prev, units: newUnits };
+              });
+              
+              if (movementAllowed) {
+                currentPos = { ...action.targetPos };
+                addToLog(`${activeUnit.name} 受到截击后继续移动。`);
+              } else {
+                addToLog(`${activeUnit.name} 的移动被截击阻止！`);
+              }
+              
+              actionsPerformed++;
+              
+              // 如果AI单位死亡，结束回合
+              const updatedAiUnit = state.units.find(u => u.id === activeUnit.id);
+              if (updatedAiUnit && updatedAiUnit.hp - totalDamage <= 0) {
+                break;
+              }
+              
+              continue; // 已处理，继续下一个行动
+            }
+          }
+          
+          // 没有截击，正常移动
           currentPos = { ...action.targetPos };
           
           // 更新状态
@@ -953,6 +1074,49 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const isVisible = visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`);
     if (!isVisible) return;
 
+    // ==================== 脱身技能处理 ====================
+    if (selectedAbility.id === 'FOOTWORK_SKILL') {
+      const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+      
+      // 脱身只能移动1格
+      if (dist !== 1) {
+        addToLog('脱身技能只能移动一格！');
+        return;
+      }
+      
+      // 检查AP和疲劳是否足够
+      if (activeUnit.currentAP < selectedAbility.apCost) {
+        addToLog('AP不足！');
+        return;
+      }
+      
+      // 检查目标位置是否被占用
+      if (state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
+        addToLog('目标位置已被占用！');
+        return;
+      }
+      
+      // 执行脱身移动（无视控制区）
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              combatPos: hoveredHex,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost)
+            };
+          }
+          return u;
+        })
+      }));
+      
+      addToLog(`${activeUnit.name} 使用脱身，灵巧地避开了敌人！`);
+      setSelectedAbility(null);
+      return;
+    }
+
     const target = state.units.find(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
     if (target && target.team === 'ENEMY') {
         const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
@@ -998,11 +1162,122 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
     const apCost = dist * 2;
-    if (activeUnit.currentAP >= apCost && !state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
-        setState(prev => ({
-            ...prev,
-            units: prev.units.map(u => u.id === activeUnit.id ? { ...u, combatPos: hoveredHex, currentAP: u.currentAP - apCost } : u)
-        }));
+    
+    // 检查AP是否足够且目标位置未被占用
+    if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
+      return;
+    }
+    
+    // ==================== 控制区检查 ====================
+    const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
+    
+    if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
+      // 处理截击攻击
+      const { results, movementAllowed, totalDamage } = processZoCAttacks(
+        activeUnit,
+        activeUnit.combatPos,
+        state
+      );
+      
+      // 显示截击结果
+      results.forEach((result, index) => {
+        setTimeout(() => {
+          // 添加日志
+          addToLog(getFreeAttackLogText(result));
+          
+          // 显示伤害浮动文字
+          if (result.hit && result.damage > 0) {
+            setFloatingTexts(prev => [...prev, {
+              id: Date.now() + index,
+              text: `-${result.damage}`,
+              x: activeUnit.combatPos.q,
+              y: activeUnit.combatPos.r,
+              color: '#ef4444'
+            }]);
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+          }
+        }, index * 300);
+      });
+      
+      // 更新状态：标记截击者已使用截击，处理伤害
+      setState(prev => {
+        let newUnits = prev.units.map(u => {
+          // 标记已使用截击的敌人
+          const usedFreeAttack = results.find(r => r.attacker.id === u.id);
+          if (usedFreeAttack) {
+            return { ...u, hasUsedFreeAttack: true };
+          }
+          return u;
+        });
+        
+        // 处理移动单位的伤害
+        if (totalDamage > 0) {
+          newUnits = newUnits.map(u => {
+            if (u.id === activeUnit.id) {
+              const newHp = Math.max(0, u.hp - totalDamage);
+              return { 
+                ...u, 
+                hp: newHp,
+                isDead: newHp <= 0,
+                // 如果移动被允许，执行移动并扣除AP
+                combatPos: movementAllowed ? hoveredHex : u.combatPos,
+                currentAP: u.currentAP - apCost
+              };
+            }
+            return u;
+          });
+        } else if (movementAllowed) {
+          // 无伤害但移动允许
+          newUnits = newUnits.map(u => {
+            if (u.id === activeUnit.id) {
+              return { 
+                ...u, 
+                combatPos: hoveredHex,
+                currentAP: u.currentAP - apCost
+              };
+            }
+            return u;
+          });
+        } else {
+          // 移动被阻止，只扣除AP
+          newUnits = newUnits.map(u => {
+            if (u.id === activeUnit.id) {
+              return { 
+                ...u, 
+                currentAP: u.currentAP - apCost
+              };
+            }
+            return u;
+          });
+        }
+        
+        return { ...prev, units: newUnits };
+      });
+      
+      // 如果移动被阻止，显示提示
+      if (!movementAllowed) {
+        const lastResult = results[results.length - 1];
+        if (lastResult?.targetKilled) {
+          addToLog(`${activeUnit.name} 被截击击杀！`);
+        }
+      }
+      
+      // 处理截击造成的士气影响
+      if (totalDamage > 0) {
+        setTimeout(() => {
+          results.forEach(result => {
+            if (result.hit) {
+              processDamageWithMorale(activeUnit.id, result.damage, result.attacker.id);
+            }
+          });
+        }, results.length * 300 + 100);
+      }
+    } else {
+      // 没有截击，正常移动
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => u.id === activeUnit.id ? { ...u, combatPos: hoveredHex, currentAP: u.currentAP - apCost } : u)
+      }));
     }
   };
 
@@ -1139,6 +1414,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const terrainInfo = terrainAtHover ? TERRAIN_TYPES[terrainAtHover.type] : null;
           const heightDiff = terrainAtHover ? terrainAtHover.height - (terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0) : 0;
           
+          // 检查当前单位是否在敌方控制区内（移动会触发截击）
+          const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
+          const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
+          
           return (
             <div 
               className="absolute pointer-events-none bg-gradient-to-b from-black/95 to-gray-900/95 border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
@@ -1153,6 +1432,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 </div>
               )}
               <div className="font-bold">移动消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</div>
+              
+              {/* 控制区警告 */}
+              {willTriggerZoC && (
+                <div className="mt-1.5 pt-1.5 border-t border-orange-500/30">
+                  <div className="flex items-center gap-1 text-orange-400 font-bold">
+                    <span>⚠️</span>
+                    <span>离开敌方控制区！</span>
+                  </div>
+                  <div className="text-orange-300 text-[9px] mt-0.5">
+                    将触发 {zocCheck.threateningEnemies.length} 次截击攻击
+                  </div>
+                  <div className="text-orange-200/70 text-[8px] mt-0.5">
+                    截击可能阻止移动
+                  </div>
+                  {zocCheck.canUseFootwork && (
+                    <div className="text-green-400 text-[8px] mt-1">
+                      💨 可使用"脱身"技能安全撤离
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <div className="text-slate-400 mt-1.5 text-[9px] border-t border-white/10 pt-1.5">
                 <span className="bg-slate-700 px-1 rounded mr-1">右键</span> 移动
                 <span className="mx-2">|</span>

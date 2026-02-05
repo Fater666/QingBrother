@@ -1,0 +1,336 @@
+/**
+ * 控制区（Zone of Control）服务
+ * 实现类似《战场兄弟》的截击机制
+ * 
+ * 机制说明：
+ * 1. 每个单位对周围6格施加控制区
+ * 2. 当单位尝试离开敌方控制区时，敌人可进行截击攻击
+ * 3. 截击命中后，判定是否阻止移动
+ * 4. 如果阻止成功，移动失败，单位留在原地
+ */
+
+import { CombatUnit, CombatState, MoraleStatus } from '../types';
+import { getHexDistance, getThreateningEnemies, isInEnemyZoC, hasFootworkPerk } from '../constants';
+import { getMoraleEffects } from './moraleService';
+
+// ==================== 截击系统常量 ====================
+
+/** 截击攻击命中率修正（比正常攻击低） */
+export const FREE_ATTACK_HIT_PENALTY = -15;
+
+/** 截击攻击伤害系数（正常伤害的百分比） */
+export const FREE_ATTACK_DAMAGE_MULT = 0.8;
+
+/** 基础移动阻止概率（截击命中后） */
+export const BASE_MOVEMENT_BLOCK_CHANCE = 0.5;
+
+/** 脱身技能的AP消耗 */
+export const FOOTWORK_AP_COST = 3;
+
+/** 脱身技能的疲劳消耗 */
+export const FOOTWORK_FATIGUE_COST = 15;
+
+// ==================== 类型定义 ====================
+
+export interface FreeAttackResult {
+  attacker: CombatUnit;
+  target: CombatUnit;
+  hit: boolean;
+  damage: number;
+  movementBlocked: boolean;
+  targetKilled: boolean;
+  hitChance: number;
+  blockChance: number;
+}
+
+export interface ZoCCheckResult {
+  inEnemyZoC: boolean;
+  threateningEnemies: CombatUnit[];
+  canUseFootwork: boolean;
+  footworkApCost: number;
+  footworkFatCost: number;
+}
+
+// ==================== 截击计算函数 ====================
+
+/**
+ * 计算截击攻击的命中率
+ * @param attacker 攻击者
+ * @param target 目标（移动中的单位）
+ * @returns 命中率（0-100）
+ */
+export const calculateFreeAttackHitChance = (
+  attacker: CombatUnit,
+  target: CombatUnit
+): number => {
+  // 基础命中率 = 攻击者近战技能
+  let hitChance = attacker.stats.meleeSkill;
+  
+  // 减去目标近战防御
+  hitChance -= target.stats.meleeDefense;
+  
+  // 截击命中率惩罚
+  hitChance += FREE_ATTACK_HIT_PENALTY;
+  
+  // 武器命中修正
+  const weapon = attacker.equipment.mainHand;
+  if (weapon?.hitChanceMod) {
+    hitChance += weapon.hitChanceMod;
+  }
+  
+  // 士气影响
+  const attackerMorale = getMoraleEffects(attacker.morale);
+  hitChance += attackerMorale.hitChanceMod || 0;
+  
+  // 目标盾牌防御加成
+  const shield = target.equipment.offHand;
+  if (shield?.type === 'SHIELD' && shield.defenseBonus) {
+    hitChance -= shield.defenseBonus;
+  }
+  
+  // 盾墙状态额外防御
+  if (target.isShieldWall && shield?.type === 'SHIELD') {
+    hitChance -= 15;
+  }
+  
+  // 限制在5-95之间
+  return Math.max(5, Math.min(95, hitChance));
+};
+
+/**
+ * 计算截击攻击的伤害
+ * @param attacker 攻击者
+ * @returns 伤害值
+ */
+export const calculateFreeAttackDamage = (attacker: CombatUnit): number => {
+  const weapon = attacker.equipment.mainHand;
+  
+  let baseDamage: number;
+  if (weapon?.damage) {
+    const [minDmg, maxDmg] = weapon.damage;
+    baseDamage = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
+  } else {
+    // 徒手伤害
+    baseDamage = Math.floor(Math.random() * 10) + 5;
+  }
+  
+  // 应用截击伤害系数
+  let damage = Math.floor(baseDamage * FREE_ATTACK_DAMAGE_MULT);
+  
+  // 士气影响伤害
+  const moraleEffects = getMoraleEffects(attacker.morale);
+  damage = Math.floor(damage * (1 + moraleEffects.damageMod / 100));
+  
+  return Math.max(1, damage);
+};
+
+/**
+ * 计算移动阻止概率
+ * @param attacker 截击者
+ * @param target 移动单位
+ * @param damage 造成的伤害
+ * @returns 阻止概率（0-1）
+ */
+export const calculateMovementBlockChance = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  damage: number
+): number => {
+  let blockChance = BASE_MOVEMENT_BLOCK_CHANCE;
+  
+  // 伤害越高，阻止概率越高
+  const hpPercent = target.hp / target.maxHp;
+  const damageRatio = damage / target.maxHp;
+  blockChance += damageRatio * 0.5; // 伤害占最大生命值的比例增加阻止率
+  
+  // 攻击者使用重武器增加阻止概率
+  const weapon = attacker.equipment.mainHand;
+  if (weapon) {
+    if (weapon.name.includes('斧') || weapon.name.includes('殳') || weapon.name.includes('棒')) {
+      blockChance += 0.15; // 重武器更容易阻止移动
+    }
+    if (weapon.name.includes('矛') || weapon.name.includes('枪') || weapon.name.includes('戈') || weapon.name.includes('戟')) {
+      blockChance += 0.1; // 长兵器也有一定阻止效果
+    }
+  }
+  
+  // 目标士气影响（士气低更容易被阻止）
+  if (target.morale === MoraleStatus.WAVERING) {
+    blockChance += 0.1;
+  } else if (target.morale === MoraleStatus.BREAKING) {
+    blockChance += 0.2;
+  } else if (target.morale === MoraleStatus.FLEEING) {
+    blockChance += 0.3;
+  }
+  
+  // 目标血量低更容易被阻止
+  if (hpPercent < 0.3) {
+    blockChance += 0.15;
+  } else if (hpPercent < 0.5) {
+    blockChance += 0.05;
+  }
+  
+  // 限制在10%-90%之间（总有小概率成功/失败）
+  return Math.max(0.1, Math.min(0.9, blockChance));
+};
+
+/**
+ * 执行截击攻击
+ * @param attacker 截击者
+ * @param target 移动单位
+ * @returns 截击结果
+ */
+export const executeFreeAttack = (
+  attacker: CombatUnit,
+  target: CombatUnit
+): FreeAttackResult => {
+  const hitChance = calculateFreeAttackHitChance(attacker, target);
+  const roll = Math.random() * 100;
+  const hit = roll <= hitChance;
+  
+  let damage = 0;
+  let movementBlocked = false;
+  let targetKilled = false;
+  let blockChance = 0;
+  
+  if (hit) {
+    damage = calculateFreeAttackDamage(attacker);
+    
+    // 检查是否击杀
+    if (target.hp - damage <= 0) {
+      targetKilled = true;
+      movementBlocked = true; // 击杀必定阻止移动
+    } else {
+      // 计算移动阻止
+      blockChance = calculateMovementBlockChance(attacker, target, damage);
+      movementBlocked = Math.random() < blockChance;
+    }
+  }
+  
+  return {
+    attacker,
+    target,
+    hit,
+    damage,
+    movementBlocked,
+    targetKilled,
+    hitChance,
+    blockChance
+  };
+};
+
+// ==================== 控制区检查函数 ====================
+
+/**
+ * 检查单位移动是否会触发截击
+ * @param unit 移动的单位
+ * @param fromPos 起始位置
+ * @param toPos 目标位置（未使用，但保留以备扩展）
+ * @param state 战斗状态
+ * @returns 控制区检查结果
+ */
+export const checkZoCOnMove = (
+  unit: CombatUnit,
+  fromPos: { q: number; r: number },
+  toPos: { q: number; r: number },
+  state: CombatState
+): ZoCCheckResult => {
+  // 检查起始位置是否在敌方控制区内
+  const inEnemyZoC = isInEnemyZoC(fromPos, unit, state);
+  
+  // 获取可以进行截击的敌方单位
+  const threateningEnemies = inEnemyZoC 
+    ? getThreateningEnemies(fromPos, unit, state)
+    : [];
+  
+  // 检查是否可以使用脱身技能
+  const canUseFootwork = hasFootworkPerk(unit) && 
+    unit.currentAP >= FOOTWORK_AP_COST &&
+    unit.fatigue + FOOTWORK_FATIGUE_COST <= unit.maxFatigue;
+  
+  return {
+    inEnemyZoC,
+    threateningEnemies,
+    canUseFootwork,
+    footworkApCost: FOOTWORK_AP_COST,
+    footworkFatCost: FOOTWORK_FATIGUE_COST
+  };
+};
+
+/**
+ * 处理移动时的截击
+ * 返回所有截击结果，以及最终是否允许移动
+ * @param unit 移动的单位
+ * @param fromPos 起始位置
+ * @param state 战斗状态
+ * @returns 截击结果数组和是否允许移动
+ */
+export const processZoCAttacks = (
+  unit: CombatUnit,
+  fromPos: { q: number; r: number },
+  state: CombatState
+): { results: FreeAttackResult[]; movementAllowed: boolean; totalDamage: number } => {
+  const results: FreeAttackResult[] = [];
+  let movementAllowed = true;
+  let totalDamage = 0;
+  
+  // 获取可以截击的敌人
+  const threateningEnemies = getThreateningEnemies(fromPos, unit, state);
+  
+  // 按先手值排序（高先手先截击）
+  const sortedEnemies = [...threateningEnemies].sort(
+    (a, b) => b.stats.initiative - a.stats.initiative
+  );
+  
+  // 每个敌人依次执行截击
+  for (const enemy of sortedEnemies) {
+    // 创建一个临时的目标状态，考虑之前截击造成的伤害
+    const currentTarget = {
+      ...unit,
+      hp: unit.hp - totalDamage
+    };
+    
+    // 如果目标已死亡，停止截击
+    if (currentTarget.hp <= 0) {
+      movementAllowed = false;
+      break;
+    }
+    
+    const result = executeFreeAttack(enemy, currentTarget as CombatUnit);
+    results.push(result);
+    
+    if (result.hit) {
+      totalDamage += result.damage;
+      
+      // 如果移动被阻止，后续截击不再执行
+      if (result.movementBlocked) {
+        movementAllowed = false;
+        break;
+      }
+    }
+  }
+  
+  return { results, movementAllowed, totalDamage };
+};
+
+/**
+ * 获取截击的日志文本
+ */
+export const getFreeAttackLogText = (result: FreeAttackResult): string => {
+  const attackerName = result.attacker.name;
+  const targetName = result.target.name;
+  
+  if (!result.hit) {
+    return `${attackerName} 对 ${targetName} 发动截击，但未能命中！`;
+  }
+  
+  if (result.targetKilled) {
+    return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，将其击杀！`;
+  }
+  
+  if (result.movementBlocked) {
+    return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，阻止了其移动！`;
+  }
+  
+  return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，但未能阻止其移动。`;
+};

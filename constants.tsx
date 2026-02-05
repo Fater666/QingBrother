@@ -235,6 +235,7 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         if (char.perks.includes('recover')) skills.push({ id: 'RECOVER_SKILL', name: '调息', description: '恢复疲劳。', apCost: 9, fatCost: 0, range: [0,0], icon: '😤', type: 'SKILL', targetType: 'SELF' });
         if (char.perks.includes('adrenaline')) skills.push({ id: 'ADRENALINE_SKILL', name: '血勇', description: '下回合先动。', apCost: 1, fatCost: 20, range: [0,0], icon: '💉', type: 'SKILL', targetType: 'SELF' });
         if (char.perks.includes('rotation')) skills.push({ id: 'ROTATION_SKILL', name: '换位', description: '与盟友换位。', apCost: 3, fatCost: 25, range: [1,1], icon: '🔄', type: 'UTILITY', targetType: 'ALLY' });
+        if (char.perks.includes('footwork')) skills.push({ id: 'FOOTWORK_SKILL', name: '脱身', description: '无视敌人控制区移动一格。', apCost: 3, fatCost: 15, range: [1,1], icon: '💨', type: 'UTILITY', targetType: 'GROUND' });
     }
     skills.push(ABILITIES['WAIT']);
     return skills;
@@ -276,4 +277,82 @@ export const getHexNeighbors = (q: number, r: number) => [
 
 export const getHexDistance = (a: {q:number, r:number}, b: {q:number, r:number}) => {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+};
+
+// ==================== 控制区 (Zone of Control) 工具函数 ====================
+
+import { CombatUnit, CombatState } from './types.ts';
+
+/**
+ * 获取单位的控制区格子（周围6个相邻格）
+ */
+export const getZoneOfControl = (unit: CombatUnit): { q: number; r: number }[] => {
+  if (unit.isDead) return [];
+  return getHexNeighbors(unit.combatPos.q, unit.combatPos.r);
+};
+
+/**
+ * 检查位置是否在敌方控制区内
+ * @param pos 要检查的位置
+ * @param movingUnit 正在移动的单位
+ * @param state 战斗状态
+ * @returns 是否在敌方控制区内
+ */
+export const isInEnemyZoC = (
+  pos: { q: number; r: number },
+  movingUnit: CombatUnit,
+  state: CombatState
+): boolean => {
+  return state.units.some(u => 
+    !u.isDead && 
+    u.team !== movingUnit.team &&
+    getHexDistance(u.combatPos, pos) === 1
+  );
+};
+
+/**
+ * 获取对指定位置有控制区的敌方单位
+ * @param pos 要检查的位置
+ * @param movingUnit 正在移动的单位
+ * @param state 战斗状态
+ * @returns 可以进行截击的敌方单位列表
+ */
+export const getThreateningEnemies = (
+  pos: { q: number; r: number },
+  movingUnit: CombatUnit,
+  state: CombatState
+): CombatUnit[] => {
+  return state.units.filter(u => 
+    !u.isDead && 
+    u.team !== movingUnit.team &&
+    !u.hasUsedFreeAttack && // 本回合未使用过截击
+    getHexDistance(u.combatPos, pos) === 1
+  );
+};
+
+/**
+ * 检查单位是否拥有"脱身"技能（footwork perk）
+ */
+export const hasFootworkPerk = (unit: CombatUnit): boolean => {
+  return unit.perks?.includes('footwork') ?? false;
+};
+
+/**
+ * 获取所有敌方单位的控制区格子（用于可视化）
+ * @param team 当前单位的队伍
+ * @param state 战斗状态
+ * @returns 所有敌方控制区格子的集合
+ */
+export const getAllEnemyZoCHexes = (
+  team: 'PLAYER' | 'ENEMY',
+  state: CombatState
+): Set<string> => {
+  const zocSet = new Set<string>();
+  state.units.forEach(u => {
+    if (!u.isDead && u.team !== team) {
+      const neighbors = getHexNeighbors(u.combatPos.q, u.combatPos.r);
+      neighbors.forEach(n => zocSet.add(`${n.q},${n.r}`));
+    }
+  });
+  return zocSet;
 };

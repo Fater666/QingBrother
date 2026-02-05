@@ -4,8 +4,9 @@
  */
 
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES } from '../constants';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies } from '../constants';
 import { getMoraleEffects, MORALE_ORDER } from './moraleService';
+import { BASE_MOVEMENT_BLOCK_CHANCE } from './zocService';
 
 // 行为树执行结果
 type BehaviorResult = 'SUCCESS' | 'FAILURE' | 'RUNNING';
@@ -89,6 +90,7 @@ const calculateThreat = (target: CombatUnit): number => {
 
 /**
  * 寻找移动到目标附近的最佳位置
+ * 现在考虑控制区因素
  */
 const findBestMovePosition = (
   unit: CombatUnit,
@@ -101,6 +103,12 @@ const findBestMovePosition = (
   
   let bestPos: { q: number; r: number } | null = null;
   let bestScore = -Infinity;
+
+  // 检查当前位置是否在敌方控制区内
+  const currentlyInZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  const threateningEnemiesCount = currentlyInZoC 
+    ? getThreateningEnemies(unit.combatPos, unit, state).length 
+    : 0;
 
   // 使用六边形网格的正确搜索方式
   const searchRadius = Math.min(maxMoveDistance, 6); // 限制搜索范围避免性能问题
@@ -129,6 +137,37 @@ const findBestMovePosition = (
       
       // 移动消耗越少越好
       score -= moveDistance * 2;
+      
+      // ==================== 控制区惩罚 ====================
+      // 如果当前在敌方控制区内，移动会触发截击
+      if (currentlyInZoC && threateningEnemiesCount > 0) {
+        // 根据截击数量惩罚（每个截击者扣分）
+        const zocPenalty = threateningEnemiesCount * 25;
+        score -= zocPenalty;
+        
+        // 血量低时更不愿意触发截击
+        const hpPercent = unit.hp / unit.maxHp;
+        if (hpPercent < 0.5) {
+          score -= 30;
+        }
+        if (hpPercent < 0.25) {
+          score -= 50;
+        }
+        
+        // 但如果移动后能攻击到目标，仍然考虑移动
+        if (distToTarget <= preferredRange) {
+          score += 40; // 能攻击到目标加回一些分数
+        }
+      }
+      
+      // 检查目标位置是否会进入新的敌方控制区
+      const willBeInZoC = isInEnemyZoC(newPos, unit, state);
+      if (willBeInZoC) {
+        // 进入敌方控制区有风险，但如果是为了攻击则可以接受
+        if (distToTarget > preferredRange) {
+          score -= 15; // 进入ZoC但不能攻击，扣分
+        }
+      }
       
       if (score > bestScore) {
         bestScore = score;

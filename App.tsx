@@ -439,6 +439,7 @@ export const App: React.FC = () => {
       movedThisTurn: false,
       hasWaited: false,
       freeSwapUsed: false,
+      hasUsedFreeAttack: false, // 控制区机制：是否已使用截击
       aiType: comp.aiType
     }));
     
@@ -448,7 +449,7 @@ export const App: React.FC = () => {
         const col = m.formationIndex! % 9;
         const q = -2 - row;
         const r = Math.min(2, Math.max(-2, col - 4)); // 限制在 -2 到 2 范围
-        return { ...m, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false };
+        return { ...m, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false, hasUsedFreeAttack: false };
     });
     const allUnits = [...playerUnits, ...enemies];
     
