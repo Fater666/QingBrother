@@ -7,6 +7,7 @@ import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
 import { CityView } from './components/CityView.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
+import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -76,80 +77,77 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
 };
 
 const generateMap = (): { tiles: WorldTile[], cities: City[] } => {
-  const tiles: WorldTile[] = [];
-  for (let y = 0; y < MAP_SIZE; y++) {
-    for (let x = 0; x < MAP_SIZE; x++) {
-      let type: WorldTile['type'] = 'PLAINS';
-      if (Math.random() > 0.96) type = 'MOUNTAIN';
-      else if (Math.random() > 0.92) type = 'FOREST';
-      tiles.push({ x, y, type, height: 1, explored: false });
-    }
-  }
-
-  const cities: City[] = [];
-  const placedCities: {x:number, y:number}[] = [];
-  for(let i=0; i<8; i++) {
-      let cx = 0, cy = 0, valid = false;
-      while(!valid) {
-          cx = Math.floor(Math.random() * (MAP_SIZE - 10)) + 5;
-          cy = Math.floor(Math.random() * (MAP_SIZE - 10)) + 5;
-          if (!placedCities.some(pc => Math.hypot(pc.x - cx, pc.y - cy) < 14)) valid = true;
-      }
-      const idx = cy * MAP_SIZE + cx;
-      tiles[idx].type = 'CITY';
-      placedCities.push({x: cx, y: cy});
-
-      // 初始化城市数据
-      const market = [
-          ...WEAPON_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 4),
-          ...ARMOR_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 3)
-      ];
-      const recruits = Array.from({length: 4}).map((_, j) => createMercenary(`rec-${i}-${j}`));
-      const quests: Quest[] = [{
-          id: `q-${i}-1`, type: 'HUNT', title: '剿灭山贼', description: '附近山林有一伙流寇作乱，请前往清剿。', difficulty: 1, rewardGold: 300, sourceCityId: `city-${i}`, isCompleted: false, daysLeft: 7
-      }];
-
-      cities.push({ 
-          id: `city-${i}`, name: CITY_NAMES[i], x: cx, y: cy, type: i === 0 ? 'CAPITAL' : 'TOWN', faction: '秦', state: 'NORMAL', 
-          facilities: ['MARKET', 'RECRUIT', 'TAVERN', 'TEMPLE'], market, recruits, quests 
-      });
-  }
-
-  // 生成官道连接
-  for (let i = 0; i < placedCities.length; i++) {
-      let start = placedCities[i], end = placedCities[(i + 1) % placedCities.length], curr = { ...start };
-      while (curr.x !== end.x || curr.y !== end.y) {
-          if (curr.x < end.x) curr.x++; else if (curr.x > end.x) curr.x--;
-          else if (curr.y < end.y) curr.y++; else if (curr.y > end.y) curr.y--;
-          const idx = curr.y * MAP_SIZE + curr.x;
-          if (tiles[idx].type === 'PLAINS') tiles[idx].type = 'ROAD';
-      }
-  }
-  return { tiles, cities };
+  // 使用新的柏林噪声地图生成器
+  const result = generateWorldMap(MAP_SIZE, CITY_NAMES);
+  console.log(`[地图生成] 种子: ${result.seed}, 城市数: ${result.cities.length}`);
+  return { tiles: result.tiles, cities: result.cities };
 };
 
 const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => {
     const ents: WorldEntity[] = [];
     
-    // 生成土匪 - 倾向于在道路附近生成
-    for(let i = 0; i < 12; i++) {
+    // 根据区域生成不同类型的实体
+    // 北疆冻土 (y < 25%): 更多野兽（狼群）
+    // 中原沃野 (25%-60%): 更多土匪和军队
+    // 江南水乡 (60%-80%): 蛮族和野兽
+    // 南疆荒漠 (>80%): 游牧民骑兵
+    
+    // 北疆野兽 - 狼群为主
+    for(let i = 0; i < 5; i++) {
         let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(Math.random() * (MAP_SIZE * 0.25));  // 北疆区域
         
-        // 尝试在道路附近生成
-        for (let attempt = 0; attempt < 10; attempt++) {
+        // 尝试在雪原或森林生成
+        for (let attempt = 0; attempt < 20; attempt++) {
             const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(Math.random() * (MAP_SIZE * 0.3));
             const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'ROAD' || tile.type === 'PLAINS')) {
+            if (tile && (tile.type === 'SNOW' || tile.type === 'FOREST')) {
                 x = tx;
                 y = ty;
                 break;
             }
         }
         
-        const names = ['流寇', '山贼', '劫匪', '盗贼', '马贼'];
-        // 为土匪生成道路巡逻点
+        const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
+        ents.push({ 
+            id: `beast-north-${i}`, 
+            name: beastNames[Math.floor(Math.random() * beastNames.length)], 
+            type: 'BEAST', 
+            faction: 'HOSTILE', 
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 1.0 + Math.random() * 0.2,
+            aiState: 'WANDER', 
+            homeX: x, 
+            homeY: y,
+            worldAIType: 'BEAST',
+            alertRadius: 4,
+            chaseRadius: 8,
+            territoryRadius: 5 + Math.random() * 3,
+            wanderCooldown: Math.random() * 5
+        });
+    }
+    
+    // 中原土匪 - 在道路附近活动
+    for(let i = 0; i < 10; i++) {
+        let x = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(MAP_SIZE * 0.25 + Math.random() * (MAP_SIZE * 0.35));  // 中原区域
+        
+        // 尝试在道路附近生成
+        for (let attempt = 0; attempt < 15; attempt++) {
+            const tx = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(MAP_SIZE * 0.2 + Math.random() * (MAP_SIZE * 0.45));
+            const tile = tiles[ty * MAP_SIZE + tx];
+            if (tile && (tile.type === 'ROAD' || tile.type === 'PLAINS' || tile.type === 'FOREST')) {
+                x = tx;
+                y = ty;
+                break;
+            }
+        }
+        
+        const names = ['流寇', '山贼', '劫匪', '盗贼', '响马'];
         const patrolPoints = generateRoadPatrolPoints(x, y, tiles, 3, 12);
         
         ents.push({ 
@@ -165,69 +163,108 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
             homeX: x, 
             homeY: y,
             worldAIType: 'BANDIT',
-            alertRadius: 4 + Math.random() * 2,   // 4-6格发现玩家
-            chaseRadius: 10 + Math.random() * 4,  // 10-14格放弃追击
-            strength: 3 + Math.floor(Math.random() * 3), // 队伍实力 3-5
+            alertRadius: 4 + Math.random() * 2,
+            chaseRadius: 10 + Math.random() * 4,
+            strength: 3 + Math.floor(Math.random() * 3),
             fleeThreshold: 0.2 + Math.random() * 0.1,
             patrolPoints,
             patrolIndex: 0
         });
     }
     
-    // 生成野兽 - 在森林和山地生成
-    for(let i = 0; i < 8; i++) {
+    // 江南水乡野兽和蛮族
+    for(let i = 0; i < 4; i++) {
         let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(MAP_SIZE * 0.6 + Math.random() * (MAP_SIZE * 0.2));  // 江南区域
         
-        // 尝试在森林或山地生成
+        // 尝试在沼泽或森林生成
         for (let attempt = 0; attempt < 20; attempt++) {
             const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(MAP_SIZE * 0.55 + Math.random() * (MAP_SIZE * 0.25));
             const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'FOREST' || tile.type === 'MOUNTAIN')) {
+            if (tile && (tile.type === 'SWAMP' || tile.type === 'FOREST')) {
                 x = tx;
                 y = ty;
                 break;
             }
         }
         
-        const beastNames = ['野狼群', '猛虎', '野猪', '熊'];
+        const names = ['沼泽蛮人', '密林蛮族', '越人战士'];
         ents.push({ 
-            id: `beast-${i}`, 
-            name: beastNames[Math.floor(Math.random() * beastNames.length)], 
-            type: 'BEAST', 
+            id: `beast-south-${i}`, 
+            name: names[Math.floor(Math.random() * names.length)], 
+            type: 'BANDIT',  // 作为土匪类型处理
             faction: 'HOSTILE', 
             x, y, 
             targetX: null, 
             targetY: null, 
-            speed: 0.9 + Math.random() * 0.3,  // 野兽速度较快
+            speed: 0.8 + Math.random() * 0.2,
             aiState: 'WANDER', 
             homeX: x, 
             homeY: y,
-            worldAIType: 'BEAST',
-            alertRadius: 3,                    // 较小的警戒范围
-            chaseRadius: 6,                    // 不会追太远
-            territoryRadius: 4 + Math.random() * 3,  // 领地范围 4-7格
+            worldAIType: 'BANDIT',
+            alertRadius: 3,
+            chaseRadius: 6,
+            territoryRadius: 4 + Math.random() * 3,
             wanderCooldown: Math.random() * 5
         });
     }
     
-    // 生成乱军 - 在城市附近生成，会追击土匪
-    for(let i = 0; i < 4; i++) {
-        const nearCity = cities[Math.floor(Math.random() * cities.length)];
+    // 南疆游牧民 - 沙漠地带
+    for(let i = 0; i < 6; i++) {
+        let x = Math.floor(Math.random() * MAP_SIZE);
+        let y = Math.floor(MAP_SIZE * 0.8 + Math.random() * (MAP_SIZE * 0.2));  // 南疆区域
+        
+        // 尝试在沙漠生成
+        for (let attempt = 0; attempt < 15; attempt++) {
+            const tx = Math.floor(Math.random() * MAP_SIZE);
+            const ty = Math.floor(MAP_SIZE * 0.75 + Math.random() * (MAP_SIZE * 0.25));
+            const tile = tiles[ty * MAP_SIZE + tx];
+            if (tile && (tile.type === 'DESERT' || tile.type === 'PLAINS')) {
+                x = tx;
+                y = ty;
+                break;
+            }
+        }
+        
+        const isHostile = Math.random() > 0.4;  // 60%概率敌对
+        const names = isHostile ? ['胡人劫掠者', '沙匪', '戎狄骑兵'] : ['胡人游骑', '沙漠商旅'];
+        
+        ents.push({ 
+            id: `nomad-${i}`, 
+            name: names[Math.floor(Math.random() * names.length)], 
+            type: 'NOMAD', 
+            faction: isHostile ? 'HOSTILE' : 'NEUTRAL', 
+            x, y, 
+            targetX: null, 
+            targetY: null, 
+            speed: 1.1 + Math.random() * 0.3,  // 游牧民速度最快
+            aiState: 'WANDER', 
+            homeX: x, 
+            homeY: y,
+            worldAIType: 'NOMAD',
+            alertRadius: 6,
+            chaseRadius: 10,
+            wanderCooldown: Math.random() * 5,
+            strength: 4 + Math.floor(Math.random() * 2)
+        });
+    }
+    
+    // 巡防军 - 在城市附近
+    for(let i = 0; i < Math.min(4, cities.length); i++) {
+        const nearCity = cities[i];
         const offsetX = (Math.random() - 0.5) * 10;
         const offsetY = (Math.random() - 0.5) * 10;
         const x = Math.max(1, Math.min(MAP_SIZE - 2, nearCity.x + offsetX));
         const y = Math.max(1, Math.min(MAP_SIZE - 2, nearCity.y + offsetY));
         
-        // 为军队生成城市周边巡逻点
         const armyPatrolPoints = generateCityPatrolPoints(nearCity.x, nearCity.y, 6, 4);
         
         ents.push({ 
             id: `army-${i}`, 
             name: '巡防军', 
             type: 'ARMY', 
-            faction: 'NEUTRAL',  // 军队对玩家中立
+            faction: 'NEUTRAL',
             x, y, 
             targetX: null, 
             targetY: null, 
@@ -236,8 +273,8 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
             homeX: nearCity.x, 
             homeY: nearCity.y,
             worldAIType: 'ARMY',
-            alertRadius: 6,    // 较大的警戒范围
-            chaseRadius: 12,   // 会追击较远
+            alertRadius: 6,
+            chaseRadius: 12,
             linkedCityId: nearCity.id,
             strength: 5 + Math.floor(Math.random() * 3),
             patrolPoints: armyPatrolPoints,
@@ -245,34 +282,9 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
         });
     }
     
-    // 生成游牧民 - 随机分布
-    for(let i = 0; i < 4; i++) {
-        const x = Math.floor(Math.random() * MAP_SIZE);
-        const y = Math.floor(Math.random() * MAP_SIZE);
-        const isHostile = Math.random() > 0.5;  // 50%概率敌对
-        
-        ents.push({ 
-            id: `nomad-${i}`, 
-            name: isHostile ? '胡人劫掠者' : '胡人游骑', 
-            type: 'NOMAD', 
-            faction: isHostile ? 'HOSTILE' : 'NEUTRAL', 
-            x, y, 
-            targetX: null, 
-            targetY: null, 
-            speed: 1.0 + Math.random() * 0.3,  // 游牧民速度最快
-            aiState: 'WANDER', 
-            homeX: x, 
-            homeY: y,
-            worldAIType: 'NOMAD',
-            alertRadius: 5,
-            chaseRadius: 8,
-            wanderCooldown: Math.random() * 5,
-            strength: 4 + Math.floor(Math.random() * 2)
-        });
-    }
-    
-    // 生成商队 - 在城市间往返
+    // 商队 - 在城市间往返
     cities.forEach((city, idx) => {
+        if (cities.length < 2) return;
         const targetCity = cities[(idx + 1) % cities.length];
         ents.push({
             id: `trader-${idx}`, 
@@ -289,7 +301,7 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
             homeY: city.y,
             worldAIType: 'TRADER',
             alertRadius: 5,
-            chaseRadius: 0,  // 商队不会追击
+            chaseRadius: 0,
             linkedCityId: city.id,
             destinationCityId: targetCity.id,
             wanderCooldown: 5 + Math.random() * 5

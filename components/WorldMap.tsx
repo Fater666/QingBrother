@@ -4,18 +4,27 @@ import { WorldTile, Party, WorldEntity } from '../types.ts';
 import { MAP_SIZE, VIEWPORT_WIDTH, VISION_RADIUS } from '../constants.tsx';
 
 // ============================================================================
-// 战场兄弟风格配色方案 - 低饱和古朴色调
+// 战场兄弟风格配色方案 - 区域特色化调色板
 // ============================================================================
-const TERRAIN_COLORS: Record<string, { base: string; accent: string; detail: string }> = {
-  PLAINS:   { base: '#4a5d23', accent: '#3d4d1c', detail: '#5a6d33' },
-  FOREST:   { base: '#2d3f1f', accent: '#1a2e14', detail: '#3d4f2f' },
-  MOUNTAIN: { base: '#5a5248', accent: '#3d3832', detail: '#6a6258' },
-  CITY:     { base: '#6b5d4d', accent: '#8b7355', detail: '#7b6d5d' },
-  ROAD:     { base: '#786c55', accent: '#5d5344', detail: '#8a7c65' },
-  SWAMP:    { base: '#3d4a3d', accent: '#2d3a2d', detail: '#4d5a4d' },
-  RUINS:    { base: '#4a4a4a', accent: '#3a3a3a', detail: '#5a5a5a' },
-  SNOW:     { base: '#c8d0d8', accent: '#a8b0b8', detail: '#d8e0e8' },
-  DESERT:   { base: '#9a8b6f', accent: '#7a6b4f', detail: '#aa9b7f' },
+const TERRAIN_COLORS: Record<string, { base: string; accent: string; detail: string; highlight?: string }> = {
+  // 中原沃野 - 温暖的绿色调
+  PLAINS:   { base: '#4a5d23', accent: '#3d4d1c', detail: '#5a6d33', highlight: '#6a7d43' },
+  // 茂密森林 - 深邃的绿色
+  FOREST:   { base: '#2d3f1f', accent: '#1a2e14', detail: '#3d4f2f', highlight: '#1d3319' },
+  // 巍峨山地 - 冷峻的灰褐色
+  MOUNTAIN: { base: '#5a5248', accent: '#3d3832', detail: '#6a6258', highlight: '#7a7268' },
+  // 繁华城邑 - 温暖的土色
+  CITY:     { base: '#6b5d4d', accent: '#8b7355', detail: '#7b6d5d', highlight: '#9b8365' },
+  // 官道驿路 - 淡黄土色
+  ROAD:     { base: '#786c55', accent: '#5d5344', detail: '#8a7c65', highlight: '#9a8c75' },
+  // 江南水乡沼泽 - 深绿与水色
+  SWAMP:    { base: '#3a4f45', accent: '#2a3f35', detail: '#4a5f55', highlight: '#2d4a4a' },
+  // 古老遗迹 - 斑驳的灰色
+  RUINS:    { base: '#4a4a4a', accent: '#3a3a3a', detail: '#5a5a5a', highlight: '#6a5a4a' },
+  // 北疆雪原 - 冷冽的白蓝色
+  SNOW:     { base: '#d8e4ec', accent: '#b8c8d8', detail: '#e8f0f8', highlight: '#a8b8c8' },
+  // 南疆荒漠 - 金黄沙色
+  DESERT:   { base: '#c4a86a', accent: '#a48850', detail: '#d4b87a', highlight: '#e4c88a' },
 };
 
 // 伪随机数生成器
@@ -64,21 +73,63 @@ const drawTerrainTile = (
     }
     
     case 'FOREST': {
-      const treeCount = 2 + Math.floor(seededRandom(x, y, 10) * 3);
+      const treeCount = 3 + Math.floor(seededRandom(x, y, 10) * 3);
+      
+      // 根据Y坐标判断是北方针叶林还是南方阔叶林
+      const isNorthern = y < 20;  // 北疆区域
+      
       for (let i = 0; i < treeCount; i++) {
-        const tx = screenX + tileSize * 0.2 + seededRandom(x, y, i * 4) * tileSize * 0.6;
-        const ty = screenY + tileSize * 0.3 + seededRandom(x, y, i * 4 + 1) * tileSize * 0.5;
-        const tr = tileSize * 0.15 + seededRandom(x, y, i * 4 + 2) * tileSize * 0.12;
+        const tx = screenX + tileSize * 0.15 + seededRandom(x, y, i * 4) * tileSize * 0.7;
+        const ty = screenY + tileSize * 0.35 + seededRandom(x, y, i * 4 + 1) * tileSize * 0.45;
+        const treeSize = tileSize * 0.12 + seededRandom(x, y, i * 4 + 2) * tileSize * 0.1;
         
-        ctx.fillStyle = colors.accent;
-        ctx.beginPath();
-        ctx.arc(tx + 2, ty + 2, tr, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = colors.detail;
-        ctx.beginPath();
-        ctx.arc(tx, ty, tr, 0, Math.PI * 2);
-        ctx.fill();
+        if (isNorthern) {
+          // 北方针叶林 - 三角形松树
+          const treeHeight = treeSize * 2.5;
+          
+          // 树影
+          ctx.fillStyle = '#1a2a14';
+          ctx.beginPath();
+          ctx.moveTo(tx + 2, ty + treeHeight + 2);
+          ctx.lineTo(tx + treeSize + 2, ty + 2);
+          ctx.lineTo(tx + treeSize * 2 + 2, ty + treeHeight + 2);
+          ctx.closePath();
+          ctx.fill();
+          
+          // 树冠
+          ctx.fillStyle = '#2a4a2a';
+          ctx.beginPath();
+          ctx.moveTo(tx, ty + treeHeight);
+          ctx.lineTo(tx + treeSize, ty);
+          ctx.lineTo(tx + treeSize * 2, ty + treeHeight);
+          ctx.closePath();
+          ctx.fill();
+          
+          // 树干
+          ctx.fillStyle = '#4a3a2a';
+          ctx.fillRect(tx + treeSize * 0.7, ty + treeHeight, treeSize * 0.6, treeSize * 0.8);
+        } else {
+          // 南方阔叶林 - 圆形树冠
+          const tr = treeSize * 1.2;
+          
+          // 树影
+          ctx.fillStyle = colors.accent;
+          ctx.beginPath();
+          ctx.arc(tx + 2, ty + 2, tr, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // 树冠
+          ctx.fillStyle = colors.detail;
+          ctx.beginPath();
+          ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // 树冠高光
+          ctx.fillStyle = '#4d5f3f';
+          ctx.beginPath();
+          ctx.arc(tx - tr * 0.3, ty - tr * 0.3, tr * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       break;
     }
@@ -197,72 +248,193 @@ const drawTerrainTile = (
     }
     
     case 'SWAMP': {
-      const poolCount = 2 + Math.floor(seededRandom(x, y, 40) * 2);
-      ctx.fillStyle = '#2a3a3a';
+      // 水塘 - 深色水面
+      const poolCount = 2 + Math.floor(seededRandom(x, y, 40) * 3);
       for (let i = 0; i < poolCount; i++) {
-        const px = screenX + tileSize * 0.2 + seededRandom(x, y, i * 7) * tileSize * 0.5;
-        const py = screenY + tileSize * 0.2 + seededRandom(x, y, i * 7 + 1) * tileSize * 0.5;
-        const pr = tileSize * 0.1 + seededRandom(x, y, i * 7 + 2) * tileSize * 0.1;
+        const px = screenX + tileSize * 0.15 + seededRandom(x, y, i * 7) * tileSize * 0.7;
+        const py = screenY + tileSize * 0.2 + seededRandom(x, y, i * 7 + 1) * tileSize * 0.6;
+        const pr = tileSize * 0.08 + seededRandom(x, y, i * 7 + 2) * tileSize * 0.1;
+        
+        // 水塘边缘
+        ctx.fillStyle = '#1a2a2a';
         ctx.beginPath();
-        ctx.ellipse(px, py, pr * 1.3, pr, 0, 0, Math.PI * 2);
+        ctx.ellipse(px, py, pr * 1.5, pr * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 水面反光
+        ctx.fillStyle = '#3a5555';
+        ctx.beginPath();
+        ctx.ellipse(px - pr * 0.3, py - pr * 0.2, pr * 0.4, pr * 0.2, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       
-      ctx.strokeStyle = colors.detail;
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 4; i++) {
+      // 芦苇
+      ctx.strokeStyle = '#5a6a4a';
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 5; i++) {
         const rx = screenX + tileSize * 0.1 + seededRandom(x, y, i * 8 + 50) * tileSize * 0.8;
-        const ry = screenY + tileSize * 0.7;
+        const ry = screenY + tileSize * 0.75;
+        const rh = tileSize * 0.25 + seededRandom(x, y, i * 8 + 52) * tileSize * 0.15;
         ctx.beginPath();
         ctx.moveTo(rx, ry);
-        ctx.lineTo(rx + seededRandom(x, y, i * 8 + 51) * 4 - 2, ry - tileSize * 0.3);
+        ctx.quadraticCurveTo(
+          rx + (seededRandom(x, y, i * 8 + 51) - 0.5) * 6,
+          ry - rh * 0.6,
+          rx + (seededRandom(x, y, i * 8 + 53) - 0.5) * 4,
+          ry - rh
+        );
         ctx.stroke();
+        
+        // 芦苇穗
+        ctx.fillStyle = '#8a7a5a';
+        ctx.beginPath();
+        ctx.ellipse(
+          rx + (seededRandom(x, y, i * 8 + 53) - 0.5) * 4,
+          ry - rh - 2,
+          2, 4, 0, 0, Math.PI * 2
+        );
+        ctx.fill();
+      }
+      
+      // 偶尔有雾气效果
+      if (seededRandom(x, y, 45) > 0.6) {
+        ctx.fillStyle = 'rgba(180, 200, 180, 0.15)';
+        ctx.fillRect(screenX, screenY + tileSize * 0.3, tileSize, tileSize * 0.4);
       }
       break;
     }
     
     case 'RUINS': {
-      const stoneCount = 4 + Math.floor(seededRandom(x, y, 60) * 3);
+      // 草地背景
+      ctx.fillStyle = '#4a5a3a';
+      ctx.fillRect(screenX, screenY, tileSize + 1, tileSize + 1);
+      
+      // 残破的石柱和墙壁
+      const stoneCount = 3 + Math.floor(seededRandom(x, y, 60) * 3);
       for (let i = 0; i < stoneCount; i++) {
-        const sx = screenX + seededRandom(x, y, i * 9) * tileSize * 0.8;
-        const sy = screenY + seededRandom(x, y, i * 9 + 1) * tileSize * 0.8;
-        const sw = tileSize * 0.1 + seededRandom(x, y, i * 9 + 2) * tileSize * 0.15;
-        const sh = tileSize * 0.08 + seededRandom(x, y, i * 9 + 3) * tileSize * 0.12;
+        const sx = screenX + tileSize * 0.1 + seededRandom(x, y, i * 9) * tileSize * 0.7;
+        const sy = screenY + tileSize * 0.3 + seededRandom(x, y, i * 9 + 1) * tileSize * 0.5;
+        const sw = tileSize * 0.12 + seededRandom(x, y, i * 9 + 2) * tileSize * 0.1;
+        const sh = tileSize * 0.15 + seededRandom(x, y, i * 9 + 3) * tileSize * 0.2;
         
-        ctx.fillStyle = i % 2 === 0 ? colors.accent : colors.detail;
+        // 石块阴影
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(sx + 2, sy + 2, sw, sh);
+        
+        // 石块主体
+        ctx.fillStyle = i % 2 === 0 ? '#5a5a5a' : '#6a6a5a';
         ctx.fillRect(sx, sy, sw, sh);
+        
+        // 石块裂纹
+        ctx.strokeStyle = '#3a3a3a';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx + sw * 0.3, sy);
+        ctx.lineTo(sx + sw * 0.5, sy + sh);
+        ctx.stroke();
+      }
+      
+      // 倒塌的柱子
+      if (seededRandom(x, y, 65) > 0.5) {
+        const px = screenX + tileSize * 0.2;
+        const py = screenY + tileSize * 0.6;
+        ctx.fillStyle = '#7a7a7a';
+        ctx.beginPath();
+        ctx.ellipse(px, py, tileSize * 0.2, tileSize * 0.06, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#5a5a5a';
+        ctx.beginPath();
+        ctx.arc(px - tileSize * 0.15, py - tileSize * 0.02, tileSize * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // 野草覆盖
+      ctx.fillStyle = '#5a6a4a';
+      for (let i = 0; i < 3; i++) {
+        const gx = screenX + seededRandom(x, y, i * 12 + 70) * tileSize;
+        const gy = screenY + tileSize * 0.7 + seededRandom(x, y, i * 12 + 71) * tileSize * 0.25;
+        ctx.fillRect(gx, gy, 2, tileSize * 0.1);
       }
       break;
     }
     
     case 'SNOW': {
-      const driftCount = 2 + Math.floor(seededRandom(x, y, 70) * 2);
+      // 雪堆和阴影
+      const driftCount = 3 + Math.floor(seededRandom(x, y, 70) * 2);
       for (let i = 0; i < driftCount; i++) {
-        const dx = screenX + seededRandom(x, y, i * 10) * tileSize * 0.7;
-        const dy = screenY + tileSize * 0.5 + seededRandom(x, y, i * 10 + 1) * tileSize * 0.4;
+        const dx = screenX + seededRandom(x, y, i * 10) * tileSize * 0.8;
+        const dy = screenY + tileSize * 0.4 + seededRandom(x, y, i * 10 + 1) * tileSize * 0.5;
+        const dw = tileSize * 0.15 + seededRandom(x, y, i * 10 + 2) * tileSize * 0.1;
         
+        // 雪堆阴影
         ctx.fillStyle = colors.accent;
         ctx.beginPath();
-        ctx.ellipse(dx, dy, tileSize * 0.2, tileSize * 0.08, 0, 0, Math.PI * 2);
+        ctx.ellipse(dx + 2, dy + 2, dw * 1.3, dw * 0.5, 0, 0, Math.PI * 2);
         ctx.fill();
+        
+        // 雪堆
+        ctx.fillStyle = colors.detail;
+        ctx.beginPath();
+        ctx.ellipse(dx, dy, dw * 1.3, dw * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // 偶尔有枯树
+      if (seededRandom(x, y, 75) > 0.7) {
+        const tx = screenX + tileSize * 0.5;
+        const ty = screenY + tileSize * 0.6;
+        ctx.strokeStyle = '#5a4a3a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty + tileSize * 0.3);
+        ctx.lineTo(tx, ty - tileSize * 0.1);
+        ctx.moveTo(tx - tileSize * 0.1, ty);
+        ctx.lineTo(tx + tileSize * 0.1, ty - tileSize * 0.05);
+        ctx.stroke();
       }
       break;
     }
     
     case 'DESERT': {
+      // 沙丘纹理
       ctx.strokeStyle = colors.accent;
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 3; i++) {
-        const waveY = screenY + tileSize * 0.3 + i * tileSize * 0.25;
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        const waveY = screenY + tileSize * 0.2 + i * tileSize * 0.22;
+        const offset = seededRandom(x, y, i * 11) * tileSize * 0.15;
         ctx.beginPath();
-        ctx.moveTo(screenX, waveY);
+        ctx.moveTo(screenX, waveY + offset);
         ctx.quadraticCurveTo(
+          screenX + tileSize * 0.25, 
+          waveY - tileSize * 0.08 + offset,
           screenX + tileSize * 0.5, 
-          waveY - tileSize * 0.1 + seededRandom(x, y, i * 11) * tileSize * 0.1,
+          waveY + offset
+        );
+        ctx.quadraticCurveTo(
+          screenX + tileSize * 0.75, 
+          waveY + tileSize * 0.08 + offset,
           screenX + tileSize, 
-          waveY
+          waveY + offset
         );
         ctx.stroke();
+      }
+      
+      // 偶尔有仙人掌或骷髅
+      if (seededRandom(x, y, 80) > 0.85) {
+        const cx = screenX + tileSize * 0.3 + seededRandom(x, y, 81) * tileSize * 0.4;
+        const cy = screenY + tileSize * 0.5;
+        ctx.fillStyle = '#5a6a3a';
+        ctx.fillRect(cx - 2, cy - tileSize * 0.15, 4, tileSize * 0.2);
+        ctx.fillRect(cx - 6, cy - tileSize * 0.08, 4, tileSize * 0.1);
+        ctx.fillRect(cx + 2, cy - tileSize * 0.1, 4, tileSize * 0.08);
+      } else if (seededRandom(x, y, 82) > 0.9) {
+        // 骷髅装饰
+        const sx = screenX + tileSize * 0.5;
+        const sy = screenY + tileSize * 0.6;
+        ctx.fillStyle = '#e8e0d0';
+        ctx.beginPath();
+        ctx.arc(sx, sy, tileSize * 0.06, 0, Math.PI * 2);
+        ctx.fill();
       }
       break;
     }
