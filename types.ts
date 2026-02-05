@@ -21,6 +21,14 @@ export interface Ability {
   targetType: 'ENEMY' | 'SELF' | 'ALLY' | 'GROUND';
 }
 
+export interface Perk {
+  id: string;
+  name: string; // Localized name (e.g., "强体")
+  tier: number; // 1-7
+  icon: string;
+  description: string;
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -77,18 +85,45 @@ export interface Character {
     fatigue: number;
   };
   traits: string[];
+  
+  // Skills / Perks
+  perkPoints: number;
+  perks: string[]; // List of unlocked Perk IDs
+
   equipment: {
     mainHand: Item | null;
     offHand: Item | null; // For shields
     armor: Item | null;
     helmet: Item | null;
   };
+  
+  // Battle Brothers style Bag Slots (Fixed size 4, use perks to unlock usage)
+  bag: (Item | null)[]; 
+
   salary: number;
   
   // New: Formation Logic
   // 0-8: Front Row, 9-17: Back Row. null: Reserve
   formationIndex: number | null; 
 }
+
+export type QuestType = 'HUNT' | 'ESCORT' | 'PATROL' | 'DELIVERY';
+
+export interface Quest {
+    id: string;
+    type: QuestType;
+    title: string;
+    description: string;
+    difficulty: 1 | 2 | 3; // Stars
+    rewardGold: number;
+    sourceCityId: string;
+    targetCityId?: string; // For Escort/Delivery
+    targetEntityId?: string; // For Hunt
+    isCompleted: boolean;
+    daysLeft: number;
+}
+
+export type CityFacility = 'MARKET' | 'RECRUIT' | 'TAVERN' | 'TEMPLE';
 
 export interface City {
   id: string;
@@ -98,8 +133,10 @@ export interface City {
   type: 'CAPITAL' | 'TOWN' | 'VILLAGE';
   faction: string;
   state: 'NORMAL' | 'WAR' | 'FAMINE' | 'PROSPEROUS';
+  facilities: CityFacility[]; // Distinct features
   market: Item[];
   recruits: Character[];
+  quests: Quest[]; // Available contracts
 }
 
 export interface WorldTile {
@@ -107,13 +144,14 @@ export interface WorldTile {
   y: number;
   type: 'PLAINS' | 'FOREST' | 'MOUNTAIN' | 'SWAMP' | 'CITY' | 'RUINS' | 'SNOW' | 'DESERT' | 'ROAD';
   height: number;
+  explored: boolean; // Fog of War
 }
 
 export interface WorldEntity {
   id: string;
   name: string;
-  type: 'BANDIT' | 'ARMY' | 'TRADER' | 'NOMAD' | 'BEAST';
-  faction: 'HOSTILE' | 'NEUTRAL';
+  type: 'BANDIT' | 'ARMY' | 'TRADER' | 'NOMAD' | 'BEAST' | 'QUEST_TARGET';
+  faction: 'HOSTILE' | 'NEUTRAL' | 'ALLY';
   x: number;
   y: number;
   
@@ -121,10 +159,11 @@ export interface WorldEntity {
   targetX: number | null;
   targetY: number | null;
   speed: number;
-  aiState: 'IDLE' | 'PATROL' | 'CHASE' | 'TRAVEL';
+  aiState: 'IDLE' | 'PATROL' | 'CHASE' | 'TRAVEL' | 'FLEE';
   homeX: number; // Spawn point or patrol center
   homeY: number;
   targetEntityId?: string | null; // ID of entity chasing
+  isQuestTarget?: boolean; // Visual marker
 }
 
 export interface Party {
@@ -137,6 +176,7 @@ export interface Party {
   mercenaries: Character[];
   inventory: Item[];
   day: number; // Fractional day (e.g., 1.5 is noon on day 1)
+  activeQuest: Quest | null;
 }
 
 export interface CombatUnit extends Character {
@@ -148,6 +188,7 @@ export interface CombatUnit extends Character {
   isHalberdWall: boolean;
   movedThisTurn: boolean;
   hasWaited: boolean; // Tracks if unit has used "Wait" action this round
+  freeSwapUsed: boolean; // For Quick Hands perk
 }
 
 export interface CombatState {

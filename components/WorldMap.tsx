@@ -10,6 +10,8 @@ interface WorldMapProps {
   onSetTarget: (x: number, y: number) => void;
 }
 
+const VISION_RADIUS = 6;
+
 export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSetTarget }) => {
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH); 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -108,19 +110,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           if (x < 0 || x >= MAP_SIZE || y < 0 || y >= MAP_SIZE) continue;
 
           const tile = tiles[y * MAP_SIZE + x];
-          if (!tile) continue; // Safety check
+          if (!tile) continue; 
           
           const screenX = (x - startX) * tileSize - ((cameraRef.current.x - viewportWidth / 2) % 1) * tileSize;
           const screenY = (y - startY) * tileSize - ((cameraRef.current.y - viewportHeight / 2) % 1) * tileSize;
           
+          // 1. Draw Terrain Base (Always draw, fog covers it)
           const terrain = TERRAIN_DATA[tile.type];
           ctx.fillStyle = terrain.color;
           ctx.fillRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
           
-          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
-
+          // 2. Draw Features
           if (tile.type === 'ROAD') {
               ctx.fillStyle = '#8f7e63';
               ctx.beginPath();
@@ -133,9 +133,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
               ctx.textAlign = 'center';
               ctx.textBaseline = 'middle';
               ctx.fillText('🏯', screenX + tileSize/2, screenY + tileSize/2);
-              ctx.strokeStyle = '#f59e0b';
-              ctx.lineWidth = 2;
-              ctx.strokeRect(screenX + 2, screenY + 2, tileSize - 4, tileSize - 4);
           }
           else if (tile.type === 'MOUNTAIN') {
                ctx.font = `${tileSize * 0.9}px serif`;
@@ -150,6 +147,23 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
                ctx.textBaseline = 'middle';
                ctx.fillText('🌲', screenX + tileSize/2, screenY + tileSize/2);
           }
+
+          // 3. Fog of War Logic
+          const dist = Math.sqrt(Math.pow(x - party.x, 2) + Math.pow(y - party.y, 2));
+          if (!tile.explored) {
+               // Unexplored: Full Black
+               ctx.fillStyle = '#000000';
+               ctx.fillRect(Math.floor(screenX)-1, Math.floor(screenY)-1, Math.ceil(tileSize)+2, Math.ceil(tileSize)+2);
+          } else if (dist > VISION_RADIUS) {
+               // Explored but not visible: Dark shroud
+               ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+               ctx.fillRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
+          } else {
+               // Visible: Light grid
+               ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+               ctx.lineWidth = 1;
+               ctx.strokeRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
+          }
         }
       }
 
@@ -158,12 +172,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           y: (wy - (cameraRef.current.y - viewportHeight / 2)) * tileSize
       });
 
-      // Entities
+      // Entities (Only visible ones passed from parent)
       entities.forEach(ent => {
           const pos = toScreen(ent.x, ent.y);
           if (pos.x < -tileSize || pos.x > rect.width || pos.y < -tileSize || pos.y > rect.height) return;
 
-          ctx.fillStyle = ent.type === 'NOMAD' ? '#334155' : '#7f1d1d';
+          ctx.fillStyle = ent.faction === 'HOSTILE' ? '#7f1d1d' : '#334155';
           ctx.beginPath();
           ctx.arc(pos.x, pos.y, tileSize * 0.35, 0, Math.PI * 2);
           ctx.fill();
@@ -174,38 +188,33 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           ctx.font = `${tileSize * 0.5}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(ent.type === 'NOMAD' ? '🐎' : '⚔️', pos.x, pos.y + tileSize * 0.05);
+          ctx.fillText(ent.type === 'NOMAD' ? '🐎' : ent.type === 'TRADER' ? '⚖️' : ent.type === 'ARMY' ? '🛡️' : '⚔️', pos.x, pos.y + tileSize * 0.05);
           
           ctx.fillStyle = 'rgba(0,0,0,0.6)';
-          ctx.fillRect(pos.x - tileSize*0.5, pos.y + tileSize*0.4, tileSize, tileSize*0.25);
-          ctx.fillStyle = '#fff';
-          ctx.font = `${tileSize * 0.15}px sans-serif`;
+          ctx.fillRect(pos.x - tileSize*0.6, pos.y + tileSize*0.4, tileSize * 1.2, tileSize*0.25);
+          
+          ctx.fillStyle = ent.faction === 'HOSTILE' ? '#ef4444' : '#fbbf24'; 
+          ctx.font = `bold ${tileSize * 0.15}px sans-serif`;
           ctx.fillText(ent.name, pos.x, pos.y + tileSize * 0.55);
       });
 
-      // Player Army (Simple Icon Style - Reverted)
+      // Player Army
       const pPos = toScreen(party.x, party.y);
       if (pPos.x > -tileSize && pPos.x < rect.width + tileSize && pPos.y > -tileSize && pPos.y < rect.height + tileSize) {
-          
-          // Outer Glow
           ctx.shadowColor = '#f59e0b';
           ctx.shadowBlur = 10;
           
-          // Main Circle
-          ctx.fillStyle = '#b45309'; // Amber-700
+          ctx.fillStyle = '#b45309'; 
           ctx.beginPath();
           ctx.arc(pPos.x, pPos.y, tileSize * 0.4, 0, Math.PI * 2);
           ctx.fill();
           
-          // Border
-          ctx.strokeStyle = '#fcd34d'; // Amber-300
+          ctx.strokeStyle = '#fcd34d'; 
           ctx.lineWidth = 2;
           ctx.stroke();
           
-          // Reset Shadow
           ctx.shadowBlur = 0;
 
-          // Text "伍"
           ctx.fillStyle = '#fff'; 
           ctx.font = `bold ${tileSize * 0.5}px serif`;
           ctx.textAlign = 'center';
@@ -263,7 +272,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
       </div>
       <div className="absolute bottom-10 right-10 z-50 text-right pointer-events-none">
         <div className="text-4xl font-bold text-amber-600 font-serif tracking-tighter drop-shadow-lg">
-            DAY {Math.floor(party.day)}
+            第 {Math.floor(party.day)} 天
         </div>
       </div>
       {isDraggingRef.current && (

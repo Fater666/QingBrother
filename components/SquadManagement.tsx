@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Party, Character, Item } from '../types.ts';
+import { Party, Character, Item, Perk } from '../types.ts';
 import { Portrait } from './Portrait.tsx';
+import { ItemIcon } from './ItemIcon.tsx';
+import { BACKGROUNDS, PERK_TREE } from '../constants.tsx';
 
 interface SquadManagementProps {
   party: Party;
@@ -10,27 +12,27 @@ interface SquadManagementProps {
 }
 
 // Drag Types
-type DragSourceType = 'INVENTORY' | 'EQUIP_SLOT' | 'ROSTER' | 'RESERVE';
+type DragSourceType = 'INVENTORY' | 'EQUIP_SLOT' | 'ROSTER' | 'RESERVE' | 'BAG_SLOT';
 
 interface DragData {
     type: DragSourceType;
-    index?: number; // For Inventory index
+    index?: number; // For Inventory or Bag index
     slotType?: keyof Character['equipment']; // For Equip Slot
     formationIndex?: number; // For Formation (0-17)
     item?: Item; 
     char?: Character; 
 }
 
-const FORMATION_SIZE = 18; // 2 rows of 9
-
 export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdateParty, onClose }) => {
   const [selectedMerc, setSelectedMerc] = useState<Character | null>(party.mercenaries[0] || null);
+  const [rightTab, setRightTab] = useState<'INVENTORY' | 'PERKS'>('INVENTORY'); 
   
   // Drag State
   const [dragging, setDragging] = useState<DragData | null>(null);
 
   // Tooltip Logic
   const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
+  const [hoveredPerk, setHoveredPerk] = useState<Perk | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       e.preventDefault();
       if (!selectedMerc || !dragging) return;
 
-      if ((dragging.type === 'INVENTORY' || dragging.type === 'EQUIP_SLOT') && dragging.item) {
+      if ((dragging.type === 'INVENTORY' || dragging.type === 'EQUIP_SLOT' || dragging.type === 'BAG_SLOT') && dragging.item) {
           // Validation
           const itemType = dragging.item.type;
           let isValid = false;
@@ -76,22 +78,70 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               const oldItemAtSlot = newEquip[targetSlot];
               const newItem = dragging.item!;
               let newInventory = [...party.inventory];
+              let newBag = [...m.bag];
 
+              // Remove from source
               if (dragging.type === 'INVENTORY' && typeof dragging.index === 'number') {
                   newInventory.splice(dragging.index, 1);
               } else if (dragging.type === 'EQUIP_SLOT' && dragging.slotType) {
                   newEquip[dragging.slotType] = null;
+              } else if (dragging.type === 'BAG_SLOT' && typeof dragging.index === 'number') {
+                  newBag[dragging.index] = null;
               }
 
+              // Put old item back
               if (oldItemAtSlot) {
+                  // If dragging from bag, swap? No, just put to inventory for simplicity, unless we implement direct swap logic
                   newInventory.push(oldItemAtSlot);
               }
 
               newEquip[targetSlot] = newItem;
               party.inventory = newInventory;
-              return { ...m, equipment: newEquip };
+              return { ...m, equipment: newEquip, bag: newBag };
           });
 
+          onUpdateParty({ ...party, mercenaries: newMercs });
+          setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id) || null);
+      }
+      setDragging(null);
+  };
+
+  const handleDropOnBagSlot = (e: React.DragEvent, targetIndex: number) => {
+      e.preventDefault();
+      if (!selectedMerc || !dragging) return;
+      
+      const hasBagPerk = selectedMerc.perks.includes('bags_and_belts');
+      const maxSlots = hasBagPerk ? 4 : 2;
+      if (targetIndex >= maxSlots) return;
+
+      if ((dragging.type === 'INVENTORY' || dragging.type === 'EQUIP_SLOT' || dragging.type === 'BAG_SLOT') && dragging.item) {
+          const newMercs = party.mercenaries.map(m => {
+              if (m.id !== selectedMerc.id) return m;
+              
+              let newInventory = [...party.inventory];
+              let newBag = [...m.bag];
+              let newEquip = { ...m.equipment };
+              
+              const oldItemAtBag = newBag[targetIndex];
+              const newItem = dragging.item!;
+
+              // Remove from source
+              if (dragging.type === 'INVENTORY' && typeof dragging.index === 'number') {
+                  newInventory.splice(dragging.index, 1);
+              } else if (dragging.type === 'EQUIP_SLOT' && dragging.slotType) {
+                  newEquip[dragging.slotType] = null;
+              } else if (dragging.type === 'BAG_SLOT' && typeof dragging.index === 'number') {
+                  newBag[dragging.index] = null;
+              }
+
+              if (oldItemAtBag) {
+                  newInventory.push(oldItemAtBag);
+              }
+
+              newBag[targetIndex] = newItem;
+              party.inventory = newInventory;
+              return { ...m, equipment: newEquip, bag: newBag };
+          });
           onUpdateParty({ ...party, mercenaries: newMercs });
           setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id) || null);
       }
@@ -102,13 +152,19 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       e.preventDefault();
       if (!dragging) return;
 
-      if (dragging.type === 'EQUIP_SLOT' && dragging.item && dragging.slotType && selectedMerc) {
+      if (selectedMerc && (dragging.type === 'EQUIP_SLOT' || dragging.type === 'BAG_SLOT') && dragging.item) {
           const newMercs = party.mercenaries.map(m => {
               if (m.id !== selectedMerc.id) return m;
-              return {
-                  ...m,
-                  equipment: { ...m.equipment, [dragging.slotType!]: null }
-              };
+              const newEquip = { ...m.equipment };
+              const newBag = [...m.bag];
+
+              if (dragging.type === 'EQUIP_SLOT' && dragging.slotType) {
+                  newEquip[dragging.slotType] = null;
+              } else if (dragging.type === 'BAG_SLOT' && typeof dragging.index === 'number') {
+                  newBag[dragging.index] = null;
+              }
+
+              return { ...m, equipment: newEquip, bag: newBag };
           });
           const newInventory = [...party.inventory, dragging.item];
           onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInventory });
@@ -120,32 +176,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   // --- Roster Management Handlers ---
 
   const moveCharacter = (charId: string, targetFormationIdx: number | null) => {
-      // Check if target slot is occupied
-      const targetChar = party.mercenaries.find(m => m.formationIndex === targetFormationIdx);
-      
-      const newMercs = party.mercenaries.map(m => {
-          if (m.id === charId) {
-              // Move source to target
-              return { ...m, formationIndex: targetFormationIdx };
-          }
-          if (targetFormationIdx !== null && m.formationIndex === targetFormationIdx) {
-               // Swap: Move target to source's old position?
-               // Or simply swap logic. We need the source char to know its old pos.
-               // Let's iterate differently.
-               return m;
-          }
-          return m;
-      });
-
-      // Better Swap Logic outside map
-      const sourceChar = party.mercenaries.find(m => m.id === charId);
-      if(!sourceChar) return;
-
       const updatedMercs = party.mercenaries.map(m => {
            if (m.id === charId) return { ...m, formationIndex: targetFormationIdx };
+           // Swap logic if target slot occupied
            if (targetFormationIdx !== null && m.formationIndex === targetFormationIdx) {
-               // Swapped char goes to source's old position (whether it was reserve null or formation number)
-               return { ...m, formationIndex: sourceChar.formationIndex };
+               const sourceChar = party.mercenaries.find(sc => sc.id === charId);
+               return { ...m, formationIndex: sourceChar ? sourceChar.formationIndex : null };
            }
            return m;
       });
@@ -170,21 +206,52 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       e.preventDefault();
       if (!dragging || !dragging.char) return;
       if (dragging.type === 'ROSTER') {
-          // Move from formation to reserve
           moveCharacter(dragging.char.id, null);
       }
       setDragging(null);
   };
 
+  const handleUnlockPerk = (perkId: string) => {
+      if (!selectedMerc || selectedMerc.perkPoints <= 0) return;
+      const perk = PERK_TREE[perkId];
+      if (!perk) return;
+      
+      // Check tier requirement
+      if (selectedMerc.level < perk.tier + 1) return;
+
+      const newMercs = party.mercenaries.map(m => {
+          if (m.id === selectedMerc.id) {
+              return { 
+                  ...m, 
+                  perkPoints: m.perkPoints - 1,
+                  perks: [...(m.perks || []), perkId]
+              };
+          }
+          return m;
+      });
+      onUpdateParty({ ...party, mercenaries: newMercs });
+      setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id) || null);
+  };
+
   const calculateTotalFatiguePenalty = (char: Character) => {
+      // Calculate bag fatigue
+      const bagFatigue = (char.bag || []).reduce((acc, item) => acc + (item ? item.weight / 2 : 0), 0); // Items in bag cost half fatigue usually? Let's say half weight counts as fatigue penalty.
+      
       return (char.equipment.armor?.maxFatiguePenalty || 0) + 
              (char.equipment.helmet?.maxFatiguePenalty || 0) + 
-             (char.equipment.offHand?.fatigueCost || 0);
+             (char.equipment.offHand?.fatigueCost || 0) + 
+             Math.floor(bagFatigue);
   };
 
   // Helpers to render grid
   const getFormationChar = (idx: number) => party.mercenaries.find(m => m.formationIndex === idx);
   const getReserves = () => party.mercenaries.filter(m => m.formationIndex === null || m.formationIndex === undefined);
+
+  // Helper for background icon
+  const getBgIcon = (bgName: string) => {
+      const entry = Object.values(BACKGROUNDS).find(b => b.name === bgName);
+      return entry ? entry.icon : '';
+  };
 
   return (
     <div className="fixed inset-0 bg-[#080808] z-50 flex flex-col p-6 overflow-hidden font-serif text-slate-200">
@@ -209,161 +276,228 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
         </div>
       </div>
 
-      {/* Main Content - 4 Quadrants Grid */}
-      <div className="flex-1 grid grid-cols-2 gap-4 overflow-hidden z-10 min-h-0">
+      {/* Main Content - Flex Layout */}
+      <div className="flex-1 flex gap-4 overflow-hidden z-10 min-h-0">
         
-        {/* Left Column: Character Inspector */}
-        <div className="flex flex-col gap-4 min-h-0">
-            
-            {/* Top Left: Equipment (Cross Layout) */}
-            <div className="flex-[0.8] bg-black/40 border border-white/5 rounded-sm p-4 relative shadow-inner flex items-center justify-center">
-                {selectedMerc ? (
-                    <div className="flex w-full h-full gap-8">
-                         {/* Info Side */}
-                         <div className="flex flex-col items-center justify-center gap-2 w-1/3">
-                             <Portrait character={selectedMerc} size="lg" className="shadow-[0_0_20px_rgba(0,0,0,0.8)] border-amber-900/50" />
-                             <div className="text-center">
-                                 <h2 className="text-2xl font-bold text-slate-200">{selectedMerc.name}</h2>
-                                 <p className="text-xs text-amber-700 italic">“{selectedMerc.background}” <span className="text-slate-500 ml-1">LV.{selectedMerc.level}</span></p>
-                             </div>
-                              {/* Derived Stats Mini */}
-                            <div className="w-full mt-4 space-y-1 bg-black/20 p-2 rounded text-[10px] text-slate-400">
-                                <div className="flex justify-between"><span>头盔耐久</span><span className="text-slate-200">{selectedMerc.equipment.helmet?.durability || 0}</span></div>
-                                <div className="flex justify-between"><span>身甲耐久</span><span className="text-slate-200">{selectedMerc.equipment.armor?.durability || 0}</span></div>
-                                <div className="flex justify-between"><span>负重惩罚</span><span className="text-red-400">-{calculateTotalFatiguePenalty(selectedMerc)}</span></div>
+        {/* Left Column (30%): Stats & Equipment */}
+        <div className="w-[30%] flex flex-col gap-2 min-w-[320px] bg-black/40 border border-white/5 rounded-sm p-4 overflow-y-auto custom-scrollbar shadow-inner relative">
+            {selectedMerc ? (
+                <div className="flex flex-col gap-6">
+                    {/* Header */}
+                    <div className="flex items-center gap-4">
+                        <Portrait character={selectedMerc} size="lg" className="shadow-[0_0_20px_rgba(0,0,0,0.8)] border-amber-900/50" />
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-200 leading-none mb-1">{selectedMerc.name}</h2>
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg" title={selectedMerc.background}>{getBgIcon(selectedMerc.background)}</span>
+                                <span className="text-xs text-amber-700 italic">“{selectedMerc.background}”</span>
+                                <span className="text-xs text-slate-500 font-mono border border-slate-700 px-1 rounded">LV.{selectedMerc.level}</span>
                             </div>
-                         </div>
-
-                         {/* Paper Doll Side (Cross Layout) */}
-                         <div className="flex-1 flex items-center justify-center relative">
-                             {/* Cross Structure Container */}
-                             <div className="relative w-64 h-64">
-                                  {/* Background Silhouette */}
-                                  <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                                      <div className="w-32 h-48 border-2 border-dashed border-slate-500 rounded-full" />
-                                  </div>
-
-                                  {/* Slots - Absolute positioning */}
-                                  <div className="absolute top-0 left-1/2 -translate-x-1/2">
-                                      <EquipSlot 
-                                        label="头盔" 
-                                        item={selectedMerc.equipment.helmet} 
-                                        onHover={setHoveredItem} 
-                                        onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'helmet', item: selectedMerc.equipment.helmet! })}
-                                        onDrop={(e) => handleDropOnEquipSlot(e, 'helmet')}
-                                      />
-                                  </div>
-                                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pt-8">
-                                      <EquipSlot 
-                                        label="身甲" 
-                                        item={selectedMerc.equipment.armor} 
-                                        onHover={setHoveredItem} 
-                                        className="scale-125 z-10" 
-                                        onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'armor', item: selectedMerc.equipment.armor! })}
-                                        onDrop={(e) => handleDropOnEquipSlot(e, 'armor')}
-                                      />
-                                  </div>
-                                  <div className="absolute top-1/2 left-4 -translate-y-1/2 pt-12">
-                                      <EquipSlot 
-                                        label="主手" 
-                                        item={selectedMerc.equipment.mainHand} 
-                                        onHover={setHoveredItem} 
-                                        onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'mainHand', item: selectedMerc.equipment.mainHand! })}
-                                        onDrop={(e) => handleDropOnEquipSlot(e, 'mainHand')}
-                                      />
-                                  </div>
-                                  <div className="absolute top-1/2 right-4 -translate-y-1/2 pt-12">
-                                      <EquipSlot 
-                                        label="副手" 
-                                        item={selectedMerc.equipment.offHand} 
-                                        onHover={setHoveredItem} 
-                                        onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'offHand', item: selectedMerc.equipment.offHand! })}
-                                        onDrop={(e) => handleDropOnEquipSlot(e, 'offHand')}
-                                      />
-                                  </div>
-                             </div>
-                         </div>
+                        </div>
                     </div>
-                ) : (
-                    <div className="text-slate-600 italic">选择一名成员以查看装备</div>
-                )}
-            </div>
 
-            {/* Bottom Left: Attributes & Potential */}
-            <div className="flex-1 bg-black/40 border border-white/5 rounded-sm p-4 overflow-y-auto">
-                {selectedMerc ? (
-                    <div>
-                        <h3 className="text-[10px] text-amber-700 uppercase tracking-widest mb-3 border-b border-amber-900/20 pb-1">属性与潜力</h3>
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-                             <StatRow label="生命 (HP)" val={selectedMerc.hp} max={selectedMerc.maxHp} stars={selectedMerc.stars.hp} />
-                             <StatRow label="体力 (FAT)" val={selectedMerc.fatigue} max={selectedMerc.maxFatigue} stars={selectedMerc.stars.fatigue} subtext={`max: ${selectedMerc.maxFatigue}`} />
-                             
-                             <div className="col-span-2 h-px bg-white/5 my-1" />
-                             
-                             <StatRow label="胆识 (RES)" val={selectedMerc.stats.resolve} stars={selectedMerc.stars.resolve} />
-                             <StatRow label="先手 (INIT)" val={selectedMerc.stats.initiative} stars={selectedMerc.stars.initiative} />
-                             
-                             <div className="col-span-2 h-px bg-white/5 my-1" />
-
-                             <StatRow label="近战命中" val={selectedMerc.stats.meleeSkill} stars={selectedMerc.stars.meleeSkill} highlight />
-                             <StatRow label="远程命中" val={selectedMerc.stats.rangedSkill} stars={selectedMerc.stars.rangedSkill} highlight />
-                             <StatRow label="近战防御" val={selectedMerc.stats.meleeDefense} stars={selectedMerc.stars.meleeDefense} />
-                             <StatRow label="远程防御" val={selectedMerc.stats.rangedDefense} stars={selectedMerc.stars.rangedDefense} />
+                    {/* Equipment Slots (Paper Doll) */}
+                    <div className="relative w-full aspect-square bg-black/20 border border-white/5 rounded-full flex items-center justify-center">
+                        <div className="absolute inset-0 opacity-10 pointer-events-none rounded-full border-2 border-dashed border-slate-500 scale-90" />
+                        
+                        {/* Cross Layout */}
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2">
+                            <EquipSlot label="头盔" item={selectedMerc.equipment.helmet} onHover={setHoveredItem} onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'helmet', item: selectedMerc.equipment.helmet! })} onDrop={(e) => handleDropOnEquipSlot(e, 'helmet')} />
+                        </div>
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pt-16">
+                            <EquipSlot label="身甲" item={selectedMerc.equipment.armor} onHover={setHoveredItem} className="scale-110 z-10" onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'armor', item: selectedMerc.equipment.armor! })} onDrop={(e) => handleDropOnEquipSlot(e, 'armor')} />
+                        </div>
+                        <div className="absolute top-1/2 left-4 -translate-y-1/2 pt-10">
+                            <EquipSlot label="主手" item={selectedMerc.equipment.mainHand} onHover={setHoveredItem} onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'mainHand', item: selectedMerc.equipment.mainHand! })} onDrop={(e) => handleDropOnEquipSlot(e, 'mainHand')} />
+                        </div>
+                        <div className="absolute top-1/2 right-4 -translate-y-1/2 pt-10">
+                            <EquipSlot label="副手" item={selectedMerc.equipment.offHand} onHover={setHoveredItem} onDragStart={(e) => handleDragStart(e, { type: 'EQUIP_SLOT', slotType: 'offHand', item: selectedMerc.equipment.offHand! })} onDrop={(e) => handleDropOnEquipSlot(e, 'offHand')} />
                         </div>
                         
-                        <div className="mt-6 border-t border-white/5 pt-2">
-                             <h4 className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">生平经历</h4>
-                             <p className="text-xs text-slate-400 italic leading-relaxed text-justify">
-                                 {selectedMerc.backgroundStory}
-                             </p>
+                        {/* Bags */}
+                        <div className="absolute bottom-8 flex gap-2 justify-center w-full">
+                            {Array.from({length: 4}).map((_, i) => {
+                                const hasPerk = selectedMerc.perks.includes('bags_and_belts');
+                                const isLocked = i >= 2 && !hasPerk;
+                                return (
+                                    <div 
+                                        key={i}
+                                        onDragOver={(e) => !isLocked && handleDragOver(e)}
+                                        onDrop={(e) => !isLocked && handleDropOnBagSlot(e, i)}
+                                        className={`w-10 h-10 border flex items-center justify-center relative
+                                            ${isLocked ? 'border-red-900/50 bg-black/60' : 'border-slate-700 bg-slate-900/50 hover:border-amber-500'}
+                                        `}
+                                    >
+                                        {isLocked ? (
+                                            <span className="text-[10px] text-red-900">🔒</span>
+                                        ) : (
+                                            selectedMerc.bag[i] ? (
+                                                <div 
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, { type: 'BAG_SLOT', index: i, item: selectedMerc.bag[i]! })}
+                                                    onMouseEnter={() => setHoveredItem(selectedMerc.bag[i])}
+                                                    onMouseLeave={() => setHoveredItem(null)}
+                                                    className="w-full h-full p-1 cursor-pointer hover:scale-110 transition-transform"
+                                                >
+                                                    <ItemIcon item={selectedMerc.bag[i]} showBackground={false} />
+                                                </div>
+                                            ) : (
+                                                <span className="text-[8px] text-slate-800">空</span>
+                                            )
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {/* Mini Stats Overlay */}
+                        <div className="absolute top-4 left-4 flex flex-col gap-1 text-[9px] text-slate-400 font-mono">
+                             <div className="flex gap-2"><span>盔耐久:</span> <span className="text-white">{selectedMerc.equipment.helmet?.durability || 0}</span></div>
+                             <div className="flex gap-2"><span>甲耐久:</span> <span className="text-white">{selectedMerc.equipment.armor?.durability || 0}</span></div>
+                             <div className="flex gap-2"><span>总负重:</span> <span className="text-red-400">-{calculateTotalFatiguePenalty(selectedMerc)}</span></div>
                         </div>
                     </div>
-                ) : (
-                    <div className="text-center text-slate-600 italic mt-10">...</div>
-                )}
-            </div>
+
+                    {/* Attributes */}
+                    <div>
+                        <h3 className="text-[10px] text-amber-700 uppercase tracking-widest mb-3 border-b border-amber-900/20 pb-1">基础属性</h3>
+                        <div className="grid grid-cols-1 gap-2">
+                             <StatBar label="生命" val={selectedMerc.hp} max={selectedMerc.maxHp} stars={selectedMerc.stars.hp} color="bg-red-600" />
+                             <StatBar label="体力" val={selectedMerc.maxFatigue} max={140} stars={selectedMerc.stars.fatigue} color="bg-blue-600" />
+                             <StatBar label="胆识" val={selectedMerc.stats.resolve} max={80} stars={selectedMerc.stars.resolve} color="bg-purple-600" />
+                             <StatBar label="先手" val={selectedMerc.stats.initiative} max={160} stars={selectedMerc.stars.initiative} color="bg-emerald-600" />
+                        </div>
+                        
+                        <h3 className="text-[10px] text-amber-700 uppercase tracking-widest mt-4 mb-3 border-b border-amber-900/20 pb-1">战斗技艺</h3>
+                        <div className="grid grid-cols-1 gap-2">
+                             <StatBar label="近战命中" val={selectedMerc.stats.meleeSkill} max={100} stars={selectedMerc.stars.meleeSkill} color="bg-amber-600" />
+                             <StatBar label="远程命中" val={selectedMerc.stats.rangedSkill} max={100} stars={selectedMerc.stars.rangedSkill} color="bg-orange-600" />
+                             <StatBar label="近战防御" val={selectedMerc.stats.meleeDefense} max={50} stars={selectedMerc.stars.meleeDefense} color="bg-slate-500" />
+                             <StatBar label="远程防御" val={selectedMerc.stats.rangedDefense} max={50} stars={selectedMerc.stars.rangedDefense} color="bg-slate-500" />
+                        </div>
+                    </div>
+
+                    <div className="border-t border-white/5 pt-2">
+                         <h4 className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">生平</h4>
+                         <p className="text-xs text-slate-400 italic leading-relaxed text-justify opacity-80">
+                             {selectedMerc.backgroundStory}
+                         </p>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex-1 flex items-center justify-center text-slate-600 italic">选择一名成员</div>
+            )}
         </div>
 
-        {/* Right Column: Inventory & Roster */}
-        <div className="flex flex-col gap-4 min-h-0">
+        {/* Right Column (70%): Tabs & Formation */}
+        <div className="flex-1 flex flex-col gap-4 min-h-0">
              
-             {/* Top Right: Stash (Inventory) */}
-             <div 
-                className="flex-1 bg-black/40 border border-white/5 rounded-sm p-4 flex flex-col min-h-0"
-                onDragOver={handleDragOver}
-                onDrop={handleDropOnInventory}
-             >
-                 <h2 className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 flex justify-between">
-                     <span>战利品 & 物资</span>
-                     <span>{party.inventory.length}/99</span>
-                 </h2>
-                 <div className="flex-1 overflow-y-auto pr-1">
-                     <div className="grid grid-cols-6 gap-2">
-                        {party.inventory.map((item, i) => (
-                             <div 
-                                key={item.id} 
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, { type: 'INVENTORY', index: i, item })}
-                                onMouseEnter={() => setHoveredItem(item)}
-                                onMouseLeave={() => setHoveredItem(null)}
-                                className="aspect-square bg-slate-900/80 border border-slate-800 hover:border-amber-500 transition-all p-1 flex items-center justify-center group relative cursor-grab active:cursor-grabbing"
-                             >
-                                <span className="text-xl">{item.name.includes('剑') ? '🗡️' : item.name.includes('盾') ? '🛡️' : '📦'}</span>
+             {/* Top Right: Inventory / Perks Tabs */}
+             <div className="flex-[1.5] bg-black/40 border border-white/5 rounded-sm flex flex-col min-h-0 relative">
+                 {/* Tabs Header */}
+                 <div className="flex border-b border-white/5 bg-black/20 shrink-0">
+                     <button 
+                        onClick={() => setRightTab('INVENTORY')}
+                        className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all ${rightTab === 'INVENTORY' ? 'bg-white/5 text-amber-500 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
+                     >
+                        📦 战利品 ({party.inventory.length})
+                     </button>
+                     <button 
+                        onClick={() => setRightTab('PERKS')}
+                        className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all ${rightTab === 'PERKS' ? 'bg-white/5 text-amber-500 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
+                     >
+                        🎓 技能树 {selectedMerc && selectedMerc.perkPoints > 0 && <span className="ml-2 bg-amber-600 text-white px-1.5 rounded-full text-[9px] animate-pulse">{selectedMerc.perkPoints}</span>}
+                     </button>
+                 </div>
+
+                 {/* Tab Content */}
+                 <div className="flex-1 overflow-y-auto p-4 custom-scrollbar relative">
+                     {rightTab === 'INVENTORY' && (
+                         <div 
+                            className="h-full"
+                            onDragOver={handleDragOver}
+                            onDrop={handleDropOnInventory}
+                         >
+                             <div className="grid grid-cols-8 gap-2">
+                                {party.inventory.map((item, i) => (
+                                     <div 
+                                        key={item.id} 
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, { type: 'INVENTORY', index: i, item })}
+                                        onMouseEnter={() => setHoveredItem(item)}
+                                        onMouseLeave={() => setHoveredItem(null)}
+                                        className="aspect-square bg-slate-900/80 border border-slate-800 hover:border-amber-500 transition-all p-1 flex items-center justify-center group relative cursor-grab active:cursor-grabbing"
+                                     >
+                                        <ItemIcon item={item} className="w-full h-full p-0.5" showBackground={false} />
+                                     </div>
+                                ))}
+                                {Array.from({ length: Math.max(0, 48 - party.inventory.length) }).map((_, i) => (
+                                    <div key={i} className="aspect-square border border-dashed border-slate-800/30" />
+                                ))}
                              </div>
-                        ))}
-                        {Array.from({ length: Math.max(0, 24 - party.inventory.length) }).map((_, i) => (
-                            <div key={i} className="aspect-square border border-dashed border-slate-800/30" />
-                        ))}
-                     </div>
+                         </div>
+                     )}
+
+                     {rightTab === 'PERKS' && selectedMerc && (
+                         <div className="flex flex-col gap-6 items-center py-4">
+                             {Array.from({ length: 7 }).map((_, i) => {
+                                 const tier = i + 1;
+                                 const tierPerks = Object.values(PERK_TREE).filter(p => p.tier === tier);
+                                 const isUnlockedTier = selectedMerc.level >= tier + 1;
+                                 
+                                 return (
+                                     <div key={tier} className={`flex items-center gap-6 w-full max-w-3xl ${isUnlockedTier ? 'opacity-100' : 'opacity-40 grayscale'}`}>
+                                         <div className="w-16 shrink-0 text-right">
+                                             <div className="text-amber-500 font-bold text-xs font-mono">TIER {tier}</div>
+                                             <div className="text-[9px] text-slate-500">{tier === 1 ? 'Lv.2' : `Lv.${tier+1}`}</div>
+                                         </div>
+                                         
+                                         <div className="flex-1 flex flex-wrap gap-3 p-3 border-l-2 border-white/5 bg-white/[0.02] rounded-r-lg">
+                                             {tierPerks.map(perk => {
+                                                 const isLearned = (selectedMerc.perks || []).includes(perk.id);
+                                                 const canLearn = isUnlockedTier && selectedMerc.perkPoints > 0 && !isLearned;
+                                                 
+                                                 return (
+                                                     <div 
+                                                         key={perk.id}
+                                                         onMouseEnter={() => setHoveredPerk(perk)}
+                                                         onMouseLeave={() => setHoveredPerk(null)}
+                                                         onClick={() => canLearn && handleUnlockPerk(perk.id)}
+                                                         className={`
+                                                             w-12 h-12 border flex items-center justify-center text-2xl rounded cursor-pointer transition-all relative group
+                                                             ${isLearned ? 'bg-amber-900/60 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)] scale-105' : 'bg-black/40 border-slate-700'}
+                                                             ${canLearn ? 'hover:border-white hover:bg-white/10 hover:scale-110' : ''}
+                                                         `}
+                                                     >
+                                                         {perk.icon}
+                                                         {isLearned && <div className="absolute -top-1 -right-1 text-[10px] bg-green-900 text-green-400 rounded-full w-4 h-4 flex items-center justify-center border border-green-500 shadow-lg">✔</div>}
+                                                     </div>
+                                                 );
+                                             })}
+                                         </div>
+                                     </div>
+                                 );
+                             })}
+                             
+                             <div className="mt-4 px-6 py-2 bg-amber-900/20 border border-amber-900/50 rounded-full flex items-center gap-2">
+                                 <span className="text-slate-400 text-xs">剩余技能点</span>
+                                 <span className="text-2xl font-bold text-white font-mono">{selectedMerc.perkPoints}</span>
+                             </div>
+                         </div>
+                     )}
+                     
+                     {rightTab === 'PERKS' && !selectedMerc && (
+                         <div className="h-full flex items-center justify-center text-slate-600 italic">选择一名成员查看技能树</div>
+                     )}
                  </div>
              </div>
 
              {/* Bottom Right: Battle Formation & Reserves */}
-             <div className="flex-[1.2] flex flex-col gap-2">
+             <div className="flex-1 flex flex-col gap-2 min-h-[220px]">
                  
                  {/* 1. Battle Formation Grid */}
                  <div 
-                    className="flex-1 bg-black/40 border border-white/5 rounded-sm p-2 flex flex-col"
+                    className="flex-[2] bg-black/40 border border-white/5 rounded-sm p-2 flex flex-col"
                  >
                      <h2 className="text-[10px] text-slate-500 uppercase tracking-widest mb-1 flex justify-between">
                          <span>作战阵型 (前排 / 后排)</span>
@@ -372,7 +506,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                      {/* Rows */}
                      <div className="flex-1 flex flex-col gap-1 justify-center">
                          {/* Back Row (Indices 9-17) */}
-                         <div className="grid grid-cols-9 gap-1">
+                         <div className="grid grid-cols-9 gap-1 h-1/2">
                              {Array.from({length: 9}).map((_, i) => {
                                  const idx = i + 9;
                                  const merc = getFormationChar(idx);
@@ -393,7 +527,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                              })}
                          </div>
                          {/* Front Row (Indices 0-8) */}
-                         <div className="grid grid-cols-9 gap-1">
+                         <div className="grid grid-cols-9 gap-1 h-1/2">
                              {Array.from({length: 9}).map((_, i) => {
                                  const idx = i;
                                  const merc = getFormationChar(idx);
@@ -418,7 +552,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
                  {/* 2. Reserves List */}
                  <div 
-                    className="h-24 bg-black/40 border border-white/5 rounded-sm p-2 flex flex-col"
+                    className="flex-1 bg-black/40 border border-white/5 rounded-sm p-2 flex flex-col"
                     onDragOver={handleDragOver}
                     onDrop={handleDropOnReserve}
                  >
@@ -449,7 +583,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
       </div>
 
-      {/* Global Fixed Tooltip */}
+      {/* Global Fixed Tooltip (Item) */}
       {hoveredItem && (
           <div 
             className="fixed z-[100] w-56 p-3 bg-black border border-amber-900/80 rounded-sm shadow-2xl pointer-events-none"
@@ -470,14 +604,51 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           </div>
       )}
 
+      {/* Global Fixed Tooltip (Perk) */}
+      {hoveredPerk && (
+          <div 
+            className="fixed z-[100] w-64 p-3 bg-black border border-amber-500 rounded-sm shadow-2xl pointer-events-none"
+            style={{ 
+                left: Math.min(window.innerWidth - 270, mousePos.x + 15), 
+                top: Math.min(window.innerHeight - 100, mousePos.y + 15) 
+            }}
+          >
+            <div className="flex gap-2 items-center mb-2 border-b border-white/20 pb-1">
+                <span className="text-2xl">{hoveredPerk.icon}</span>
+                <div>
+                    <div className="text-amber-500 font-bold text-sm">{hoveredPerk.name}</div>
+                    <div className="text-[9px] text-slate-500 uppercase">Tier {hoveredPerk.tier}</div>
+                </div>
+            </div>
+            <div className="text-xs text-slate-300 leading-relaxed">{hoveredPerk.description}</div>
+          </div>
+      )}
+
     </div>
   );
+};
+
+const StatBar = ({ label, val, max, stars = 0, color }: { label: string, val: number, max: number, stars?: number, color: string }) => {
+    const pct = Math.min(100, (val / max) * 100);
+    return (
+        <div className="flex items-center text-xs gap-3">
+            <span className="text-slate-500 w-12 shrink-0 text-right uppercase tracking-tighter">{label}</span>
+            <div className="flex-1 h-2 bg-slate-800 rounded-sm relative overflow-hidden">
+                <div className={`h-full rounded-sm ${color}`} style={{ width: `${pct}%` }} />
+                {/* Tick marks or simple gradient overlay could go here */}
+            </div>
+            <div className="flex items-center w-12 shrink-0 justify-end gap-1">
+                <span className="text-slate-200 font-mono font-bold">{val}</span>
+                {stars > 0 && <span className="text-amber-500 text-[9px] tracking-tighter">{'★'.repeat(stars)}</span>}
+            </div>
+        </div>
+    );
 };
 
 const FormationSlot = ({ index, merc, isSelected, onSelect, onDragStart, onDrop, onDragOver, label }: any) => {
     return (
         <div 
-            className={`aspect-square relative border border-white/5 bg-white/5 flex items-center justify-center
+            className={`w-full h-full relative border border-white/5 bg-white/5 flex items-center justify-center
                 ${!merc ? 'border-dashed' : 'border-solid'}
                 ${isSelected ? 'ring-1 ring-amber-500' : ''}
             `}
@@ -503,19 +674,6 @@ const FormationSlot = ({ index, merc, isSelected, onSelect, onDragStart, onDrop,
     );
 };
 
-const StatRow = ({ label, val, max, stars = 0, subtext, highlight = false }: { label: string, val: number, max?: number, stars?: number, subtext?: string, highlight?: boolean }) => (
-    <div className={`flex justify-between items-end border-b border-white/5 pb-1 ${highlight ? 'text-amber-100' : 'text-slate-300'}`}>
-        <span className="text-xs text-slate-500 tracking-tighter uppercase">{label}</span>
-        <div className="text-right flex items-center gap-2">
-            <span className="text-xs text-amber-500 tracking-widest text-[8px]">{stars > 0 ? '★'.repeat(stars) : ''}</span>
-            <div className="leading-none">
-                <span className="font-mono font-bold text-sm">{val}</span>
-                {max !== undefined && <span className="text-[10px] text-slate-500 ml-1">/{max}</span>}
-            </div>
-        </div>
-    </div>
-);
-
 const EquipSlot = ({ label, item, className = "", onHover, onDragStart, onDrop }: { 
     label: string, 
     item: Item | null, 
@@ -535,8 +693,8 @@ const EquipSlot = ({ label, item, className = "", onHover, onDragStart, onDrop }
     >
         <span className="text-[8px] text-slate-600 uppercase absolute -top-4 left-0 w-full text-center">{label}</span>
         {item ? (
-            <div className="text-[10px] text-center text-amber-500 font-bold leading-tight uppercase group-hover:scale-110 transition-transform pointer-events-none">
-                {item.name}
+            <div className="w-full h-full p-1 group-hover:scale-110 transition-transform pointer-events-none">
+                <ItemIcon item={item} showBackground={false} />
             </div>
         ) : (
             <span className="text-[9px] text-slate-800 italic uppercase pointer-events-none">空置</span>

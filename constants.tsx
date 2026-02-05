@@ -1,11 +1,80 @@
 
-import { Item, Ability, Character } from './types.ts';
+import { Item, Ability, Character, Perk } from './types.ts';
+
+// --- PERKS (SKILLS) ---
+// Based on Battle Brothers structure, localized to Warring States setting.
+
+export const PERK_TREE: Record<string, Perk> = {
+    // TIER 1 (Lv 2) - 基础生存层
+    'colossus': { id: 'colossus', name: '强体', tier: 1, icon: '💪', description: '生命值上限提高 25%。' },
+    'nine_lives': { id: 'nine_lives', name: '命不该绝', tier: 1, icon: '🐈', description: '每次战斗中第一次受到致命伤时，生命值保留 1 点并移除所有流血中毒效果。' },
+    'recover': { id: 'recover', name: '调息', tier: 1, icon: '😤', description: '解锁技能“调息”：花费9AP，清除当前积累疲劳值的 50%。' },
+    'adrenaline': { id: 'adrenaline', name: '血勇', tier: 1, icon: '💉', description: '解锁技能“血勇”：花费1AP，下回合行动顺序提前至最先。' },
+    'pathfinder': { id: 'pathfinder', name: '识途', tier: 1, icon: '🧭', description: '所有地形的移动AP消耗减少 1 点（最低为2），疲劳消耗减半。' },
+    'bags_and_belts': { id: 'bags_and_belts', name: '行囊', tier: 1, icon: '🎒', description: '解锁全部 4 个背包格子（默认为 2 格）。' },
+    'fast_adaptation': { id: 'fast_adaptation', name: '临机应变', tier: 1, icon: '🎯', description: '每次攻击未命中，下一次攻击命中率叠加 +10%，命中后重置。' },
+    'crippling_strikes': { id: 'crippling_strikes', name: '致残击', tier: 1, icon: '🦴', description: '造成伤害引发“重伤”的门槛降低 33%。' },
+    'student': { id: 'student', name: '学徒', tier: 1, icon: '📖', description: '获得经验值增加 20%。达到 Lv11 时返还此技能点。' },
+
+    // TIER 2 (Lv 3) - 基础战斗素质层
+    'dodge': { id: 'dodge', name: '身法', tier: 2, icon: '🍃', description: '获得相当于当前“先手”值 15% 的近战和远程防御加成。' },
+    'gifted': { id: 'gifted', name: '天赋异禀', tier: 2, icon: '✨', description: '立即获得一次额外的升级属性机会（全属性最大值）。' },
+    'fortified_mind': { id: 'fortified_mind', name: '定胆', tier: 2, icon: '🧠', description: '“胆识”提高 25%。' },
+    'resilient': { id: 'resilient', name: '硬命', tier: 2, icon: '🦠', description: '流血、中毒等负面状态的持续时间减少 1 回合。' },
+    'steel_brow': { id: 'steel_brow', name: '铁额', tier: 2, icon: '🤕', description: '头部受到攻击不再遭受暴击伤害（即移除爆头加成）。' },
+    'quick_hands': { id: 'quick_hands', name: '换器如风', tier: 2, icon: '👐', description: '每回合第一次切换武器不消耗 AP。' },
+    'bullseye': { id: 'bullseye', name: '神射', tier: 2, icon: '👁️', description: '攻击被遮挡目标的命中率惩罚降低（从 -75% 变为 -50%）。' },
+    'executioner': { id: 'executioner', name: '补刀手', tier: 2, icon: '💀', description: '对受到“重伤”等临时负面状态影响的敌人，伤害增加 20%。' },
+
+    // TIER 3 (Lv 4) - 阵型与战术层
+    'backstabber': { id: 'backstabber', name: '合围', tier: 3, icon: '🔪', description: '包围加成的命中率翻倍（每个盟友 +10% 而非 +5%）。' },
+    'anticipation': { id: 'anticipation', name: '预判', tier: 3, icon: '👀', description: '根据远程防御值的 10% 额外增加被远程攻击时的防御（每格距离 +1）。' },
+    'shield_expert': { id: 'shield_expert', name: '盾法精通', tier: 3, icon: '🛡️', description: '盾牌防御加成 +25%。盾牌受到破盾技能的伤害减少。' },
+    'brawny': { id: 'brawny', name: '负重者', tier: 3, icon: '🏋️', description: '身甲和头盔造成的最大体力惩罚减少 30%。' },
+    'relentless': { id: 'relentless', name: '不息', tier: 3, icon: '🏃', description: '当前疲劳值对“先手”属性的惩罚减半。' },
+    'rotation': { id: 'rotation', name: '换位', tier: 3, icon: '🔄', description: '解锁技能“换位”：与相邻盟友交换位置（只要没人晕眩或定身）。' },
+    'rally': { id: 'rally', name: '振军', tier: 3, icon: '📢', description: '解锁技能“振军”：提高范围内盟友的士气，使崩溃者重整旗鼓。' },
+    'taunt': { id: 'taunt', name: '挑衅', tier: 3, icon: '🤬', description: '解锁技能“挑衅”：迫使敌人优先攻击自己。' },
+
+    // TIER 4 (Lv 5) - 武器专精层
+    'sword_mastery': { id: 'sword_mastery', name: '剑术精通', tier: 4, icon: '🗡️', description: '剑类技能疲劳消耗 -25%。反击不再受命中惩罚。' },
+    'spear_mastery': { id: 'spear_mastery', name: '枪术精通', tier: 4, icon: '🔱', description: '枪矛技能疲劳消耗 -25%。矛墙在命中敌人后不再自动解除。' },
+    'polearm_mastery': { id: 'polearm_mastery', name: '长兵精通', tier: 4, icon: '🍢', description: '长柄武器技能疲劳消耗 -25%。攻击AP消耗减至 5 点。' },
+    'axe_mastery': { id: 'axe_mastery', name: '斧钺精通', tier: 4, icon: '🪓', description: '斧类技能疲劳消耗 -25%。增加对盾牌的破坏力。' },
+    'hammer_mastery': { id: 'hammer_mastery', name: '重锤精通', tier: 4, icon: '🔨', description: '锤类技能疲劳消耗 -25%。对护甲造成的伤害增加 33%。' },
+    'flail_mastery': { id: 'flail_mastery', name: '连枷精通', tier: 4, icon: '⛓️', description: '连枷技能疲劳消耗 -25%。无视盾牌防御加成。' },
+    'cleaver_mastery': { id: 'cleaver_mastery', name: '斩刀精通', tier: 4, icon: '🍖', description: '砍刀技能疲劳消耗 -25%。流血伤害翻倍。' },
+    'dagger_mastery': { id: 'dagger_mastery', name: '匕首精通', tier: 4, icon: '🗡️', description: '匕首技能疲劳消耗 -25%。普通攻击只需 3 AP。' },
+    'bow_mastery': { id: 'bow_mastery', name: '弓术精通', tier: 4, icon: '🏹', description: '弓类技能疲劳消耗 -25%。射程 +1。' },
+    'crossbow_mastery': { id: 'crossbow_mastery', name: '弩术精通', tier: 4, icon: '🔫', description: '弩类技能疲劳消耗 -25%。穿甲伤害 +20%。' },
+    'throwing_mastery': { id: 'throwing_mastery', name: '投掷精通', tier: 4, icon: '🪃', description: '投掷技能疲劳消耗 -25%。距离越近伤害越高（2格内 +40%）。' },
+
+    // TIER 5 (Lv 6) - 高阶战术风格层
+    'lone_wolf': { id: 'lone_wolf', name: '独胆', tier: 5, icon: '🐺', description: '若周围 3 格内无盟友，全属性 +15%。' },
+    'underdog': { id: 'underdog', name: '破围', tier: 5, icon: '🛡️', description: '敌人对自己进行包围攻击时，不再获得包围命中加成。' },
+    'footwork': { id: 'footwork', name: '脱身', tier: 5, icon: '💨', description: '解锁技能“脱身”：无视敌人控制区（ZOC）移动一格。' },
+    'overwhelm': { id: 'overwhelm', name: '压制', tier: 5, icon: '🌩️', description: '每次攻击命中或被格挡，令目标下回合全攻击力 -10%（可叠加）。' },
+    'reach_advantage': { id: 'reach_advantage', name: '兵势', tier: 5, icon: '📏', description: '每次双手武器攻击命中，近战防御 +5（可叠加至下回合）。' },
+
+    // TIER 6 (Lv 7) - 防御形态分支层
+    'nimble': { id: 'nimble', name: '轻甲流', tier: 6, icon: '🤸', description: '受到的生命值伤害降低，降低幅度取决于身上装备的总疲劳惩罚（越轻越硬，最高减伤 60%）。' },
+    'battle_forged': { id: 'battle_forged', name: '重甲流', tier: 6, icon: '🏰', description: '受到的护甲伤害降低，降低幅度为当前总护甲值的 5%。' },
+    'berserk': { id: 'berserk', name: '狂战', tier: 6, icon: '😡', description: '每回合第一次击杀敌人，立即回复 4 AP。' },
+    'head_hunter': { id: 'head_hunter', name: '索首', tier: 6, icon: '🤯', description: '每次攻击命中身体，下次攻击必定命中头部。' },
+
+    // TIER 7 (Lv 8) - 终极战团技能
+    'killing_frenzy': { id: 'killing_frenzy', name: '杀意', tier: 7, icon: '🩸', description: '击杀敌人后，所有攻击伤害增加 25%，持续 2 回合。' },
+    'duelist': { id: 'duelist', name: '独胆宗师', tier: 7, icon: '🤺', description: '当副手空缺（或仅持投掷物）时，单手武器攻击无视额外 25% 的护甲。' },
+    'fearsome': { id: 'fearsome', name: '威压', tier: 7, icon: '👻', description: '任何造成至少 1 点伤害的攻击都会触发敌人的士气检定，且受到士气惩罚。' },
+    'indomitable': { id: 'indomitable', name: '不屈', tier: 7, icon: '🗿', description: '解锁技能“不屈”：受到伤害减半，且免疫击退、抓取、击晕，持续1回合。' },
+};
 
 // --- ABILITIES (SKILLS) ---
 export const ABILITIES: Record<string, Ability> = {
     // Basic
     'WAIT': { id: 'WAIT', name: '等待', description: '推迟行动顺序。', apCost: 0, fatCost: 0, range: [0, 0], icon: '⏳', type: 'UTILITY', targetType: 'SELF' },
-    'MOVE': { id: 'MOVE', name: '移动', description: '移动到目标地块。', apCost: 2, fatCost: 2, range: [1, 1], icon: '🦶', type: 'UTILITY', targetType: 'GROUND' },
+    // Fix: Increased range to 12 to allow pathfinding/movement across multiple tiles in one action
+    'MOVE': { id: 'MOVE', name: '移动', description: '移动到目标地块。', apCost: 2, fatCost: 2, range: [1, 12], icon: '🦶', type: 'UTILITY', targetType: 'GROUND' },
     
     // Weapon Skills
     'SLASH': { id: 'SLASH', name: '劈砍', description: '基础剑术攻击。', apCost: 4, fatCost: 10, range: [1, 1], icon: '🗡️', type: 'ATTACK', targetType: 'ENEMY' },
@@ -33,6 +102,10 @@ export const ABILITIES: Record<string, Ability> = {
 
 export const getUnitAbilities = (char: Character): Ability[] => {
     const skills: Ability[] = [];
+    
+    // Add Move First
+    skills.push(ABILITIES['MOVE']);
+
     const main = char.equipment.mainHand;
     const off = char.equipment.offHand;
 
@@ -43,7 +116,8 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         else if (main.name.includes('矛') || main.name.includes('枪')) { skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']); }
         else if (main.name.includes('棒') || main.name.includes('殳')) { skills.push(ABILITIES['BASH']); }
         else if (main.name.includes('戈') || main.name.includes('戟')) { skills.push(ABILITIES['IMPALE']); }
-        else if (main.name.includes('弓') || main.name.includes('弩')) { skills.push(ABILITIES['SHOOT']); }
+        else if (main.name.includes('弓')) { skills.push(ABILITIES['SHOOT']); }
+        else if (main.name.includes('弩')) { skills.push(ABILITIES['SHOOT']); skills.push(ABILITIES['RELOAD']); }
         else { skills.push(ABILITIES['SLASH']); } // Default generic
     } else {
         // Unarmed
@@ -55,6 +129,16 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         skills.push(ABILITIES['SHIELDWALL']);
         skills.push(ABILITIES['KNOCK_BACK']);
     }
+    
+    // Perk Skills (Dynamic Addition based on unlocked Perks)
+    if (char.perks) {
+        if (char.perks.includes('recover')) skills.push({ id: 'RECOVER_SKILL', name: '调息', description: '恢复疲劳。', apCost: 9, fatCost: 0, range: [0,0], icon: '😤', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('adrenaline')) skills.push({ id: 'ADRENALINE_SKILL', name: '血勇', description: '下回合先动。', apCost: 1, fatCost: 20, range: [0,0], icon: '💉', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('rotation')) skills.push({ id: 'ROTATION_SKILL', name: '换位', description: '与盟友换位。', apCost: 3, fatCost: 25, range: [1,1], icon: '🔄', type: 'UTILITY', targetType: 'ALLY' }); // Simplified target type
+    }
+
+    // Add Wait Last
+    skills.push(ABILITIES['WAIT']);
 
     return skills;
 };
@@ -152,6 +236,7 @@ export const NAMES_MALE = [
 
 export interface BackgroundTemplate {
     name: string;
+    icon: string; // New: Icon for visual clarity
     desc: string;
     stories: string[]; // List of potential stories
     hpMod: [number, number];
@@ -168,6 +253,7 @@ export interface BackgroundTemplate {
 export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     'FARMER': {
         name: '农夫',
+        icon: '🌾',
         desc: '失去土地的农民。',
         stories: [
             '原本在垄亩间耕作，直到秦军的征粮官拿走了最后一粒米。他拿起锄头，决定换一种活法。',
@@ -180,6 +266,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'DESERTER': {
         name: '逃兵',
+        icon: '🏳️',
         desc: '从战场上逃离的士兵。',
         stories: [
             '长平之战的幸存者之一，他在尸山血海中装死才逃过一劫。每当深夜，他仍会被噩梦惊醒。',
@@ -192,6 +279,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'HUNTER': {
         name: '猎户',
+        icon: '🏹',
         desc: '山林中的猎人。',
         stories: [
             '他曾独自在深山中追踪一只猛虎三天三夜。相比于野兽，他觉得人反而更好对付。',
@@ -204,6 +292,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'NOMAD': {
         name: '胡人游骑',
+        icon: '🐎',
         desc: '来自北方的游牧民。',
         stories: [
             '因为部落间的仇杀，他失去了牛羊和帐篷。如今，他的马刀只为出价最高的人挥舞。',
@@ -215,6 +304,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'NOBLE': {
         name: '落魄士族',
+        icon: '📜',
         desc: '家道中落的士族子弟。',
         stories: [
             '他的家族在政治斗争中败落，满门抄斩，唯有他靠着家仆的掩护逃出生天。',
@@ -227,6 +317,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'MONK': {
         name: '游方方士',
+        icon: '☯️',
         desc: '云游四方的方士。',
         stories: [
             '他自称见过蓬莱仙岛，却因为炼丹炸炉而被赶出了道观。',
@@ -238,6 +329,7 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
     },
     'BANDIT': {
         name: '山贼',
+        icon: '👺',
         desc: '以此为生的亡命之徒。',
         stories: [
             '被官府通缉多年，他对于如何在乱世中生存有着独特的见解。',
@@ -247,6 +339,29 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {
         meleeSkillMod: [5, 10], rangedSkillMod: [0, 10], defMod: [0, 5], initMod: [0, 5],
         salaryMult: 1.0, gearQuality: 0
     }
+};
+
+export const QUEST_FLAVOR_TEXTS = {
+    HUNT: [
+        {
+            title: (diff: number) => diff === 1 ? '剿灭流寇' : diff === 2 ? '清缴山寨' : '讨伐悍匪头目',
+            desc: (target: string) => `市井传闻，附近有一伙名为“${target}”的匪徒，经常劫掠过往客商，手段残忍。当地市令悬赏勇士将其剿灭，以安民心。`
+        },
+        {
+            title: (diff: number) => diff === 1 ? '驱逐野人' : diff === 2 ? '搜寻逃犯' : '追杀叛将',
+            desc: (target: string) => `据说${target}最近在附近出没，此人身负多条人命，极其危险。若能带回其首级，必有重赏。`
+        }
+    ],
+    ESCORT: [
+        {
+            title: (dest: string) => `护送盐铁商队至${dest}`,
+            desc: (dest: string) => `一支运送官盐和铁器的商队急需护卫前往${dest}。路上不太平，商队主人愿意支付高额报酬，只求平安到达。`
+        },
+        {
+            title: (dest: string) => `护送贵族家眷至${dest}`,
+            desc: (dest: string) => `一位大人物的家眷需要秘密前往${dest}避难。此事需极其低调，切勿走漏风声。`
+        }
+    ]
 };
 
 // Hex Math
