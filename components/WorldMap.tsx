@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldTile, Party, WorldEntity } from '../types.ts';
-import { TERRAIN_DATA, MAP_SIZE, VIEWPORT_WIDTH } from '../constants.tsx';
+import { TERRAIN_DATA, MAP_SIZE, VIEWPORT_WIDTH, VISION_RADIUS } from '../constants.tsx';
 
 interface WorldMapProps {
   tiles: WorldTile[];
@@ -9,8 +9,6 @@ interface WorldMapProps {
   entities: WorldEntity[];
   onSetTarget: (x: number, y: number) => void;
 }
-
-const VISION_RADIUS = 6;
 
 export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSetTarget }) => {
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH); 
@@ -32,10 +30,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
   const handleWheel = (e: React.WheelEvent) => {
       e.stopPropagation();
       const delta = Math.sign(e.deltaY) * 2;
-      setViewportWidth(prev => {
-          const next = prev + delta;
-          return Math.max(10, Math.min(MAP_SIZE, next)); 
-      });
+      setViewportWidth(prev => Math.max(10, Math.min(MAP_SIZE, prev + delta)));
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -57,11 +52,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
       dragStartRef.current = { x: e.clientX, y: e.clientY };
   };
 
-  const handleMouseUp = () => {
-      isDraggingRef.current = false;
-  };
+  const handleMouseUp = () => { isDraggingRef.current = false; };
 
   const handleClick = (e: React.MouseEvent) => {
+      if (isDraggingRef.current && (Math.abs(e.clientX - dragStartRef.current.x) > 5)) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -115,53 +109,40 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           const screenX = (x - startX) * tileSize - ((cameraRef.current.x - viewportWidth / 2) % 1) * tileSize;
           const screenY = (y - startY) * tileSize - ((cameraRef.current.y - viewportHeight / 2) % 1) * tileSize;
           
-          // 1. Draw Terrain Base (Always draw, fog covers it)
+          // 1. Terrain Base
           const terrain = TERRAIN_DATA[tile.type];
-          ctx.fillStyle = terrain.color;
+          ctx.fillStyle = terrain?.color || '#222';
           ctx.fillRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
           
-          // 2. Draw Features
-          if (tile.type === 'ROAD') {
+          // 2. Features
+          ctx.font = `${tileSize * 0.7}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          if (tile.type === 'CITY') {
+              ctx.fillText('🏯', screenX + tileSize/2, screenY + tileSize/2);
+          } else if (tile.type === 'MOUNTAIN') {
+              ctx.fillText('⛰️', screenX + tileSize/2, screenY + tileSize/2);
+          } else if (tile.type === 'FOREST') {
+              ctx.fillText('🌲', screenX + tileSize/2, screenY + tileSize/2);
+          } else if (tile.type === 'ROAD') {
               ctx.fillStyle = '#8f7e63';
               ctx.beginPath();
-              ctx.arc(screenX + tileSize/2, screenY + tileSize/2, tileSize * 0.25, 0, Math.PI * 2);
+              ctx.arc(screenX + tileSize/2, screenY + tileSize/2, tileSize * 0.2, 0, Math.PI * 2);
               ctx.fill();
-          } 
-          else if (tile.type === 'CITY') {
-              ctx.fillStyle = '#ca8a04'; 
-              ctx.font = `${tileSize * 0.8}px serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText('🏯', screenX + tileSize/2, screenY + tileSize/2);
-          }
-          else if (tile.type === 'MOUNTAIN') {
-               ctx.font = `${tileSize * 0.9}px serif`;
-               ctx.textAlign = 'center';
-               ctx.textBaseline = 'middle';
-               ctx.fillStyle = '#aaa';
-               ctx.fillText('⛰️', screenX + tileSize/2, screenY + tileSize/2);
-          }
-          else if (tile.type === 'FOREST') {
-               ctx.font = `${tileSize * 0.7}px serif`;
-               ctx.textAlign = 'center';
-               ctx.textBaseline = 'middle';
-               ctx.fillText('🌲', screenX + tileSize/2, screenY + tileSize/2);
           }
 
-          // 3. Fog of War Logic
+          // 3. Fog of War
           const dist = Math.sqrt(Math.pow(x - party.x, 2) + Math.pow(y - party.y, 2));
           if (!tile.explored) {
-               // Unexplored: Full Black
                ctx.fillStyle = '#000000';
                ctx.fillRect(Math.floor(screenX)-1, Math.floor(screenY)-1, Math.ceil(tileSize)+2, Math.ceil(tileSize)+2);
           } else if (dist > VISION_RADIUS) {
-               // Explored but not visible: Dark shroud
-               ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+               ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
                ctx.fillRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
           } else {
-               // Visible: Light grid
-               ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-               ctx.lineWidth = 1;
+               ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+               ctx.lineWidth = 0.5;
                ctx.strokeRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(tileSize), Math.ceil(tileSize));
           }
         }
@@ -172,8 +153,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           y: (wy - (cameraRef.current.y - viewportHeight / 2)) * tileSize
       });
 
-      // Entities (Only visible ones passed from parent)
+      // Entities (Only visible within vision)
       entities.forEach(ent => {
+          const distToParty = Math.hypot(ent.x - party.x, ent.y - party.y);
+          if (distToParty > VISION_RADIUS) return; // Hide if in fog
+
           const pos = toScreen(ent.x, ent.y);
           if (pos.x < -tileSize || pos.x > rect.width || pos.y < -tileSize || pos.y > rect.height) return;
 
@@ -186,62 +170,35 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
           ctx.stroke();
 
           ctx.font = `${tileSize * 0.5}px sans-serif`;
+          ctx.fillStyle = '#fff';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(ent.type === 'NOMAD' ? '🐎' : ent.type === 'TRADER' ? '⚖️' : ent.type === 'ARMY' ? '🛡️' : '⚔️', pos.x, pos.y + tileSize * 0.05);
-          
-          ctx.fillStyle = 'rgba(0,0,0,0.6)';
-          ctx.fillRect(pos.x - tileSize*0.6, pos.y + tileSize*0.4, tileSize * 1.2, tileSize*0.25);
-          
-          ctx.fillStyle = ent.faction === 'HOSTILE' ? '#ef4444' : '#fbbf24'; 
-          ctx.font = `bold ${tileSize * 0.15}px sans-serif`;
-          ctx.fillText(ent.name, pos.x, pos.y + tileSize * 0.55);
+          ctx.fillText(ent.type === 'NOMAD' ? '🐎' : ent.type === 'TRADER' ? '⚖️' : ent.type === 'ARMY' ? '🛡️' : '⚔️', pos.x, pos.y);
       });
 
-      // Player Army
+      // Player
       const pPos = toScreen(party.x, party.y);
-      if (pPos.x > -tileSize && pPos.x < rect.width + tileSize && pPos.y > -tileSize && pPos.y < rect.height + tileSize) {
-          ctx.shadowColor = '#f59e0b';
-          ctx.shadowBlur = 10;
-          
-          ctx.fillStyle = '#b45309'; 
-          ctx.beginPath();
-          ctx.arc(pPos.x, pPos.y, tileSize * 0.4, 0, Math.PI * 2);
-          ctx.fill();
-          
-          ctx.strokeStyle = '#fcd34d'; 
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          
-          ctx.shadowBlur = 0;
+      ctx.fillStyle = '#b45309'; 
+      ctx.beginPath();
+      ctx.arc(pPos.x, pPos.y, tileSize * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#fff'; 
+      ctx.font = `bold ${tileSize * 0.5}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('伍', pPos.x, pPos.y);
 
-          ctx.fillStyle = '#fff'; 
-          ctx.font = `bold ${tileSize * 0.5}px serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('伍', pPos.x, pPos.y);
-      }
-
-      // Target Marker
+      // Target Line
       if (party.targetX !== null && party.targetY !== null) {
           const tPos = toScreen(party.targetX, party.targetY);
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
-          ctx.lineWidth = 3;
-          const size = tileSize * 0.2;
-          
-          ctx.beginPath();
-          ctx.moveTo(tPos.x - size, tPos.y - size);
-          ctx.lineTo(tPos.x + size, tPos.y + size);
-          ctx.moveTo(tPos.x + size, tPos.y - size);
-          ctx.lineTo(tPos.x - size, tPos.y + size);
-          ctx.stroke();
-          
-          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
           ctx.setLineDash([5, 5]);
+          ctx.beginPath();
           ctx.moveTo(pPos.x, pPos.y);
           ctx.lineTo(tPos.x, tPos.y);
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
           ctx.stroke();
           ctx.setLineDash([]);
       }
@@ -250,34 +207,26 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
     };
 
     requestRef.current = requestAnimationFrame(render);
-    return () => {
-        if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    };
+    return () => cancelAnimationFrame(requestRef.current);
   }, [tiles, party, entities, viewportWidth]);
 
   return (
-    <div className="relative w-full h-full bg-[#111] overflow-hidden flex items-center justify-center select-none">
-      <div className="absolute inset-0 bg-[#0e0e0e]" />
-      <div className="relative shadow-2xl overflow-hidden bg-[#0a0a0a] border border-white/10" style={{ width: '90vw', height: '80vh' }}>
-          <canvas 
-            ref={canvasRef}
-            className="w-full h-full cursor-move"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onClick={handleClick}
-            onWheel={handleWheel}
-          />
-      </div>
-      <div className="absolute bottom-10 right-10 z-50 text-right pointer-events-none">
-        <div className="text-4xl font-bold text-amber-600 font-serif tracking-tighter drop-shadow-lg">
+    <div className="relative w-full h-full bg-[#0a0a0a] overflow-hidden select-none">
+      <canvas 
+        ref={canvasRef}
+        className="w-full h-full cursor-move"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClick={handleClick}
+        onWheel={handleWheel}
+      />
+      <div className="absolute bottom-8 right-8 z-50 text-right pointer-events-none">
+        <div className="text-4xl font-bold text-amber-600 font-serif tracking-widest drop-shadow-2xl">
             第 {Math.floor(party.day)} 天
         </div>
       </div>
-      {isDraggingRef.current && (
-           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-white/10 text-6xl">⚓</div>
-      )}
     </div>
   );
 };

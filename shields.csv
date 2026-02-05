@@ -1,0 +1,4 @@
+id|name|value|weight|durability|defenseBonus|rangedBonus|fatigueCost|description
+s_buckler|藤牌|80|4|20|10|5|4|轻便的藤编盾牌，能格挡一些轻微攻击。
+s_round|蒙皮圆盾|200|10|40|15|15|8|标准的步兵盾牌。
+s_tower|楚式大盾|500|20|80|25|30|16|如同一堵墙壁，提供极佳的防护，但非常沉重。

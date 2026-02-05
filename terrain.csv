@@ -1,0 +1,10 @@
+id|name|color|moveCost|height|icon
+PLAINS|平原|#3d4a2a|2|0|🌾
+FOREST|森林|#1a2e1a|3|1|🌲
+MOUNTAIN|山地|#2f2f2f|8|3|⛰️
+SWAMP|沼泽|#1b2621|5|-1|🌫️
+CITY|城邑|#4a3b2a|1|1|🏯
+RUINS|遗迹|#2a2a2a|3|1|🏚️
+SNOW|雪原|#e2e8f0|3|1|❄️
+DESERT|荒漠|#9a7b4f|3|0|🏜️
+ROAD|官道|#786c55|1|0|🛣️

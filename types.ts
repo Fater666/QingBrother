@@ -23,58 +23,70 @@ export interface Ability {
 
 export interface Perk {
   id: string;
-  name: string; // Localized name (e.g., "强体")
-  tier: number; // 1-7
+  name: string; 
+  tier: number; 
   icon: string;
   description: string;
+}
+
+export interface BackgroundTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  salaryMult: number;
+  gearQuality: number;
+  hpMod: [number, number];
+  fatigueMod: [number, number];
+  resolveMod: [number, number];
+  meleeSkillMod: [number, number];
+  rangedSkillMod: [number, number];
+  defMod: [number, number];
+  initMod: [number, number];
+  desc: string;
+  stories: string[];
 }
 
 export interface Item {
   id: string;
   name: string;
-  type: 'WEAPON' | 'ARMOR' | 'HELMET' | 'SHIELD' | 'CONSUMABLE';
+  type: 'WEAPON' | 'ARMOR' | 'HELMET' | 'SHIELD' | 'CONSUMABLE' | 'AMMO' | 'ACCESSORY';
   value: number;
   weight: number;
-  durability: number;     // For Armor: Current Armor Points
-  maxDurability: number;  // For Armor: Max Armor Points
+  durability: number;     
+  maxDurability: number;  
   description: string;
-  
-  // Weapon Stats
-  damage?: [number, number]; // [Min, Max] HP Damage
-  armorPen?: number;         // 0.0 - 1.0 (Direct HP damage percentage ignoring armor)
-  armorDmg?: number;         // 0.0 - 2.0 (Multiplier for damage done to armor durability)
-  hitChanceMod?: number;     // +% to hit
-  
-  // Defensive Stats
-  defenseBonus?: number;     // Melee Defense bonus (Shields/Parrying weapons)
-  rangedBonus?: number;      // Ranged Defense bonus
-  
-  // Costs
-  fatigueCost?: number;      // Fatigue cost to use (Weapon)
-  maxFatiguePenalty?: number;// Max Fatigue reduction (Armor/Shield)
-  range?: number;            // Attack range in hexes
+  damage?: [number, number]; 
+  armorPen?: number;         
+  armorDmg?: number;         
+  hitChanceMod?: number;     
+  defenseBonus?: number;     
+  rangedBonus?: number;      
+  fatigueCost?: number;      
+  maxFatiguePenalty?: number;
+  range?: number;            
 }
 
 export interface Character {
   id: string;
   name: string;
   background: string;
-  backgroundStory: string; // New: Flavor text
+  backgroundStory: string;
   level: number;
+  xp: number;
   hp: number;
   maxHp: number;
-  fatigue: number; // Current accumulated fatigue (starts at 0)
-  maxFatigue: number; // Max usable fatigue (Base - Gear)
+  fatigue: number; 
+  maxFatigue: number; 
   morale: MoraleStatus;
   stats: {
-    meleeSkill: number;     // 近战命中
-    rangedSkill: number;    // 远程命中
-    meleeDefense: number;   // 近战防御
-    rangedDefense: number;  // 远程防御
-    resolve: number;        // 胆识/士气
-    initiative: number;     // 身法/先手
+    meleeSkill: number;     
+    rangedSkill: number;    
+    meleeDefense: number;   
+    rangedDefense: number;  
+    resolve: number;        
+    initiative: number;     
   };
-  stars: { // Potential (0-3 stars)
+  stars: { 
     meleeSkill: number;
     rangedSkill: number;
     meleeDefense: number;
@@ -85,25 +97,18 @@ export interface Character {
     fatigue: number;
   };
   traits: string[];
-  
-  // Skills / Perks
   perkPoints: number;
-  perks: string[]; // List of unlocked Perk IDs
-
+  perks: string[]; 
   equipment: {
     mainHand: Item | null;
-    offHand: Item | null; // For shields
+    offHand: Item | null;
     armor: Item | null;
     helmet: Item | null;
+    ammo: Item | null;
+    accessory: Item | null;
   };
-  
-  // Battle Brothers style Bag Slots (Fixed size 4, use perks to unlock usage)
   bag: (Item | null)[]; 
-
   salary: number;
-  
-  // New: Formation Logic
-  // 0-8: Front Row, 9-17: Back Row. null: Reserve
   formationIndex: number | null; 
 }
 
@@ -114,11 +119,11 @@ export interface Quest {
     type: QuestType;
     title: string;
     description: string;
-    difficulty: 1 | 2 | 3; // Stars
+    difficulty: 1 | 2 | 3; 
     rewardGold: number;
     sourceCityId: string;
-    targetCityId?: string; // For Escort/Delivery
-    targetEntityId?: string; // For Hunt
+    targetCityId?: string; 
+    targetEntityId?: string; 
     isCompleted: boolean;
     daysLeft: number;
 }
@@ -133,10 +138,10 @@ export interface City {
   type: 'CAPITAL' | 'TOWN' | 'VILLAGE';
   faction: string;
   state: 'NORMAL' | 'WAR' | 'FAMINE' | 'PROSPEROUS';
-  facilities: CityFacility[]; // Distinct features
+  facilities: CityFacility[]; 
   market: Item[];
   recruits: Character[];
-  quests: Quest[]; // Available contracts
+  quests: Quest[]; 
 }
 
 export interface WorldTile {
@@ -144,7 +149,7 @@ export interface WorldTile {
   y: number;
   type: 'PLAINS' | 'FOREST' | 'MOUNTAIN' | 'SWAMP' | 'CITY' | 'RUINS' | 'SNOW' | 'DESERT' | 'ROAD';
   height: number;
-  explored: boolean; // Fog of War
+  explored: boolean; 
 }
 
 export interface WorldEntity {
@@ -154,28 +159,26 @@ export interface WorldEntity {
   faction: 'HOSTILE' | 'NEUTRAL' | 'ALLY';
   x: number;
   y: number;
-  
-  // AI State
   targetX: number | null;
   targetY: number | null;
   speed: number;
   aiState: 'IDLE' | 'PATROL' | 'CHASE' | 'TRAVEL' | 'FLEE';
-  homeX: number; // Spawn point or patrol center
+  homeX: number; 
   homeY: number;
-  targetEntityId?: string | null; // ID of entity chasing
-  isQuestTarget?: boolean; // Visual marker
+  targetEntityId?: string | null; 
+  isQuestTarget?: boolean; 
 }
 
 export interface Party {
-  x: number; // Current float X position
-  y: number; // Current float Y position
+  x: number; 
+  y: number; 
   targetX: number | null;
   targetY: number | null;
   gold: number;
   food: number;
   mercenaries: Character[];
   inventory: Item[];
-  day: number; // Fractional day (e.g., 1.5 is noon on day 1)
+  day: number; 
   activeQuest: Quest | null;
 }
 
@@ -187,8 +190,8 @@ export interface CombatUnit extends Character {
   isShieldWall: boolean;
   isHalberdWall: boolean;
   movedThisTurn: boolean;
-  hasWaited: boolean; // Tracks if unit has used "Wait" action this round
-  freeSwapUsed: boolean; // For Quick Hands perk
+  hasWaited: boolean; 
+  freeSwapUsed: boolean; 
 }
 
 export interface CombatState {
@@ -197,5 +200,5 @@ export interface CombatState {
   currentUnitIndex: number;
   round: number;
   combatLog: string[];
-  terrainType: string; // To generate combat map
+  terrainType: string; 
 }

@@ -1,0 +1,5 @@
+id|name|value|weight|durability|maxFatiguePenalty|description
+h_hood|头巾|15|1|20|0|裹在头上的布，只能防晒。
+h_cap|皮弁|120|4|50|2|硬皮制成的帽子，保护头顶。
+h_bronze|青铜胄|400|8|120|6|制式青铜头盔，提供良好的防护。
+h_iron|铁面兜鍪|1100|12|200|10|带有铁面具的重型头盔，令人望而生畏。
