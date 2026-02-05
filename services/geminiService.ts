@@ -1,47 +1,18 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { EVENT_TEMPLATES } from "../constants.tsx";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
+/**
+ * 以前用于调用 AI 生成事件。
+ * 现在直接从 CSV 配置 (EVENT_TEMPLATES) 中随机抽取事件。
+ */
 export async function generateDynamicEvent(context: string) {
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `基于以下战国末期的背景：${context}。生成一个随机遭遇事件。`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          description: { type: Type.STRING },
-          choices: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                text: { type: Type.STRING },
-                consequence: { type: Type.STRING },
-                impact: {
-                  type: Type.OBJECT,
-                  properties: {
-                    gold: { type: Type.NUMBER },
-                    food: { type: Type.NUMBER },
-                    morale: { type: Type.NUMBER }
-                  }
-                }
-              }
-            }
-          }
-        },
-        required: ["title", "description", "choices"]
-      }
-    }
-  });
-
-  try {
-    return JSON.parse(response.text);
-  } catch (e) {
-    console.error("Failed to parse event JSON", e);
-    return null;
+  // 模拟极短的加载时间
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  if (!EVENT_TEMPLATES || EVENT_TEMPLATES.length === 0) {
+      return null;
   }
+
+  const randomIndex = Math.floor(Math.random() * EVENT_TEMPLATES.length);
+  return EVENT_TEMPLATES[randomIndex];
 }

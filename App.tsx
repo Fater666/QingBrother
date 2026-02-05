@@ -165,6 +165,43 @@ export const App: React.FC = () => {
   const [currentCity, setCurrentCity] = useState<City | null>(null);
   const lastUpdateRef = useRef<number>(performance.now());
 
+  // --- SAVE & LOAD SYSTEM ---
+  const saveGame = useCallback(() => {
+    const saveData = {
+        tiles,
+        cities,
+        entities,
+        party,
+        day: party.day,
+        view: view === 'COMBAT' ? 'WORLD_MAP' : view // 不保存战斗状态，退回地图
+    };
+    try {
+        localStorage.setItem('zhanguo_with_five_save', JSON.stringify(saveData));
+        alert("战绩已刻录简牍（存档成功）。");
+    } catch (e) {
+        alert("简牍告罄，无法刻录（存档失败）。");
+    }
+  }, [tiles, cities, entities, party, view]);
+
+  const loadGame = useCallback(() => {
+    const raw = localStorage.getItem('zhanguo_with_five_save');
+    if (!raw) {
+        alert("未发现往昔简牍（无存档）。");
+        return;
+    }
+    try {
+        const data = JSON.parse(raw);
+        setTiles(data.tiles);
+        setCities(data.cities);
+        setEntities(data.entities);
+        setParty(data.party);
+        setView(data.view);
+        alert("往昔历历在目（读档成功）。");
+    } catch (e) {
+        alert("简牍残破，无法辨识（读档失败）。");
+    }
+  }, []);
+
   // 战争迷雾更新
   useEffect(() => {
       const px = Math.floor(party.x), py = Math.floor(party.y);
@@ -262,33 +299,101 @@ export const App: React.FC = () => {
     <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {view !== 'COMBAT' && (
           <nav className="h-14 bg-black border-b border-amber-900/40 flex items-center justify-between px-6 z-50">
-             <div className="flex gap-4">
-                <button onClick={() => setTimeScale(0)} className={`px-3 py-1 bg-slate-800 border ${timeScale === 0 ? 'border-amber-500' : 'border-slate-700'}`}>⏸</button>
-                <button onClick={() => setTimeScale(1)} className={`px-3 py-1 bg-slate-800 border ${timeScale === 1 ? 'border-amber-500' : 'border-slate-700'}`}>▶</button>
-                <button onClick={() => setTimeScale(3)} className={`px-3 py-1 bg-slate-800 border ${timeScale === 3 ? 'border-amber-500' : 'border-slate-700'}`}>⏩</button>
+             <div className="flex gap-4 items-center">
+                <span className="text-amber-500 font-bold tracking-widest text-lg uppercase italic">战国·与伍同行</span>
+                <div className="h-6 w-px bg-amber-900/40" />
+                <button 
+                    onClick={() => setView(view === 'CAMP' ? 'WORLD_MAP' : 'CAMP')}
+                    className={`px-4 py-1 text-xs font-bold transition-all border ${view === 'CAMP' ? 'bg-amber-600 text-white border-amber-500' : 'text-amber-500 border-amber-900/40 hover:border-amber-500'}`}
+                >
+                    战团营地
+                </button>
+                <div className="flex gap-2 ml-4">
+                    <button onClick={saveGame} className="px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
+                    <button onClick={loadGame} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
+                </div>
              </div>
-             <div className="flex gap-6 items-center">
-                 <div className="text-amber-500 font-bold tracking-widest font-mono">💰 {party.gold}</div>
-                 <button onClick={() => { setView('CAMP'); setTimeScale(0); }} className="px-6 py-1 bg-slate-900 border border-amber-800 uppercase text-xs hover:border-amber-500 transition-all">战团营地</button>
+
+             <div className="flex gap-8 items-center">
+                 <div className="flex gap-4 text-xs font-mono">
+                     <span className="text-amber-500">金: {party.gold}</span>
+                     <span className="text-emerald-500">粮: {party.food}</span>
+                     <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
+                 </div>
+                 <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1">
+                     {[0, 1, 2].map(s => (
+                         <button key={s} onClick={() => setTimeScale(s)} className={`w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                             {s === 0 ? '⏸' : s === 1 ? '▶' : '▶▶'}
+                         </button>
+                     ))}
+                 </div>
              </div>
           </nav>
       )}
+
       <main className="flex-1 relative">
-        {view === 'WORLD_MAP' && <WorldMap tiles={tiles} party={party} entities={entities} onSetTarget={(x,y) => setParty(p => ({...p, targetX: x, targetY: y}))} />}
-        {view === 'COMBAT' && combatState && <CombatView initialState={combatState} onCombatEnd={(v,s) => { 
-            setParty(p => ({ ...p, mercenaries: s.map(u => u as Character) })); setView('WORLD_MAP'); setTimeScale(1); 
-        }} />}
-        {view === 'CAMP' && <SquadManagement party={party} onUpdateParty={setParty} onClose={() => { setView('WORLD_MAP'); setTimeScale(1); }} />}
-        {view === 'CITY' && currentCity && <CityView city={currentCity} party={party} onLeave={() => { setView('WORLD_MAP'); setTimeScale(1); }} onUpdateParty={setParty} onUpdateCity={(c) => setCities(prev => prev.map(ct => ct.id === c.id ? c : ct))} onAcceptQuest={(q) => setParty(p => ({...p, activeQuest: q}))} />}
-        
+        {view === 'WORLD_MAP' && (
+            <WorldMap 
+                tiles={tiles} 
+                party={party} 
+                entities={entities} 
+                onSetTarget={(x, y) => { setParty(p => ({ ...p, targetX: x, targetY: y })); setTimeScale(1); }} 
+            />
+        )}
+        {view === 'COMBAT' && combatState && (
+            <CombatView 
+                initialState={combatState} 
+                onCombatEnd={(victory, survivors) => {
+                    if (victory) {
+                        setParty(p => ({ ...p, mercenaries: survivors }));
+                        setView('WORLD_MAP');
+                        setCombatState(null);
+                        setTimeScale(0);
+                    } else {
+                        alert("全军覆没...");
+                        window.location.reload();
+                    }
+                }} 
+            />
+        )}
+        {view === 'CAMP' && (
+            <SquadManagement 
+                party={party} 
+                onUpdateParty={setParty} 
+                onClose={() => setView('WORLD_MAP')} 
+            />
+        )}
+        {view === 'CITY' && currentCity && (
+            <CityView 
+                city={currentCity} 
+                party={party} 
+                onLeave={() => { setView('WORLD_MAP'); setTimeScale(0); }}
+                onUpdateParty={setParty}
+                onUpdateCity={(newCity) => setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c))}
+                onAcceptQuest={(q) => setParty(p => ({ ...p, activeQuest: q }))}
+            />
+        )}
+
+        {/* Post-Combat UI / Interaction Dialogs */}
         {preCombatEntity && (
-            <div className="absolute inset-0 bg-black/85 flex items-center justify-center z-[100]">
-                <div className="bg-[#111] p-10 border-2 border-red-900 text-center shadow-[0_0_50px_rgba(220,38,38,0.2)]">
-                    <h2 className="text-3xl font-bold text-red-600 mb-8 tracking-widest uppercase">遭 遇 敌 袭</h2>
-                    <p className="text-slate-400 mb-10 italic">一支 {preCombatEntity.name} 挡住了你们的去路...</p>
-                    <div className="flex gap-6 justify-center">
-                        <button onClick={() => { startCombat(preCombatEntity); setPreCombatEntity(null); }} className="px-10 py-3 bg-red-950 border border-red-600 text-red-400 hover:bg-red-800 hover:text-white font-bold tracking-[0.5em] transition-all">迎战</button>
-                        <button onClick={() => { setPreCombatEntity(null); setTimeScale(1); }} className="px-10 py-3 bg-slate-900 border border-slate-700 text-slate-400 hover:text-white font-bold tracking-[0.5em] transition-all">撤退</button>
+            <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-10">
+                <div className="w-full max-w-md bg-[#1a110a] border border-amber-900/50 p-8 shadow-2xl relative">
+                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-wood.png')] opacity-10 pointer-events-none" />
+                    <h2 className="text-2xl font-bold text-amber-500 mb-4 tracking-widest text-center">遭遇 {preCombatEntity.name}</h2>
+                    <p className="text-slate-400 text-center mb-8 italic">一支{preCombatEntity.name}正在逼近，由于距离过近，战斗已不可避免。</p>
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={() => { startCombat(preCombatEntity); setPreCombatEntity(null); }}
+                            className="w-full py-3 bg-amber-800 hover:bg-amber-600 text-white font-bold tracking-[0.3em] uppercase transition-all shadow-lg border border-amber-500"
+                        >
+                            进入战场
+                        </button>
+                        <button 
+                            onClick={() => { setPreCombatEntity(null); setTimeScale(0); }}
+                            className="w-full py-2 text-slate-500 hover:text-slate-300 text-xs uppercase tracking-widest transition-all"
+                        >
+                            尝试交涉 (暂不可用)
+                        </button>
                     </div>
                 </div>
             </div>

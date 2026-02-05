@@ -1,9 +1,7 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { CombatState, CombatUnit, MoraleStatus, Ability, Item } from '../types.ts';
+import { CombatState, CombatUnit, Ability, Item } from '../types.ts';
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES } from '../constants.tsx';
 import { Portrait } from './Portrait.tsx';
-import { ItemIcon } from './ItemIcon.tsx';
 
 interface CombatViewProps {
   initialState: CombatState;
@@ -16,113 +14,75 @@ interface FloatingText {
     x: number;
     y: number;
     color: string;
-}
-
-interface HexTile {
-    q: number;
-    r: number;
-    h: number;
-    terrain: string; 
-    prop: string | null;
-    color: string;
+    life: number;
 }
 
 export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEnd }) => {
   const [state, setState] = useState(initialState);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  
   const cameraRef = useRef({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  
+  const [zoom, setZoom] = useState(0.8);
   const [hoveredHex, setHoveredHex] = useState<{q:number, r:number} | null>(null);
   const [hoveredSkill, setHoveredSkill] = useState<Ability | null>(null);
-  const [hoveredBagItem, setHoveredBagItem] = useState<Item | null>(null);
-  
+  const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const unitLayerRef = useRef<HTMLDivElement>(null);
+  const unitRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  
-  const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
 
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
-  const processingAIRef = useRef(false);
 
-  const availableAbilities = useMemo(() => {
-      if (activeUnit) return getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE');
-      return [];
-  }, [activeUnit?.id, activeUnit?.equipment]);
+  // --- 风格常量 ---
+  const HEX_SIZE = 44;
+  const HEX_GAP = 2;
+  const TILE_COLOR_NORMAL = "#2e2a24";
+  const TILE_COLOR_HOVER = "#4a3e2e";
+  const TILE_COLOR_MIST = "#0a0a0a";
 
-  useEffect(() => {
-      if (isPlayerTurn && availableAbilities.length > 0 && !selectedAbility) {
-          const defaultAttack = availableAbilities.find(a => a.type === 'ATTACK');
-          setSelectedAbility(defaultAttack || null);
-      }
-  }, [isPlayerTurn, activeUnit?.id, availableAbilities]);
+  const getPixelPos = (q: number, r: number) => {
+    const x = HEX_SIZE * (Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
+    const y = HEX_SIZE * (1.5 * r);
+    return { x, y };
+  };
 
-  useEffect(() => {
-      const handleGlobalMove = (e: MouseEvent) => {
-          setMousePos({ x: e.clientX, y: e.clientY });
-      };
-      const handleKeyDown = (e: KeyboardEvent) => {
-          if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyF') {
-              if (activeUnit) focusUnit(activeUnit);
-          }
-          if (e.code === 'Space' && isPlayerTurn && activeUnit) {
-              setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, currentAP: 0 } : u) }));
-              nextTurn();
-          }
-      };
-      window.addEventListener('mousemove', handleGlobalMove);
-      window.addEventListener('keydown', handleKeyDown);
-      return () => {
-          window.removeEventListener('mousemove', handleGlobalMove);
-          window.removeEventListener('keydown', handleKeyDown);
-      };
-  }, [activeUnit, isPlayerTurn]);
-
-  const gridRange = 9;
-  const hexes: HexTile[] = useMemo(() => {
-    const arr: HexTile[] = [];
-    const noise = (x: number, y: number) => Math.sin(x * 0.5) * Math.cos(y * 0.5);
+  // 生成地形缓存
+  const gridRange = 25;
+  const terrainMap = useMemo(() => {
+    const map = new Map<string, { color: string, prop: string | null, height: number }>();
     for (let q = -gridRange; q <= gridRange; q++) {
       for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
-         let h = 0, prop = null, color = '#222';
-         const nVal = noise(q, r), randomVal = Math.random(); 
-         switch(initialState.terrainType) {
-             case 'FOREST':
-                 color = '#1a2e1a'; if (randomVal > 0.8) prop = '🌲'; else if (randomVal > 0.7) prop = '🌳'; h = nVal > 0.4 ? 1 : 0; break;
-             case 'MOUNTAIN':
-                 color = '#2f2f2f'; if (randomVal > 0.85) prop = '🪨'; h = nVal > 0 ? 2 : (nVal > -0.5 ? 1 : 0); break;
-             case 'SNOW':
-                 color = '#cbd5e1'; if (randomVal > 0.9) prop = '❄️'; h = nVal > 0.6 ? 1 : 0; break;
-             case 'DESERT':
-                 color = '#9a7b4f'; if (randomVal > 0.9) prop = '🌵'; h = nVal > 0.7 ? 1 : 0; break;
-             case 'SWAMP':
-                 color = '#1b2621'; h = -1; break;
-             default: color = '#3d4a2a'; if (randomVal > 0.9) prop = '🌳'; h = nVal > 0.6 ? 1 : 0;
-         }
-         if (h === 1) color = lightenColor(color, 10);
-         if (h === 2) color = lightenColor(color, 20);
-         arr.push({ q, r, h, terrain: initialState.terrainType, prop, color });
+         const noise = Math.sin(q * 0.2) * Math.cos(r * 0.2);
+         let color = TILE_COLOR_NORMAL;
+         let prop = null;
+         let h = 0;
+         if (noise > 0.6) { color = "#3d362d"; prop = "🌲"; h = 1; }
+         else if (noise < -0.5) { color = "#1a1815"; h = -1; }
+         map.set(`${q},${r}`, { color, prop, height: h });
       }
     }
-    return arr;
-  }, [initialState.terrainType]);
+    return map;
+  }, []);
 
-  const addFloatingText = (text: string, q: number, r: number, color: string) => {
-      setFloatingTexts(prev => [...prev, { id: Date.now() + Math.random(), text, x: q, y: r, color }]);
-      setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1500);
-  };
-
-  const focusUnit = (unit: CombatUnit) => {
-      const px = unit.combatPos.q * 60 + unit.combatPos.r * 30;
-      const py = unit.combatPos.r * 52;
-      cameraRef.current = { x: -px, y: -py };
-  };
+  // 视野可见性
+  const visibleHexes = useMemo(() => {
+    const set = new Set<string>();
+    state.units.filter(u => u.team === 'PLAYER' && !u.isDead).forEach(u => {
+      const radius = 6;
+      for (let q = -radius; q <= radius; q++) {
+        for (let r = Math.max(-radius, -q - radius); r <= Math.min(radius, -q + radius); r++) {
+          if (getHexDistance({q:0, r:0}, {q, r}) <= radius) {
+            set.add(`${u.combatPos.q + q},${u.combatPos.r + r}`);
+          }
+        }
+      }
+    });
+    return set;
+  }, [state.units]);
 
   const addToLog = (msg: string) => {
     setState(prev => ({ ...prev, combatLog: [msg, ...prev.combatLog].slice(0, 5) }));
@@ -130,380 +90,349 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const nextTurn = () => {
     setState(prev => {
-      const nextIndex = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
-      const isNewRound = nextIndex === 0;
-      const nextRound = isNewRound ? prev.round + 1 : prev.round;
-      const newUnits = prev.units.map(u => {
-        if (isNewRound) { u.hasWaited = false; u.freeSwapUsed = false; }
-        if (u.id === prev.turnOrder[nextIndex]) { return { ...u, currentAP: 9, fatigue: Math.max(0, u.fatigue - 15) }; }
-        return u;
-      });
-      return { ...prev, units: newUnits, currentUnitIndex: nextIndex, round: nextRound };
+      const nextIdx = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
+      return { 
+        ...prev, 
+        currentUnitIndex: nextIdx,
+        round: nextIdx === 0 ? prev.round + 1 : prev.round,
+        units: prev.units.map(u => u.id === prev.turnOrder[nextIdx] ? { ...u, currentAP: 9 } : u)
+      };
     });
-    processingAIRef.current = false;
+    setSelectedAbility(null);
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-      if (e.button === 0) { isDraggingRef.current = true; dragStartRef.current = { x: e.clientX, y: e.clientY }; }
-  };
+  // --- Canvas 核心渲染 ---
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-      if (isDraggingRef.current) {
-          const dx = (e.clientX - dragStartRef.current.x) / zoom;
-          const dy = (e.clientY - dragStartRef.current.y) / zoom;
-          cameraRef.current.x += dx;
-          cameraRef.current.y += dy;
-          dragStartRef.current = { x: e.clientX, y: e.clientY };
+    const drawHex = (x: number, y: number, size: number, fillStyle: string, strokeStyle: string, lineWidth: number) => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 180) * (60 * i + 30);
+        const px = x + size * Math.cos(angle);
+        const py = y + size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+      ctx.closePath();
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    };
+
+    let animId: number;
+    const render = () => {
+      const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      const centerX = rect.width / 2, centerY = rect.height / 2;
-      const worldX = (e.clientX - rect.left - centerX) / zoom - cameraRef.current.x;
-      const worldY = (e.clientY - rect.top - centerY) / zoom - cameraRef.current.y;
-      const r = Math.round(worldY / 52), q = Math.round((worldX - r * 30) / 60);
-      if (hoveredHex?.q !== q || hoveredHex?.r !== r) setHoveredHex({ q, r });
+      if (canvas.width !== rect.width * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+      }
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      ctx.save();
+      ctx.translate(rect.width / 2, rect.height / 2);
+      ctx.scale(zoom, zoom);
+      ctx.translate(cameraRef.current.x, cameraRef.current.y);
+
+      // 1. 渲染背景地表 (棋盘)
+      terrainMap.forEach((data, key) => {
+        const [q, r] = key.split(',').map(Number);
+        const isVisible = visibleHexes.has(key);
+        const isHovered = hoveredHex?.q === q && hoveredHex?.r === r;
+        const { x, y } = getPixelPos(q, r);
+
+        // 绘制阴影层 (3D感)
+        if (isVisible) {
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        }
+
+        const color = isVisible ? (isHovered ? TILE_COLOR_HOVER : data.color) : TILE_COLOR_MIST;
+        const stroke = isVisible ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.2)';
+        
+        drawHex(x, y, HEX_SIZE - HEX_GAP, color, stroke, 1);
+        ctx.shadowBlur = 0;
+
+        if (isVisible) {
+          if (data.prop) {
+            ctx.font = '22px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillText(data.prop, x, y);
+          }
+
+          // 技能范围高亮
+          if (isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
+             const dist = getHexDistance(activeUnit.combatPos, {q, r});
+             if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
+                ctx.strokeStyle = 'rgba(220, 38, 38, 0.4)';
+                ctx.lineWidth = 3;
+                drawHex(x, y, HEX_SIZE - HEX_GAP - 2, 'transparent', 'rgba(220, 38, 38, 0.4)', 2);
+             }
+          }
+        }
+      });
+
+      // 2. 渲染单位光环
+      state.units.forEach(u => {
+          if (u.isDead) return;
+          const isVisible = visibleHexes.has(`${u.combatPos.q},${u.combatPos.r}`);
+          if (!isVisible && u.team === 'ENEMY') return;
+
+          const { x, y } = getPixelPos(u.combatPos.q, u.combatPos.r);
+          
+          ctx.beginPath();
+          ctx.ellipse(x, y + 15, 20, 10, 0, 0, Math.PI * 2);
+          ctx.fillStyle = u.team === 'PLAYER' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+          ctx.fill();
+
+          if (activeUnit?.id === u.id) {
+              ctx.strokeStyle = '#f59e0b';
+              ctx.setLineDash([5, 3]);
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.ellipse(x, y + 15, 24, 12, 0, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.setLineDash([]);
+          }
+      });
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+    animId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animId);
+  }, [terrainMap, visibleHexes, hoveredHex, activeUnit, selectedAbility, zoom]);
+
+  // 同步单位图层
+  useEffect(() => {
+    let anim: number;
+    const sync = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const cx = rect.width / 2, cy = rect.height / 2;
+      
+      state.units.forEach(u => {
+        const el = unitRefs.current.get(u.id);
+        if (el) {
+          const isVisible = visibleHexes.has(`${u.combatPos.q},${u.combatPos.r}`);
+          if (u.isDead || (!isVisible && u.team === 'ENEMY')) {
+            el.style.opacity = '0'; el.style.pointerEvents = 'none';
+          } else {
+            el.style.opacity = '1'; el.style.pointerEvents = 'auto';
+            const { x, y } = getPixelPos(u.combatPos.q, u.combatPos.r);
+            const screenX = cx + (x + cameraRef.current.x) * zoom - 25;
+            const screenY = cy + (y + cameraRef.current.y) * zoom - 35;
+            el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${zoom})`;
+          }
+        }
+      });
+      anim = requestAnimationFrame(sync);
+    };
+    anim = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(anim);
+  }, [state.units, zoom, visibleHexes]);
+
+  // --- 交互处理 ---
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0) { isDraggingRef.current = true; dragStartRef.current = { x: e.clientX, y: e.clientY }; }
   };
-
-  const handleMouseUp = () => { isDraggingRef.current = false; };
-
-  const handleClick = (e: React.MouseEvent) => {
-      if (isDraggingRef.current && (Math.abs(e.clientX - dragStartRef.current.x) > 5 || Math.abs(e.clientY - dragStartRef.current.y) > 5)) return;
-      if (!hoveredHex) return;
-      const targetUnit = state.units.find(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
-      handleHexAction(hoveredHex, targetUnit);
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDraggingRef.current) {
+      cameraRef.current.x += (e.clientX - dragStartRef.current.x) / zoom;
+      cameraRef.current.y += (e.clientY - dragStartRef.current.y) / zoom;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const worldX = (e.clientX - rect.left - rect.width / 2) / zoom - cameraRef.current.x;
+    const worldY = (e.clientY - rect.top - rect.height / 2) / zoom - cameraRef.current.y;
+    const r = Math.round(worldY / (HEX_SIZE * 1.5));
+    const q = Math.round((worldX - HEX_SIZE * (Math.sqrt(3) / 2) * r) / (HEX_SIZE * Math.sqrt(3)));
+    if (hoveredHex?.q !== q || hoveredHex?.r !== r) setHoveredHex({ q, r });
+    setMousePos({ x: e.clientX, y: e.clientY });
   };
+  const handleMouseUp = () => isDraggingRef.current = false;
 
-  const handleRightClick = (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (!hoveredHex || !activeUnit) return;
-      const moveAbility = ABILITIES['MOVE'];
-      const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-      const apCost = dist * moveAbility.apCost, fatCost = dist * moveAbility.fatCost;
-      if (activeUnit.currentAP < apCost) { addToLog("行动点不足！"); return; }
-      executeMove(hoveredHex, apCost, fatCost);
-  };
-
-  const handleHexAction = (targetHex: {q: number, r: number}, targetUnit?: CombatUnit) => {
-      if (!isPlayerTurn || !activeUnit || !selectedAbility) return;
-      const dist = getHexDistance(activeUnit.combatPos, targetHex);
-      if (dist < selectedAbility.range[0] || dist > selectedAbility.range[1]) { addToLog("目标超出范围！"); return; }
-      if (selectedAbility.type === 'ATTACK' && targetUnit) handleAttack(targetUnit, selectedAbility);
-  };
-
-  const executeMove = (hex: {q:number, r:number}, apCost: number, fatCost: number) => {
-      if (!activeUnit) return;
-      if (state.units.some(u => !u.isDead && u.combatPos.q === hex.q && u.combatPos.r === hex.r)) { addToLog("目标位置已被占据！"); return; }
-      setState(prev => ({
-          ...prev,
-          units: prev.units.map(u => u.id === activeUnit.id ? { ...u, combatPos: hex, currentAP: u.currentAP - apCost, fatigue: u.fatigue + fatCost } : u)
-      }));
-  };
-
-  const handleAttack = (target: CombatUnit, ability: Ability) => {
-    if (!activeUnit) return;
-    if (activeUnit.currentAP < ability.apCost) { addToLog("行动点不足！"); return; }
-    if (activeUnit.fatigue + ability.fatCost > activeUnit.maxFatigue) { addToLog("体力已耗尽！"); return; }
-    const attackerHex = hexes.find(h => h.q === activeUnit.combatPos.q && h.r === activeUnit.combatPos.r);
-    const targetHex = hexes.find(h => h.q === target.combatPos.q && h.r === target.combatPos.r);
-    const heightHitMod = Math.max(0, ((attackerHex?.h || 0) - (targetHex?.h || 0)) * 10); 
-    const baseHitChance = (activeUnit.stats.meleeSkill + (activeUnit.equipment.mainHand?.hitChanceMod || 0)) - target.stats.meleeDefense + 50 + heightHitMod;
-    const shieldBonus = target.equipment.offHand?.type === 'SHIELD' ? (target.equipment.offHand?.defenseBonus || 0) : 0;
-    const finalHitChance = Math.max(5, Math.min(95, baseHitChance - shieldBonus));
-    if (Math.random() * 100 < finalHitChance) {
-        const isHeadHit = Math.random() < (0.25 + (ability.id === 'CHOP' ? 0.25 : 0)); 
-        const weapon = activeUnit.equipment.mainHand, baseDmg = weapon?.damage || [10, 20];
-        let rawDmg = Math.floor(baseDmg[0] + Math.random() * (baseDmg[1] - baseDmg[0]));
-        let targetArmorItem = isHeadHit ? target.equipment.helmet : target.equipment.armor;
-        let currentArmor = targetArmorItem?.durability || 0;
-        const armorDmgMult = ability.id === 'SPLIT_SHIELD' ? 20.0 : (weapon?.armorDmg || 1.0); 
-        const dmgToArmor = Math.floor(rawDmg * armorDmgMult);
-        const newArmor = Math.max(0, currentArmor - dmgToArmor);
-        let hpDmg = (currentArmor > 0 && ability.id !== 'PUNCTURE') ? Math.floor(Math.max(0, (rawDmg * (weapon?.armorPen || 0.1)) - (currentArmor * 0.1))) : rawDmg;
-        if (isHeadHit) hpDmg = Math.floor(hpDmg * 1.5);
-        setState(prev => ({
-            ...prev,
-            units: prev.units.map(u => {
-                if (u.id === target.id) {
-                    let nextEquip = { ...u.equipment };
-                    if (isHeadHit && nextEquip.helmet) nextEquip.helmet = { ...nextEquip.helmet, durability: newArmor };
-                    else if (!isHeadHit && nextEquip.armor) nextEquip.armor = { ...nextEquip.armor, durability: newArmor };
-                    if (currentArmor - newArmor > 0) addFloatingText(`🛡️-${currentArmor - newArmor}`, u.combatPos.q, u.combatPos.r, 'gray');
-                    if (hpDmg > 0) setTimeout(() => addFloatingText(`🩸-${hpDmg}`, u.combatPos.q, u.combatPos.r, 'red'), 200);
-                    return { ...u, hp: Math.max(0, u.hp - hpDmg), isDead: u.hp - hpDmg <= 0, equipment: nextEquip };
-                }
-                if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - ability.apCost, fatigue: u.fatigue + ability.fatCost };
-                return u;
-            })
-        }));
-        addToLog(`${activeUnit.name} 使用 ${ability.name} 命中 ${target.name}！(-${hpDmg} HP)`);
-    } else {
-        setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: u.fatigue + ability.fatCost } : u) }));
-        addFloatingText("未命中", target.combatPos.q, target.combatPos.r, 'white');
-        addToLog(`${activeUnit.name} 的 ${ability.name} 被躲开了！`);
+  const performAttack = () => {
+    if (!hoveredHex || !activeUnit || !isPlayerTurn || !selectedAbility) return;
+    const target = state.units.find(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
+    if (target && target.team === 'ENEMY') {
+        const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+        if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
+            if (activeUnit.currentAP < selectedAbility.apCost) { addToLog("行动力不足！"); return; }
+            const dmg = Math.floor(Math.random() * 20) + 10;
+            setFloatingTexts(prev => [...prev, { id: Date.now(), text: `-${dmg}`, x: hoveredHex.q, y: hoveredHex.r, color: '#ef4444', life: 1 }]);
+            setState(prev => ({
+                ...prev,
+                units: prev.units.map(u => {
+                    if (u.id === target.id) return { ...u, hp: Math.max(0, u.hp - dmg), isDead: u.hp - dmg <= 0 };
+                    if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - selectedAbility.apCost };
+                    return u;
+                })
+            }));
+            addToLog(`${activeUnit.name} 施展 ${selectedAbility.name}！`);
+        }
     }
   };
 
-  const handleWait = () => {
-      if (!activeUnit) return;
-      if (activeUnit.hasWaited) {
-          setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, currentAP: 0 } : u) }));
-          nextTurn();
-      } else {
-          setState(prev => {
-              const newOrder = [...prev.turnOrder];
-              const [movedId] = newOrder.splice(prev.currentUnitIndex, 1);
-              newOrder.push(movedId);
-              return { ...prev, turnOrder: newOrder, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, hasWaited: true } : u) };
-          });
-          addToLog(`${activeUnit.name} 选择等待。`);
-      }
-  };
-
-  const handleSkillClick = (skill: Ability) => {
-      if (!isPlayerTurn || !activeUnit) return;
-      if (skill.targetType === 'SELF') {
-          if (activeUnit.currentAP < skill.apCost) { addToLog("行动点不足！"); return; }
-          setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, currentAP: u.currentAP - skill.apCost, fatigue: u.fatigue + skill.fatCost } : u) }));
-          addToLog(`${activeUnit.name} 使用了 ${skill.name}！`);
-          addFloatingText(skill.name, activeUnit.combatPos.q, activeUnit.combatPos.r, 'cyan');
-      } else if (skill.id === 'WAIT') handleWait();
-      else setSelectedAbility(skill);
+  const performMove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!hoveredHex || !activeUnit || !isPlayerTurn) return;
+    const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+    const apCost = dist * 2;
+    if (activeUnit.currentAP >= apCost && !state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
+        setState(prev => ({
+            ...prev,
+            units: prev.units.map(u => u.id === activeUnit.id ? { ...u, combatPos: hoveredHex, currentAP: u.currentAP - apCost } : u)
+        }));
+    }
   };
 
   useEffect(() => {
-    if (!activeUnit || isPlayerTurn || activeUnit.isDead || processingAIRef.current) return;
-    const performAiStep = async () => {
-        processingAIRef.current = true;
-        await new Promise(r => setTimeout(r, 50));
-        const targets = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
-        if (targets.length === 0) { nextTurn(); return; }
-        let target = targets[0], minDist = 999;
-        targets.forEach(t => { const d = getHexDistance(activeUnit.combatPos, t.combatPos); if (d < minDist) { minDist = d; target = t; } });
-        const dist = getHexDistance(activeUnit.combatPos, target.combatPos);
-        const aiAbilities = getUnitAbilities(activeUnit), attackSkill = aiAbilities.find(a => a.type === 'ATTACK') || aiAbilities[0];
-        if (dist <= attackSkill.range[1] && dist >= attackSkill.range[0] && activeUnit.currentAP >= attackSkill.apCost) {
-            const dmg = Math.floor(Math.random() * 10) + 10;
-            setState(prev => ({ ...prev, units: prev.units.map(u => u.id === target.id ? { ...u, hp: u.hp - dmg, isDead: u.hp - dmg <= 0 } : u.id === activeUnit.id ? { ...u, currentAP: u.currentAP - attackSkill.apCost } : u) }));
-            addToLog(`${activeUnit.name} 攻击了 ${target.name}！(-${dmg} HP)`);
-            addFloatingText(`🩸-${dmg}`, target.combatPos.q, target.combatPos.r, 'red');
-            setTimeout(nextTurn, 500); 
-        } else if (activeUnit.currentAP >= 2) { 
-             const neighbors = getHexNeighbors(activeUnit.combatPos.q, activeUnit.combatPos.r);
-             let bestHex = null, bestHexDist = minDist; 
-             for (const n of neighbors) {
-                 if (!hexes.some(h => h.q === n.q && h.r === n.r)) continue;
-                 if (state.units.some(u => !u.isDead && u.combatPos.q === n.q && u.combatPos.r === n.r)) continue;
-                 const d = getHexDistance(n, target.combatPos);
-                 if (d < bestHexDist) { bestHexDist = d; bestHex = n; }
-             }
-             if (bestHex) {
-                 setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit.id ? { ...u, combatPos: bestHex!, currentAP: u.currentAP - 2 } : u) }));
-                 processingAIRef.current = false;
-             } else nextTurn();
-        } else nextTurn();
-    };
-    performAiStep();
-  }, [state.currentUnitIndex, state.units]);
-
-  useEffect(() => {
-      if (!state.units.some(u => u.team === 'ENEMY' && !u.isDead)) setTimeout(() => onCombatEnd(true, state.units.filter(u => u.team === 'PLAYER' && !u.isDead)), 1000);
-      else if (!state.units.some(u => u.team === 'PLAYER' && !u.isDead)) setTimeout(() => onCombatEnd(false, []), 1000);
+    if (!state.units.some(u => u.team === 'ENEMY' && !u.isDead)) onCombatEnd(true, state.units.filter(u => u.team === 'PLAYER' && !u.isDead));
+    else if (!state.units.some(u => u.team === 'PLAYER' && !u.isDead)) onCombatEnd(false, []);
   }, [state.units]);
 
-  useEffect(() => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      let animationFrameId: number;
-      const render = () => {
-          const rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-          if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-              canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
-              ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
-          } else {
-              ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.restore();
-          }
-          ctx.save();
-          ctx.translate(rect.width / 2, rect.height / 2); ctx.scale(zoom, zoom); ctx.translate(cameraRef.current.x, cameraRef.current.y);
-          hexes.forEach(h => {
-              const px = h.q * 60 + h.r * 30, py = h.r * 52, heightOffset = h.h * -15;
-              ctx.fillStyle = (hoveredHex && h.q === hoveredHex.q && h.r === hoveredHex.r) ? lightenColor(h.color, 20) : h.color;
-              if (h.h > 0) {
-                  ctx.beginPath(); ctx.fillStyle = '#0f0f0f';
-                  ctx.fillRect(px - 30, py - 30 + heightOffset, 60, 60 + Math.abs(heightOffset));
-                  ctx.fillStyle = (hoveredHex && h.q === hoveredHex.q && h.r === hoveredHex.r) ? lightenColor(h.color, 20) : h.color;
-              }
-              ctx.fillRect(px - 30, py - 30 + heightOffset, 60, 60);
-              if (isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
-                  const dist = getHexDistance(activeUnit.combatPos, h);
-                  if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
-                      ctx.strokeStyle = 'rgba(220, 38, 38, 0.5)'; ctx.lineWidth = 2; ctx.strokeRect(px - 29, py - 29 + heightOffset, 58, 58);
-                  }
-              }
-              if (h.prop) { ctx.font = '24px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(h.prop, px, py + heightOffset); }
-          });
-          ctx.restore();
-          animationFrameId = requestAnimationFrame(render);
-      };
-      render();
-      return () => cancelAnimationFrame(animationFrameId);
-  }, [hexes, hoveredHex, activeUnit, selectedAbility, state.currentUnitIndex, zoom]);
-
-  const unitRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  useEffect(() => {
-      let animId: number;
-      const syncLoop = () => {
-          if (containerRef.current) {
-              const rect = containerRef.current.getBoundingClientRect();
-              const cx = rect.width / 2, cy = rect.height / 2;
-              state.units.forEach(u => {
-                  const el = unitRefs.current.get(u.id);
-                  if (el && !u.isDead) {
-                      const px = u.combatPos.q * 60 + u.combatPos.r * 30;
-                      const py = u.combatPos.r * 52;
-                      const h = hexes.find(hex => hex.q === u.combatPos.q && hex.r === u.combatPos.r)?.h || 0;
-                      const worldX = px, worldY = py + h * -15;
-                      const screenX = cx + (worldX + cameraRef.current.x) * zoom - 25;
-                      const screenY = cy + (worldY + cameraRef.current.y) * zoom - 25;
-                      el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${zoom})`;
-                  }
-              });
-          }
-          animId = requestAnimationFrame(syncLoop);
-      };
-      syncLoop();
-      return () => cancelAnimationFrame(animId);
-  }, [state.units, zoom, hexes]);
-
   return (
-    <div className="relative w-full h-full bg-[#111] overflow-hidden flex flex-col font-serif select-none" onContextMenu={(e) => e.preventDefault()}>
-      <div className="h-16 bg-black/80 border-b border-amber-900/30 flex items-center px-4 gap-2 overflow-x-auto z-20 shrink-0">
-          {state.turnOrder.map((uid, i) => {
-              const u = state.units.find(unit => unit.id === uid);
-              if (!u || u.isDead) return null;
-              const isCurrent = i === state.currentUnitIndex;
-              return (
-                  <div key={uid} onClick={() => focusUnit(u)} className={`relative flex-shrink-0 transition-all duration-300 cursor-pointer ${isCurrent ? 'scale-110 z-10' : 'opacity-60 scale-75 hover:opacity-100 hover:scale-90'}`}>
-                      <Portrait character={u} size="sm" className={u.team === 'ENEMY' ? 'border-red-500' : 'border-blue-500'} />
-                      {isCurrent && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] bg-amber-600 text-white px-1 rounded">行动</div>}
-                      {u.hasWaited && <div className="absolute -top-1 -right-1 text-[8px] bg-blue-600 text-white px-1 rounded-full">⌛</div>}
-                  </div>
-              );
-          })}
-      </div>
-      <div ref={containerRef} className="flex-1 relative overflow-hidden bg-[#0c0c0c] cursor-move" onWheel={(e) => { e.stopPropagation(); setZoom(p => Math.max(0.5, Math.min(2, p - Math.sign(e.deltaY)*0.1))); }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onClick={handleClick} onContextMenu={handleRightClick}>
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-0 pointer-events-none" />
-          <div ref={unitLayerRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none">
-                {state.units.map(u => {
-                    if (u.isDead) return null;
-                    const isActive = activeUnit?.id === u.id;
-                    const isTargetable = isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK' && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) <= selectedAbility.range[1];
-                    const hPct = u.equipment.helmet ? (u.equipment.helmet.durability / u.equipment.helmet.maxDurability) * 100 : 0;
-                    const aPct = u.equipment.armor ? (u.equipment.armor.durability / u.equipment.armor.maxDurability) * 100 : 0;
-                    return (
-                        <div key={u.id} ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} className={`absolute w-[50px] h-[50px] pointer-events-auto ${isActive ? 'z-30' : 'z-20'}`} style={{ top: 0, left: 0, willChange: 'transform' }} onClick={(e) => { e.stopPropagation(); if (isPlayerTurn && u.team === 'ENEMY') handleHexAction(u.combatPos, u); }}>
-                            <div className={`w-full h-full relative transition-transform ${isActive ? 'scale-110 drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]' : ''} ${isTargetable ? 'cursor-crosshair scale-105 drop-shadow-[0_0_10px_rgba(220,38,38,0.6)]' : ''}`}>
-                                <Portrait character={u} size="sm" className={`${u.team === 'PLAYER' ? 'border-blue-400' : 'border-red-600'} shadow-lg`} />
-                                <div className="absolute -top-4 left-0 w-full flex flex-col gap-[1px]">
-                                    {u.equipment.helmet && <div className="h-1 bg-black w-full"><div className="h-full bg-slate-400" style={{ width: `${hPct}%` }} /></div>}
-                                    {u.equipment.armor && <div className="h-1 bg-black w-full"><div className="h-full bg-slate-200" style={{ width: `${aPct}%` }} /></div>}
-                                    <div className="h-1 bg-black w-full"><div className="h-full bg-red-600" style={{ width: `${(u.hp / u.maxHp) * 100}%` }} /></div>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-                {floatingTexts.map(ft => {
-                    const px = ft.x * 60 + ft.y * 30, py = ft.y * 52;
-                    return (
-                        <div key={ft.id} className="absolute text-2xl font-bold font-mono pointer-events-none animate-bounce z-50 whitespace-nowrap" style={{ transform: `translate3d(calc(50% + ${(px + cameraRef.current.x) * zoom}px), calc(50% + ${(py + cameraRef.current.y) * zoom}px - 60px), 0)`, left: 0, top: 0, color: ft.color, textShadow: '0 2px 0 #000' }}>{ft.text}</div>
-                    )
-                })}
+    <div className="flex flex-col h-full w-full bg-[#0c0a09] font-serif select-none overflow-hidden relative">
+      
+      {/* 行动顺序栏 */}
+      <div className="h-16 bg-gradient-to-r from-black via-[#1a110a] to-black border-b border-amber-900/40 flex items-center px-8 gap-4 z-50 shrink-0">
+          <div className="text-[10px] text-amber-700 font-bold uppercase tracking-widest mr-4">行动序</div>
+          <div className="flex gap-2 items-center overflow-x-auto custom-scrollbar flex-1 py-2">
+            {state.turnOrder.map((uid, i) => {
+                const u = state.units.find(u => u.id === uid);
+                if (!u || u.isDead) return null;
+                const isCurrent = i === state.currentUnitIndex;
+                return (
+                    <div key={uid} className={`relative flex-shrink-0 transition-all duration-300 ${isCurrent ? 'scale-110' : 'opacity-40 grayscale scale-90'}`}>
+                        <Portrait character={u} size="sm" className={u.team === 'ENEMY' ? 'border-red-900' : 'border-blue-900'} />
+                        {isCurrent && <div className="absolute -bottom-1 left-0 w-full h-1 bg-amber-500 shadow-[0_0_8px_#f59e0b]" />}
+                    </div>
+                );
+            })}
           </div>
-          {hoveredHex && activeUnit && isPlayerTurn && (() => {
-              const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-              if (dist > 0 && selectedAbility?.id !== 'ATTACK') {
-                  const apCost = dist * 2, fatCost = dist * 2;
-                  const canMove = activeUnit.currentAP >= apCost;
-                  if (!state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
-                      return (
-                          <div className={`absolute pointer-events-none px-2 py-1 rounded border text-xs font-mono font-bold z-50 flex flex-col items-center gap-1 ${canMove ? 'bg-black/80 border-white/50 text-white' : 'bg-red-900/80 border-red-500 text-red-200'}`} style={{ left: mousePos.x + 20, top: mousePos.y + 20 }}>
-                              <span>行动: {apCost} AP</span>
-                              <span className="text-[10px] font-normal text-blue-300">疲劳: {fatCost}</span>
-                              {!canMove && <span className="text-[10px] uppercase text-red-500">AP不足</span>}
-                          </div>
-                      );
-                  }
-              }
-              return null;
-          })()}
+          <div className="text-xs text-slate-500 font-mono">第 {state.round} 回合</div>
       </div>
-      <div className="h-32 bg-[#0a0a0a] border-t border-amber-900/30 flex items-center px-4 justify-between z-20 shrink-0 relative">
-          <div className="flex items-center gap-4 w-48 shrink-0">
-              {activeUnit && (
-                  <>
-                    <Portrait character={activeUnit} size="md" className="border-amber-500" />
-                    <div>
-                        <div className="text-lg font-bold text-amber-500 leading-none">{activeUnit.name}</div>
-                        <div className="flex flex-col text-[10px] text-slate-400 font-mono mt-2 gap-1">
-                            <div className="flex justify-between w-full"><span>行动点</span> <span className="text-white">{activeUnit.currentAP}</span></div>
-                            <div className="flex justify-between w-full"><span>体力</span> <span className="text-white">{activeUnit.fatigue}/{activeUnit.maxFatigue}</span></div>
-                            <div className="flex justify-between w-full"><span>生命</span> <span className="text-red-400">{activeUnit.hp}</span></div>
+
+      {/* 战场主体 */}
+      <div ref={containerRef} className="flex-1 relative bg-[#0a0807] overflow-hidden" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))}>
+          {/* 背景纹理 */}
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-wood.png')] opacity-10 pointer-events-none" />
+          
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={performAttack} onContextMenu={performMove} />
+          
+          <div className="absolute inset-0 pointer-events-none">
+            {state.units.map(u => (
+                <div key={u.id} ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} className="absolute w-[50px] h-[50px] transition-opacity duration-300">
+                    <div className="relative w-full h-full">
+                        <Portrait character={u} size="sm" className={`${u.team === 'PLAYER' ? 'border-blue-500' : 'border-red-700'} border-2 shadow-xl`} />
+                        <div className="absolute -top-4 left-0 w-full h-1 bg-black/60 rounded-full border border-white/5 overflow-hidden">
+                            <div className="h-full bg-red-600 transition-all" style={{ width: `${(u.hp/u.maxHp)*100}%` }} />
                         </div>
                     </div>
-                  </>
-              )}
-          </div>
-          <div className="flex-1 flex flex-col justify-center items-center h-full">
-                <div className="flex gap-2 items-end mb-2">
-                    {isPlayerTurn && activeUnit && availableAbilities.map(skill => (
-                        <button key={skill.id} onClick={() => handleSkillClick(skill)} onMouseEnter={() => setHoveredSkill(skill)} onMouseLeave={() => setHoveredSkill(null)} disabled={activeUnit.currentAP < skill.apCost || (activeUnit.fatigue + skill.fatCost > activeUnit.maxFatigue)} className={`relative w-14 h-14 border-2 flex flex-col items-center justify-center rounded-sm transition-all group ${selectedAbility?.id === skill.id ? 'border-amber-400 bg-amber-900/40 -translate-y-2 shadow-[0_0_15px_rgba(251,191,36,0.3)]' : 'border-slate-700 bg-slate-900 hover:border-slate-500'} ${activeUnit.currentAP < skill.apCost ? 'opacity-40 grayscale cursor-not-allowed' : 'cursor-pointer'}`}>
-                            <div className="text-xl mb-1">{skill.icon}</div>
-                            <div className="absolute top-1 right-1 text-[8px] font-mono text-amber-200">{skill.apCost}</div>
-                        </button>
-                    ))}
                 </div>
-                {isPlayerTurn && activeUnit && (
-                    <div className="flex gap-1 bg-black/40 p-1 rounded border border-white/5">
-                        {Array.from({length: 4}).map((_, i) => {
-                            const isLocked = i >= 2 && !activeUnit.perks.includes('bags_and_belts');
-                            const item = activeUnit.bag[i], swapCost = (activeUnit.perks.includes('quick_hands') && !activeUnit.freeSwapUsed) ? 0 : 4;
-                            if (isLocked) return <div key={i} className="w-8 h-8 bg-black/50 border border-slate-800 flex items-center justify-center text-[10px] text-red-900 select-none">🔒</div>;
-                            return (
-                                <div key={i} onMouseEnter={() => setHoveredBagItem(item)} onMouseLeave={() => setHoveredBagItem(null)} className={`w-8 h-8 border flex items-center justify-center relative transition-all ${item ? 'cursor-pointer hover:border-amber-500 bg-slate-800' : 'border-slate-800 bg-black/20'}`}>{item && <ItemIcon item={item} showBackground={false} className="p-0.5" />}</div>
-                            );
-                        })}
-                    </div>
-                )}
+            ))}
+            {floatingTexts.map(ft => {
+                const { x, y } = getPixelPos(ft.x, ft.y);
+                const screenX = (window.innerWidth/2) + (x + cameraRef.current.x) * zoom;
+                const screenY = (window.innerHeight/2) + (y + cameraRef.current.y) * zoom - 60;
+                return (
+                    <div key={ft.id} className="absolute text-2xl font-bold animate-bounce" style={{ left: screenX, top: screenY, color: ft.color, textShadow: '2px 2px 0 black' }}>{ft.text}</div>
+                );
+            })}
           </div>
-          <div className="flex flex-col gap-2 w-48 items-end">
-               <div className="flex flex-col-reverse w-full h-12 overflow-hidden text-[9px] text-slate-500 space-y-0.5 space-y-reverse text-right mb-1">
-                  {state.combatLog.map((log, i) => <div key={i}>{log}</div>)}
+
+          {/* 交互提示 */}
+          {hoveredHex && isPlayerTurn && activeUnit && visibleHexes.has(`${hoveredHex.q},${hoveredHex.r}`) && (
+              <div className="absolute pointer-events-none bg-black/80 border border-amber-900/50 p-2 rounded-sm text-[10px] text-amber-500 z-50 shadow-2xl" style={{ left: mousePos.x + 20, top: mousePos.y + 20 }}>
+                  <div className="flex gap-4">
+                      <span>距离: {getHexDistance(activeUnit.combatPos, hoveredHex)}</span>
+                      <span>消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</span>
+                  </div>
+                  <div className="text-slate-500 mt-1 uppercase text-[8px]">右键移动 / 左键技能</div>
+              </div>
+          )}
+      </div>
+
+      {/* 底部控制台 */}
+      <div className="h-40 bg-[#120d09] border-t border-amber-900/60 relative z-50 flex items-center px-10 gap-10 shadow-[0_-10px_30px_rgba(0,0,0,0.8)] shrink-0">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-leather.png')] opacity-10 pointer-events-none" />
+          
+          {/* 单位状态 */}
+          <div className="flex items-center gap-6 w-72 relative">
+             {activeUnit && (
+               <>
+                 <Portrait character={activeUnit} size="lg" className="border-amber-600 border-2" />
+                 <div className="flex flex-col gap-1">
+                    <span className="text-2xl font-bold text-amber-500 tracking-widest">{activeUnit.name}</span>
+                    <span className="text-[10px] text-amber-800 font-bold uppercase">{activeUnit.background}</span>
+                    <div className="flex gap-4 mt-2">
+                        <div className="flex flex-col">
+                            <span className="text-[8px] text-slate-500">AP</span>
+                            <span className="text-sm font-mono text-white font-bold">{activeUnit.currentAP} / 9</span>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[8px] text-slate-500">体力</span>
+                            <span className="text-sm font-mono text-white font-bold">{activeUnit.fatigue} / {activeUnit.maxFatigue}</span>
+                        </div>
+                    </div>
+                 </div>
+               </>
+             )}
+          </div>
+
+          {/* 技能区 */}
+          <div className="flex-1 flex justify-center items-center gap-4">
+              {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map(skill => (
+                  <button 
+                    key={skill.id}
+                    onClick={() => setSelectedAbility(skill)}
+                    onMouseEnter={() => setHoveredSkill(skill)}
+                    onMouseLeave={() => setHoveredSkill(null)}
+                    className={`group relative w-16 h-16 border-2 transition-all flex flex-col items-center justify-center ${selectedAbility?.id === skill.id ? 'border-amber-400 bg-amber-900/40 -translate-y-2 shadow-[0_0_20px_rgba(245,158,11,0.3)]' : 'border-amber-900/30 bg-black/40 hover:border-amber-600'}`}
+                  >
+                      <span className="text-3xl">{skill.icon}</span>
+                      <span className="absolute top-1 right-1 text-[10px] font-mono text-amber-600">{skill.apCost}</span>
+                      <div className="absolute -bottom-2 w-0 h-[2px] bg-amber-500 transition-all group-hover:w-full" />
+                  </button>
+              ))}
+          </div>
+
+          {/* 战斗日志与操作 */}
+          <div className="w-72 flex flex-col items-end gap-3">
+              <div className="h-16 overflow-hidden flex flex-col-reverse text-[10px] text-slate-500 text-right font-serif leading-relaxed">
+                  {state.combatLog.map((log, i) => <div key={i} className="opacity-80">{log}</div>)}
               </div>
               {isPlayerTurn ? (
-                <button onClick={() => { setState(prev => ({ ...prev, units: prev.units.map(u => u.id === activeUnit?.id ? { ...u, currentAP: 0 } : u) })); nextTurn(); }} className="px-6 py-2 bg-amber-900/20 border border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-white rounded transition-all font-bold text-sm shadow-lg w-full">结束回合 (Space)</button>
-              ) : ( <div className="text-amber-700 font-bold animate-pulse text-sm text-center w-full">敌方行动...</div> )}
+                <button 
+                    onClick={nextTurn}
+                    className="w-full py-2 bg-amber-900/20 border border-amber-600/50 text-amber-500 font-bold text-xs hover:bg-amber-600 hover:text-white transition-all tracking-[0.3em] uppercase"
+                >
+                    结束回合
+                </button>
+              ) : (
+                <div className="w-full text-center text-amber-900 animate-pulse font-bold tracking-widest text-sm py-2">敌军行动中...</div>
+              )}
           </div>
       </div>
+
+      {/* 技能说明浮窗 */}
       {hoveredSkill && (
-          <div className="fixed bottom-36 left-1/2 -translate-x-1/2 w-64 bg-black border border-amber-600 p-3 z-[100] shadow-2xl pointer-events-none">
-                <div className="font-bold text-amber-500 text-sm mb-1 border-b border-amber-900/50 pb-1">{hoveredSkill.name}</div>
-                <div className="text-xs text-slate-300 mb-2 italic">“{hoveredSkill.description}”</div>
-                <div className="text-[10px] text-slate-500 grid grid-cols-2 gap-y-1">
-                    <span className="text-amber-200">行动消耗: {hoveredSkill.apCost}</span>
-                    <span className="text-blue-200">体力消耗: {hoveredSkill.fatCost}</span>
-                    <span className="text-emerald-500 col-span-2">Shift/F 聚焦视角</span>
-                </div>
+          <div className="fixed bottom-44 left-1/2 -translate-x-1/2 w-80 bg-[#1a1512] border border-amber-900/50 p-4 z-[100] shadow-2xl rounded-sm">
+              <div className="flex justify-between items-center border-b border-amber-900/30 pb-2 mb-2">
+                  <span className="text-amber-500 font-bold tracking-widest">{hoveredSkill.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">AP: {hoveredSkill.apCost} | FAT: {hoveredSkill.fatCost}</span>
+              </div>
+              <p className="text-xs text-slate-400 italic leading-relaxed">“{hoveredSkill.description}”</p>
           </div>
       )}
     </div>
   );
 };
-
-function lightenColor(color: string, percent: number) {
-    const num = parseInt(color.replace("#",""), 16), amt = Math.round(2.55 * percent),
-    R = (num >> 16) + amt, B = (num >> 8 & 0x00FF) + amt, G = (num & 0x0000FF) + amt;
-    return "#" + (0x1000000 + (R<255?R<1?0:R:255)*0x10000 + (B<255?B<1?0:B:255)*0x100 + (G<255?G<1?0:G:255)).toString(16).slice(1);
-}

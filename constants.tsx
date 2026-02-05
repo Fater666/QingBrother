@@ -108,6 +108,12 @@ SNOW|雪原|#e2e8f0|3|1|❄️
 DESERT|荒漠|#9a7b4f|3|0|🏜️
 ROAD|官道|#786c55|1|0|🛣️`;
 
+const EVENTS_CSV = `id|title|description|c1_text|c1_consequence|c1_gold|c1_food|c1_morale|c2_text|c2_consequence|c2_gold|c2_food|c2_morale
+e1|林间避雨|一场突如其来的暴雨迫使战团在破旧的土地庙避雨。一名自称落难士子的年轻人请求分享你们的干粮。|分享干粮|士子感激不尽，赠予你一卷古籍。士气提升，但消耗了少量口粮。|0|-10|10|拒绝并驱逐|年轻人悻悻离去。战团保持了物资，但成员们觉得首领过于吝啬。|0|0|-5
+e2|路边弃弩|在官道旁的草丛里，你们发现了一把被遗弃的秦弩，弩机虽然锈蚀但零件尚好。|修补并收编|消耗一些金帛购买油漆，获得了一把可用的远程武器。|-50|0|5|拆解零件|虽然无法还原，但换得了一些零钱。|30|0|0
+e3|老兵余温|在大路边你们遇到一名断了腿的前秦军老兵，他正试图向过路人兜售他残破的家传皮甲。|买下甲胄|虽然破旧，但修补后尚能一用，老兵也拿到了活命钱。|-100|0|10|置之不理|战团冷漠地走过，身后传来老兵微弱的叹息声。|0|0|-2
+e4|商队雇佣|一支满载丝绸的商队在前方由于车轴断裂陷入泥沼，管事焦急地挥手请求你们帮忙推车。|仗义相助|耗费了大量体力，但商队管事慷慨地给了你们一些犒赏。|80|0|5|趁火劫掠|你们洗劫了商队。虽然发了一笔财，但名声受损，成员们也感到不安。|400|-20|-20`;
+
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string, headers: string[]): any[] => {
   const lines = csv.trim().split('\n');
@@ -162,11 +168,25 @@ parseCSV(TERRAIN_CSV, ['id', 'name', 'color', 'moveCost', 'height', 'icon']).for
     TERRAIN_DATA[t.id] = t;
 });
 
+export const EVENT_TEMPLATES: any[] = parseCSV(EVENTS_CSV, [
+  'id', 'title', 'description', 
+  'c1_text', 'c1_consequence', 'c1_gold', 'c1_food', 'c1_morale',
+  'c2_text', 'c2_consequence', 'c2_gold', 'c2_food', 'c2_morale'
+]).map(e => ({
+  id: e.id,
+  title: e.title,
+  description: e.description,
+  choices: [
+    { text: e.c1_text, consequence: e.c1_consequence, impact: { gold: e.c1_gold, food: e.c1_food, morale: e.c1_morale } },
+    { text: e.c2_text, consequence: e.c2_consequence, impact: { gold: e.c2_gold, food: e.c2_food, morale: e.c2_morale } }
+  ]
+}));
+
 const STORIES: Record<string, string[]> = {
     'FARMER': ['原本在垄亩间耕作，直到秦军的征粮官拿走了最后一粒米。', '一场大旱毁了他的庄稼，为了不让家人饿死。', '因为不堪忍受沉重的徭役。'],
     'DESERTER': ['长平之战的幸存者之一。', '他在一次夜袭中扔掉了戈矛。', '作为前锋营的死士，他奇迹般地活了下来。'],
     'HUNTER': ['他曾独自在深山中追踪猛虎。', '官府划定了新的禁苑。', '他的村庄被土匪洗劫。'],
-    'NOMAD': ['因为部落间的仇杀，他失去了牛羊。', '他向往中原的繁华，骑着瘦马一路南下。'],
+    'NOMAD': ['因为部落间的仇杀，他失去了牛羊。', '他向向往中原的繁华，骑着瘦马一路南下。'],
     'NOBLE': ['他的家族在政治斗争中败落。', '为了复兴家族的荣光，他散尽家财。', '他曾是稷下学宫的学子。'],
 };
 
