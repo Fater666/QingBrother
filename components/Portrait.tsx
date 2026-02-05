@@ -109,7 +109,7 @@ export const Portrait: React.FC<PortraitProps> = ({ character, size = 'md', clas
        }`} />
        
        {/* Grain Texture */}
-       <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
+       <div className="absolute inset-0 opacity-20" style={{backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(0,0,0,0.1) 1px, transparent 1px)', backgroundSize: '4px 4px'}} />
 
        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full drop-shadow-sm">
            {/* Body/Armor */}
