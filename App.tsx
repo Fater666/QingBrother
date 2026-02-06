@@ -1,11 +1,14 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS } from './constants.tsx';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
 import { CityView } from './components/CityView.tsx';
+import { MainMenu } from './components/MainMenu.tsx';
+import { Prologue } from './components/Prologue.tsx';
+import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
 
@@ -312,23 +315,61 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
 };
 
 export const App: React.FC = () => {
-  const [view, setView] = useState<GameView>('WORLD_MAP');
-  const [mapData] = useState(() => generateMap());
-  const [tiles, setTiles] = useState<WorldTile[]>(mapData.tiles);
-  const [cities, setCities] = useState<City[]>(mapData.cities);
-  const [entities, setEntities] = useState<WorldEntity[]>(() => generateEntities(mapData.cities, mapData.tiles));
-  const [timeScale, setTimeScale] = useState<number>(1); 
+  const [view, setView] = useState<GameView>('MAIN_MENU');
+  const [gameInitialized, setGameInitialized] = useState(false);
+  
+  // 游戏状态 - 延迟到"新战役"或"读档"时初始化
+  const [tiles, setTiles] = useState<WorldTile[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [entities, setEntities] = useState<WorldEntity[]>([]);
+  const [timeScale, setTimeScale] = useState<number>(0); 
   const [preCombatEntity, setPreCombatEntity] = useState<WorldEntity | null>(null);
 
   const [party, setParty] = useState<Party>({
-    x: mapData.cities[0].x, y: mapData.cities[0].y, targetX: null, targetY: null, gold: 1200, food: 150,
-    mercenaries: [createMercenary('1', '赵二', 'FARMER', 0), createMercenary('2', '钱五长', 'DESERTER', 1), createMercenary('3', '孙游侠', 'HUNTER', 9)],
-    inventory: [], day: 1.0, activeQuest: null
+    x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
+    mercenaries: [], inventory: [], day: 1.0, activeQuest: null
   });
 
   const [combatState, setCombatState] = useState<CombatState | null>(null);
   const [currentCity, setCurrentCity] = useState<City | null>(null);
   const lastUpdateRef = useRef<number>(performance.now());
+  const hasSaveData = useRef<boolean>(!!localStorage.getItem('zhanguo_with_five_save'));
+
+  // 叙事流程状态
+  const [selectedOrigin, setSelectedOrigin] = useState<OriginConfig | null>(null);
+  const [leaderName, setLeaderName] = useState<string>('');
+  const [introStoryLines, setIntroStoryLines] = useState<string[]>([]);
+  const [introLineIndex, setIntroLineIndex] = useState(0);
+  const [introCharIndex, setIntroCharIndex] = useState(0);
+  const [introDisplayed, setIntroDisplayed] = useState<string[]>([]);
+  const [introComplete, setIntroComplete] = useState(false);
+  const [introFade, setIntroFade] = useState<'in' | 'visible' | 'out'>('in');
+  const introTimerRef = useRef<number | null>(null);
+
+  // 预生成地图数据 (在起源选择阶段就准备好)
+  const pendingMapRef = useRef<{ tiles: WorldTile[], cities: City[] } | null>(null);
+
+  // --- 新战役：根据起源生成初始队伍 ---
+  const initGameWithOrigin = useCallback((origin: OriginConfig, name: string, mapData: { tiles: WorldTile[], cities: City[] }) => {
+    setTiles(mapData.tiles);
+    setCities(mapData.cities);
+    setEntities(generateEntities(mapData.cities, mapData.tiles));
+
+    const mercs = origin.mercenaries.map((m, i) => {
+      const merc = createMercenary(`${i + 1}`, i === 0 ? name : m.name, m.bg, m.formationIndex);
+      return merc;
+    });
+
+    setParty({
+      x: mapData.cities[0].x, y: mapData.cities[0].y,
+      targetX: null, targetY: null,
+      gold: origin.gold, food: origin.food,
+      mercenaries: mercs,
+      inventory: [], day: 1.0, activeQuest: null
+    });
+    setGameInitialized(true);
+    setTimeScale(0);
+  }, []);
 
   // --- SAVE & LOAD SYSTEM ---
   const saveGame = useCallback(() => {
@@ -348,10 +389,10 @@ export const App: React.FC = () => {
     }
   }, [tiles, cities, entities, party, view]);
 
-  const loadGame = useCallback(() => {
+  const loadGame = useCallback((fromMenu: boolean = false) => {
     const raw = localStorage.getItem('zhanguo_with_five_save');
     if (!raw) {
-        alert("未发现往昔简牍（无存档）。");
+        if (!fromMenu) alert("未发现往昔简牍（无存档）。");
         return;
     }
     try {
@@ -360,8 +401,10 @@ export const App: React.FC = () => {
         setCities(data.cities);
         setEntities(data.entities);
         setParty(data.party);
-        setView(data.view);
-        alert("往昔历历在目（读档成功）。");
+        setGameInitialized(true);
+        setView(data.view || 'WORLD_MAP');
+        setTimeScale(0);
+        if (!fromMenu) alert("往昔历历在目（读档成功）。");
     } catch (e) {
         alert("简牍残破，无法辨识（读档失败）。");
     }
@@ -369,6 +412,7 @@ export const App: React.FC = () => {
 
   // 战争迷雾更新
   useEffect(() => {
+      if (!gameInitialized) return;
       const px = Math.floor(party.x), py = Math.floor(party.y);
       setTiles(prev => {
           let hasChange = false;
@@ -386,7 +430,7 @@ export const App: React.FC = () => {
           }
           return hasChange ? newTiles : prev;
       });
-  }, [party.x, party.y]);
+  }, [party.x, party.y, gameInitialized]);
 
   const startCombat = useCallback((entity: WorldEntity) => {
     setTimeScale(0);
@@ -485,6 +529,7 @@ export const App: React.FC = () => {
 
   // 主循环处理 AI 与位移
   useEffect(() => {
+    if (!gameInitialized) return;
     let anim: number;
     const loop = (time: number) => {
       const dt = (time - lastUpdateRef.current) / 1000;
@@ -535,11 +580,81 @@ export const App: React.FC = () => {
     };
     anim = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(anim);
-  }, [view, timeScale, party, cities, preCombatEntity]);
+  }, [view, timeScale, party, cities, preCombatEntity, gameInitialized]);
+
+  // --- INTRO STORY 逐字显示逻辑 ---
+  useEffect(() => {
+    if (view !== 'INTRO_STORY' || introComplete || introFade !== 'visible') return;
+
+    const lines = introStoryLines;
+    if (introLineIndex >= lines.length) {
+      setIntroComplete(true);
+      return;
+    }
+
+    const currentLine = lines[introLineIndex];
+
+    if (currentLine === '') {
+      introTimerRef.current = window.setTimeout(() => {
+        setIntroDisplayed(prev => [...prev, '']);
+        setIntroLineIndex(prev => prev + 1);
+        setIntroCharIndex(0);
+      }, 300);
+      return () => { if (introTimerRef.current) clearTimeout(introTimerRef.current); };
+    }
+
+    if (introCharIndex === 0) {
+      setIntroDisplayed(prev => [...prev, '']);
+    }
+
+    if (introCharIndex < currentLine.length) {
+      introTimerRef.current = window.setTimeout(() => {
+        setIntroDisplayed(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = currentLine.substring(0, introCharIndex + 1);
+          return updated;
+        });
+        setIntroCharIndex(prev => prev + 1);
+      }, 50);
+    } else {
+      introTimerRef.current = window.setTimeout(() => {
+        setIntroLineIndex(prev => prev + 1);
+        setIntroCharIndex(0);
+      }, 200);
+    }
+
+    return () => { if (introTimerRef.current) clearTimeout(introTimerRef.current); };
+  }, [view, introLineIndex, introCharIndex, introStoryLines, introComplete, introFade]);
+
+  // Intro fade in
+  useEffect(() => {
+    if (view === 'INTRO_STORY' && introFade === 'in') {
+      const t = setTimeout(() => setIntroFade('visible'), 100);
+      return () => clearTimeout(t);
+    }
+  }, [view, introFade]);
+
+  const handleIntroClick = useCallback(() => {
+    if (!introComplete) {
+      // 快速完成
+      if (introTimerRef.current) clearTimeout(introTimerRef.current);
+      setIntroDisplayed(introStoryLines);
+      setIntroLineIndex(introStoryLines.length);
+      setIntroComplete(true);
+      return;
+    }
+    // 完成 -> 进入世界地图
+    setIntroFade('out');
+    setTimeout(() => setView('WORLD_MAP'), 800);
+  }, [introComplete, introStoryLines]);
+
+  // 是否是游戏前的菜单/叙事阶段
+  const isPreGameView = view === 'MAIN_MENU' || view === 'PROLOGUE' || view === 'ORIGIN_SELECT' || view === 'INTRO_STORY';
 
   return (
     <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
-      {view !== 'COMBAT' && (
+      {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
+      {!isPreGameView && view !== 'COMBAT' && (
           <nav className="h-14 bg-black border-b border-amber-900/40 flex items-center justify-between px-6 z-50">
              <div className="flex gap-4 items-center">
                 <span className="text-amber-500 font-bold tracking-widest text-lg uppercase italic">战国·与伍同行</span>
@@ -552,7 +667,7 @@ export const App: React.FC = () => {
                 </button>
                 <div className="flex gap-2 ml-4">
                     <button onClick={saveGame} className="px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
-                    <button onClick={loadGame} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
+                    <button onClick={() => loadGame()} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
                 </div>
              </div>
 
@@ -574,7 +689,119 @@ export const App: React.FC = () => {
       )}
 
       <main className="flex-1 relative">
-        {view === 'WORLD_MAP' && (
+        {/* ===== 主菜单 ===== */}
+        {view === 'MAIN_MENU' && (
+          <MainMenu
+            hasSaveData={hasSaveData.current}
+            onNewGame={() => setView('PROLOGUE')}
+            onContinue={() => loadGame(true)}
+          />
+        )}
+
+        {/* ===== 开场序幕 ===== */}
+        {view === 'PROLOGUE' && (
+          <Prologue onComplete={() => {
+            // 在进入起源选择前预生成地图
+            pendingMapRef.current = generateMap();
+            setView('ORIGIN_SELECT');
+          }} />
+        )}
+
+        {/* ===== 起源选择 ===== */}
+        {view === 'ORIGIN_SELECT' && (
+          <OriginSelect onSelect={(origin, name) => {
+            setSelectedOrigin(origin);
+            setLeaderName(name);
+            // 准备过场叙事
+            const cityName = pendingMapRef.current?.cities[0]?.name || '城邑';
+            const storyLines = [
+              ...origin.introStory,
+              '',
+              `你们来到了${cityName}，决定在此暂歇整顿。`,
+              '新的征途，即将开始……',
+            ];
+            setIntroStoryLines(storyLines);
+            setIntroDisplayed([]);
+            setIntroLineIndex(0);
+            setIntroCharIndex(0);
+            setIntroComplete(false);
+            setIntroFade('in');
+            // 同时初始化游戏数据
+            if (pendingMapRef.current) {
+              initGameWithOrigin(origin, name, pendingMapRef.current);
+            }
+            setView('INTRO_STORY');
+          }} />
+        )}
+
+        {/* ===== 过场叙事 ===== */}
+        {view === 'INTRO_STORY' && (
+          <div
+            className={`w-screen h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer transition-opacity duration-[800ms] ${
+              introFade === 'out' ? 'opacity-0' : introFade === 'in' ? 'opacity-0' : 'opacity-100'
+            }`}
+            onClick={handleIntroClick}
+          >
+            {/* 背景氛围 */}
+            <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+              style={{ backgroundImage: `radial-gradient(ellipse 600px 400px at 50% 50%, rgba(139, 90, 43, 0.4), transparent)` }}
+            />
+
+            {/* 起源标题 */}
+            <div className="absolute top-[10%]">
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
+                <span className="text-sm text-amber-700/60 tracking-[0.5em] font-serif">
+                  {selectedOrigin?.name} · {selectedOrigin?.subtitle}
+                </span>
+                <div className="w-20 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
+              </div>
+            </div>
+
+            {/* 叙事文字 */}
+            <div className="max-w-2xl px-8">
+              <div className="space-y-3">
+                {introDisplayed.map((line, i) => (
+                  <p
+                    key={i}
+                    className={`text-lg leading-loose tracking-[0.12em] font-serif ${
+                      line === '' ? 'h-4' : 'text-amber-100/80'
+                    }`}
+                    style={{ textShadow: '0 0 20px rgba(217, 119, 6, 0.1)' }}
+                  >
+                    {line}
+                    {i === introDisplayed.length - 1 && !introComplete && line !== '' && (
+                      <span className="inline-block w-px h-5 bg-amber-500 ml-1 animate-pulse" />
+                    )}
+                  </p>
+                ))}
+              </div>
+            </div>
+
+            {/* 继续提示 */}
+            {introComplete && (
+              <div className="absolute bottom-[18%] animate-pulse">
+                <p className="text-xs text-amber-700/60 tracking-[0.3em]">— 点击进入世界 —</p>
+              </div>
+            )}
+
+            {/* 跳过按钮 */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (introTimerRef.current) clearTimeout(introTimerRef.current);
+                setIntroFade('out');
+                setTimeout(() => setView('WORLD_MAP'), 400);
+              }}
+              className="absolute bottom-8 right-8 text-xs text-slate-700 hover:text-slate-500 tracking-widest transition-colors z-10"
+            >
+              跳过 →
+            </button>
+          </div>
+        )}
+
+        {/* ===== 世界地图 ===== */}
+        {view === 'WORLD_MAP' && gameInitialized && (
             <WorldMap 
                 tiles={tiles} 
                 party={party} 

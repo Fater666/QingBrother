@@ -1,5 +1,17 @@
 
-export type GameView = 'WORLD_MAP' | 'COMBAT' | 'CAMP' | 'RECRUITMENT' | 'EVENT' | 'CITY';
+export type GameView = 'MAIN_MENU' | 'PROLOGUE' | 'ORIGIN_SELECT' | 'INTRO_STORY' | 'WORLD_MAP' | 'COMBAT' | 'CAMP' | 'RECRUITMENT' | 'EVENT' | 'CITY';
+
+// 战团起源类型
+export interface OriginConfig {
+  id: string;
+  name: string;
+  subtitle: string;
+  description: string;
+  gold: number;
+  food: number;
+  mercenaries: { name?: string; bg: string; formationIndex: number | null }[];
+  introStory: string[];
+}
 
 export enum MoraleStatus {
   CONFIDENT = '自信',
