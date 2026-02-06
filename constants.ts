@@ -149,6 +149,7 @@ export const VIEWPORT_WIDTH = 20;
 export const VIEWPORT_HEIGHT = 14; 
 export const MAX_SQUAD_SIZE = 12;
 export const VISION_RADIUS = 6;
+export const MAX_INVENTORY_SIZE = 30;
 
 export const QUEST_FLAVOR_TEXTS = {
     HUNT: [

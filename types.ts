@@ -1,5 +1,5 @@
 
-export type GameView = 'MAIN_MENU' | 'PROLOGUE' | 'ORIGIN_SELECT' | 'INTRO_STORY' | 'WORLD_MAP' | 'COMBAT' | 'CAMP' | 'RECRUITMENT' | 'EVENT' | 'CITY';
+export type GameView = 'MAIN_MENU' | 'PROLOGUE' | 'ORIGIN_SELECT' | 'INTRO_STORY' | 'WORLD_MAP' | 'COMBAT' | 'CAMP' | 'RECRUITMENT' | 'EVENT' | 'CITY' | 'BATTLE_RESULT';
 
 // 战团起源类型
 export interface OriginConfig {
@@ -235,4 +235,19 @@ export interface CombatState {
   round: number;
   combatLog: string[];
   terrainType: string; 
+}
+
+// 战斗结算数据
+export interface BattleResult {
+  victory: boolean;
+  roundsTotal: number;
+  enemyName: string;
+  // 阶段一：伤亡与经验
+  casualties: { name: string; background: string }[];
+  survivors: { id: string; name: string; background: string; hpBefore: number; hpAfter: number; maxHp: number; xpGained: number }[];
+  enemiesKilled: number;
+  enemiesRouted: number;
+  // 阶段二：战利品
+  lootItems: Item[];
+  goldReward: number;
 }

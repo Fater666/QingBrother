@@ -27,7 +27,7 @@ import {
 
 interface CombatViewProps {
   initialState: CombatState;
-  onCombatEnd: (victory: boolean, survivors: CombatUnit[]) => void;
+  onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number) => void;
 }
 
 interface FloatingText {
@@ -226,6 +226,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       height: -1, 
       name: '沼泽' 
     },
+    SNOW: { 
+      baseColor: '#b8c4d0', 
+      lightColor: '#d0d8e2', 
+      darkColor: '#8a96a4',
+      height: 0, 
+      name: '雪原' 
+    },
+    DESERT: { 
+      baseColor: '#9a7b4f', 
+      lightColor: '#b08f60', 
+      darkColor: '#7a6040',
+      height: 0, 
+      name: '荒漠' 
+    },
   };
   const COLOR_FOG = "#080808";
 
@@ -235,28 +249,95 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return { x, y };
   };
 
-  // 预生成地形数据 - 优化：减少范围，增加地形细节
+  // 预生成地形数据 - 基于世界地形类型和随机种子
   const gridRange = 15;
+
+  // 每次战斗使用随机种子
+  const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
+
+  // 根据世界地形确定战斗地图的生物群落配置
+  type CombatTerrainType = keyof typeof TERRAIN_TYPES;
+  interface BiomeConfig {
+    primary: CombatTerrainType;     // 主要地形（占比最大）
+    secondary: CombatTerrainType;   // 次要地形
+    tertiary: CombatTerrainType;    // 第三地形
+    rare: CombatTerrainType;        // 稀有地形
+    // 阈值：noise > t1 → rare, > t2 → tertiary, > t3 → secondary, else → primary
+    thresholds: [number, number, number];
+    // 额外低洼地形阈值 (noise < lowThreshold → lowTerrain)
+    lowTerrain?: CombatTerrainType;
+    lowThreshold?: number;
+  }
+
+  const biomeConfig = useMemo((): BiomeConfig => {
+    const t = initialState.terrainType;
+    switch (t) {
+      case 'FOREST':
+        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+      case 'MOUNTAIN':
+        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5 };
+      case 'SWAMP':
+        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3 };
+      case 'SNOW':
+        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3 };
+      case 'DESERT':
+        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6 };
+      case 'ROAD':
+      case 'PLAINS':
+      default:
+        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+    }
+  }, [initialState.terrainType]);
+
   const terrainData = useMemo(() => {
     const data = new Map<string, { 
-      type: keyof typeof TERRAIN_TYPES,
+      type: CombatTerrainType,
       height: number,
     }>();
     
-    // 使用多层噪声生成更自然的地形
-    const noise1 = (q: number, r: number) => Math.sin(q * 0.2) * Math.cos(r * 0.2);
-    const noise2 = (q: number, r: number) => Math.sin(q * 0.4 + 1) * Math.cos(r * 0.35 + 0.5);
-    const combinedNoise = (q: number, r: number) => (noise1(q, r) * 0.6 + noise2(q, r) * 0.4);
+    // 简易 hash 伪随机数生成器（基于种子）
+    const hash = (x: number, y: number, seed: number): number => {
+      let h = seed + x * 374761393 + y * 668265263;
+      h = (h ^ (h >> 13)) * 1274126177;
+      h = h ^ (h >> 16);
+      return (h & 0x7fffffff) / 0x7fffffff; // 归一化到 [0, 1]
+    };
+
+    // 多层噪声，使用 hash 实现类似 value noise 的效果
+    const smoothNoise = (q: number, r: number, scale: number, seed: number): number => {
+      const sq = q * scale, sr = r * scale;
+      const q0 = Math.floor(sq), r0 = Math.floor(sr);
+      const fq = sq - q0, fr = sr - r0;
+      // 双线性插值
+      const v00 = hash(q0, r0, seed);
+      const v10 = hash(q0 + 1, r0, seed);
+      const v01 = hash(q0, r0 + 1, seed);
+      const v11 = hash(q0 + 1, r0 + 1, seed);
+      const top = v00 * (1 - fq) + v10 * fq;
+      const bot = v01 * (1 - fq) + v11 * fq;
+      return top * (1 - fr) + bot * fr;
+    };
+
+    const combinedNoise = (q: number, r: number): number => {
+      // 多层叠加，频率递增、振幅递减
+      const n1 = smoothNoise(q, r, 0.15, combatSeed) * 0.5;
+      const n2 = smoothNoise(q, r, 0.3, combatSeed + 1000) * 0.3;
+      const n3 = smoothNoise(q, r, 0.6, combatSeed + 2000) * 0.2;
+      return (n1 + n2 + n3) * 2 - 1; // 映射到 [-1, 1]
+    };
+    
+    const [t1, t2, t3] = biomeConfig.thresholds;
     
     for (let q = -gridRange; q <= gridRange; q++) {
       for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
         const n = combinedNoise(q, r);
-        let type: keyof typeof TERRAIN_TYPES = 'PLAINS';
+        let type: CombatTerrainType;
         
-        if (n > 0.7) type = 'MOUNTAIN';
-        else if (n > 0.4) type = 'HILLS';
-        else if (n > 0.1) type = 'FOREST';
-        else if (n < -0.5) type = 'SWAMP';
+        if (n > t1) type = biomeConfig.rare;
+        else if (n > t2) type = biomeConfig.tertiary;
+        else if (n > t3) type = biomeConfig.secondary;
+        else if (biomeConfig.lowTerrain && biomeConfig.lowThreshold !== undefined && n < biomeConfig.lowThreshold) type = biomeConfig.lowTerrain;
+        else type = biomeConfig.primary;
         
         data.set(`${q},${r}`, { 
           type, 
@@ -265,7 +346,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       }
     }
     return data;
-  }, []);
+  }, [combatSeed, biomeConfig]);
 
   // 视野计算 - 战斗中使用更大的视野范围
   const visibleSet = useMemo(() => {
@@ -422,24 +503,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           ctx.stroke();
 
           // 地形图标（简化）
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
           if (data.type === 'FOREST') {
             ctx.fillStyle = 'rgba(100,180,100,0.3)';
             ctx.font = '14px serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             ctx.fillText('🌲', x, topY);
           } else if (data.type === 'MOUNTAIN') {
             ctx.fillStyle = 'rgba(180,180,180,0.3)';
             ctx.font = '12px serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             ctx.fillText('⛰', x, topY);
           } else if (data.type === 'SWAMP') {
             ctx.fillStyle = 'rgba(100,150,130,0.2)';
             ctx.font = '12px serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             ctx.fillText('〰', x, topY);
+          } else if (data.type === 'SNOW') {
+            ctx.fillStyle = 'rgba(200,220,240,0.25)';
+            ctx.font = '12px serif';
+            ctx.fillText('❄', x, topY);
+          } else if (data.type === 'DESERT') {
+            ctx.fillStyle = 'rgba(200,170,100,0.25)';
+            ctx.font = '12px serif';
+            ctx.fillText('🏜', x, topY);
           }
 
           // 技能范围高亮（简化，无shadowBlur）
@@ -1293,10 +1378,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (noEnemiesAlive || enemyRouted) {
       // 敌人全部死亡或溃逃，玩家胜利
       const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
-      onCombatEnd(true, survivors);
+      const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
+      onCombatEnd(true, survivors, enemyUnits, state.round);
     } else if (noPlayersAlive || playerRouted) {
       // 玩家全部死亡或溃逃，玩家失败
-      onCombatEnd(false, []);
+      const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
+      onCombatEnd(false, [], enemyUnits, state.round);
     }
   }, [state.units]);
 

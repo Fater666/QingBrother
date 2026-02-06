@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS } from './constants';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item } from './types.ts';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -9,6 +9,7 @@ import { CityView } from './components/CityView.tsx';
 import { MainMenu } from './components/MainMenu.tsx';
 import { Prologue } from './components/Prologue.tsx';
 import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
+import { BattleResultView } from './components/BattleResultView.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
 
@@ -314,6 +315,113 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
     return ents;
 };
 
+// --- 战斗结果生成 ---
+const generateBattleResult = (
+  victory: boolean,
+  survivors: CombatUnit[],
+  enemyUnits: CombatUnit[],
+  rounds: number,
+  enemyName: string,
+  playerUnitsBeforeCombat: Character[]
+): BattleResult => {
+  const enemiesKilled = enemyUnits.filter(u => u.isDead).length;
+  const enemiesRouted = enemyUnits.filter(u => !u.isDead && u.morale === MoraleStatus.FLEEING).length;
+
+  // 阵亡己方
+  const deadPlayerIds = new Set(
+    playerUnitsBeforeCombat
+      .filter(m => m.formationIndex !== null)
+      .filter(m => !survivors.find(s => s.id === m.id))
+      .map(m => m.id)
+  );
+
+  const casualties = playerUnitsBeforeCombat
+    .filter(m => deadPlayerIds.has(m.id))
+    .map(m => ({
+      name: m.name,
+      background: BACKGROUNDS[m.background]?.name || m.background,
+    }));
+
+  // XP 计算: 基础25 + 击杀 * 15 + 回合 * 2
+  const xpPerSurvivor = victory ? 25 + enemiesKilled * 15 + rounds * 2 : 0;
+
+  const survivorData = survivors.map(s => {
+    const beforeMerc = playerUnitsBeforeCombat.find(m => m.id === s.id);
+    return {
+      id: s.id,
+      name: s.name,
+      background: BACKGROUNDS[s.background]?.name || s.background,
+      hpBefore: beforeMerc?.hp ?? s.maxHp,
+      hpAfter: s.hp,
+      maxHp: s.maxHp,
+      xpGained: xpPerSurvivor,
+    };
+  });
+
+  // --- 战利品生成 ---
+  const lootItems: Item[] = [];
+  
+  if (victory) {
+    enemyUnits.forEach(enemy => {
+      if (!enemy.isDead) return; // 溃逃敌人不掉落
+
+      const equipment = [enemy.equipment.mainHand, enemy.equipment.armor, enemy.equipment.helmet, enemy.equipment.offHand];
+      
+      equipment.forEach(item => {
+        if (!item) return;
+        // 40% 掉落几率
+        if (Math.random() > 0.4) return;
+        
+        // 战损：耐久减损 20%-50%
+        const damageFraction = 0.5 + Math.random() * 0.3; // 剩余 50%-80%
+        const newDurability = Math.max(1, Math.floor(item.durability * damageFraction));
+        
+        lootItems.push({
+          ...item,
+          id: `loot-${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          durability: newDurability,
+        });
+      });
+    });
+
+    // 15% 概率额外掉落消耗品
+    if (Math.random() < 0.15 && CONSUMABLE_TEMPLATES.length > 0) {
+      const consumable = CONSUMABLE_TEMPLATES[Math.floor(Math.random() * CONSUMABLE_TEMPLATES.length)];
+      lootItems.push({
+        ...consumable,
+        id: `loot-${consumable.id}-${Date.now()}`,
+      });
+    }
+  }
+
+  // --- 金钱奖励 ---
+  let goldReward = 0;
+  if (victory) {
+    enemyUnits.forEach(enemy => {
+      const aiType = enemy.aiType || 'BANDIT';
+      switch (aiType) {
+        case 'ARMY': goldReward += 40 + Math.floor(Math.random() * 40); break;
+        case 'BEAST': goldReward += 10 + Math.floor(Math.random() * 20); break;
+        case 'ARCHER': goldReward += 25 + Math.floor(Math.random() * 30); break;
+        case 'BERSERKER': goldReward += 35 + Math.floor(Math.random() * 45); break;
+        default: goldReward += 20 + Math.floor(Math.random() * 30); break; // BANDIT
+      }
+    });
+  }
+
+  return {
+    victory,
+    roundsTotal: rounds,
+    enemyName,
+    casualties,
+    survivors: survivorData,
+    enemiesKilled,
+    enemiesRouted,
+    lootItems,
+    goldReward,
+  };
+};
+
 export const App: React.FC = () => {
   const [view, setView] = useState<GameView>('MAIN_MENU');
   const [gameInitialized, setGameInitialized] = useState(false);
@@ -324,6 +432,8 @@ export const App: React.FC = () => {
   const [entities, setEntities] = useState<WorldEntity[]>([]);
   const [timeScale, setTimeScale] = useState<number>(0); 
   const [preCombatEntity, setPreCombatEntity] = useState<WorldEntity | null>(null);
+  const [battleResult, setBattleResult] = useState<BattleResult | null>(null);
+  const combatEnemyNameRef = useRef<string>('');
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
@@ -515,17 +625,22 @@ export const App: React.FC = () => {
       .sort((a, b) => b.init - a.init)
       .map(u => u.id);
     
+    // 根据玩家当前位置获取世界地图地形
+    const tileIndex = Math.floor(party.y) * MAP_SIZE + Math.floor(party.x);
+    const worldTerrain = tiles[tileIndex]?.type || 'PLAINS';
+    
+    combatEnemyNameRef.current = entity.name;
     setCombatState({
       units: allUnits, 
       turnOrder: sortedTurnOrder,
       currentUnitIndex: 0, 
       round: 1, 
       combatLog: [`与 ${entity.name} 激战开始！`], 
-      terrainType: 'PLAINS'
+      terrainType: worldTerrain
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
     setView('COMBAT');
-  }, [party.mercenaries]);
+  }, [party.mercenaries, party.x, party.y, tiles]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -654,7 +769,7 @@ export const App: React.FC = () => {
   return (
     <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
-      {!isPreGameView && view !== 'COMBAT' && (
+      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && (
           <nav className="h-14 bg-black border-b border-amber-900/40 flex items-center justify-between px-6 z-50">
              <div className="flex gap-4 items-center">
                 <span className="text-amber-500 font-bold tracking-widest text-lg uppercase italic">战国·与伍同行</span>
@@ -813,17 +928,63 @@ export const App: React.FC = () => {
         {view === 'COMBAT' && combatState && (
             <CombatView 
                 initialState={combatState} 
-                onCombatEnd={(victory, survivors) => {
+                onCombatEnd={(victory, survivors, enemyUnits, rounds) => {
+                    const result = generateBattleResult(
+                      victory,
+                      survivors,
+                      enemyUnits,
+                      rounds,
+                      combatEnemyNameRef.current || '未知敌人',
+                      party.mercenaries
+                    );
+                    setBattleResult(result);
+                    // 先更新存活者的 HP（从战斗状态同步回来）
                     if (victory) {
-                        setParty(p => ({ ...p, mercenaries: survivors }));
-                        setView('WORLD_MAP');
-                        setCombatState(null);
-                        setTimeScale(0);
-                    } else {
-                        alert("全军覆没...");
-                        window.location.reload();
+                      setParty(p => ({
+                        ...p,
+                        mercenaries: p.mercenaries.map(m => {
+                          const sur = survivors.find(s => s.id === m.id);
+                          if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
+                          return m; // 阵亡者暂时保留，在结算完成后移除
+                        })
+                      }));
                     }
+                    setCombatState(null);
+                    setView('BATTLE_RESULT');
+                    setTimeScale(0);
                 }} 
+            />
+        )}
+        {view === 'BATTLE_RESULT' && battleResult && (
+            <BattleResultView
+                result={battleResult}
+                party={party}
+                onComplete={(selectedLoot, goldReward, xpMap) => {
+                    setParty(p => {
+                      // 移除阵亡者
+                      const deadIds = new Set(battleResult.casualties.map(c => {
+                        const merc = p.mercenaries.find(m => m.name === c.name);
+                        return merc?.id;
+                      }).filter(Boolean));
+
+                      const updatedMercs = p.mercenaries
+                        .filter(m => !deadIds.has(m.id))
+                        .map(m => {
+                          const xp = xpMap[m.id] || 0;
+                          return { ...m, xp: m.xp + xp };
+                        });
+
+                      return {
+                        ...p,
+                        mercenaries: updatedMercs,
+                        gold: p.gold + goldReward,
+                        inventory: [...p.inventory, ...selectedLoot],
+                      };
+                    });
+                    setBattleResult(null);
+                    setView('WORLD_MAP');
+                    setTimeScale(0);
+                }}
             />
         )}
         {view === 'CAMP' && (
