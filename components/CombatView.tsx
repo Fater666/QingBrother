@@ -1644,7 +1644,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
   };
 
+  const combatEndedRef = useRef(false);
+  
   useEffect(() => {
+    // 防止重复触发
+    if (combatEndedRef.current) return;
+    
+    // 至少经过1回合才判定胜负（防止初始化时误触发）
+    if (state.round < 1) return;
+    
     // 检查是否有一方全部死亡或逃跑
     const enemyRouted = checkTeamRouted('ENEMY', state);
     const playerRouted = checkTeamRouted('PLAYER', state);
@@ -1653,19 +1661,24 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
     const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
     
-    // 敌人溃逃判定：需要至少一半敌人已死亡，剩余全部溃逃才算胜利
-    // 防止杀死一个敌人后士气连锁导致直接胜利
+    // 敌人溃逃判定：必须至多只剩1个活敌人且该敌人正在逃跑
+    // 确保不会因为杀死少量敌人后士气连锁导致提前胜利
     const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
     const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
-    const enemyRoutedValid = enemyRouted && deadEnemies >= Math.ceil(totalEnemies / 2);
+    const aliveEnemies = totalEnemies - deadEnemies;
+    const enemyRoutedValid = enemyRouted && aliveEnemies <= 1 && deadEnemies >= 1;
+    
+    console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} 合法溃败:${enemyRoutedValid}`);
     
     if (noEnemiesAlive || enemyRoutedValid) {
-      // 敌人全部死亡或半数以上阵亡且剩余溃逃，玩家胜利
+      // 敌人全部死亡或仅剩1人且溃逃，玩家胜利
+      combatEndedRef.current = true;
       const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(true, survivors, enemyUnits, state.round);
     } else if (noPlayersAlive || playerRouted) {
       // 玩家全部死亡或溃逃，玩家失败
+      combatEndedRef.current = true;
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(false, [], enemyUnits, state.round);
     }

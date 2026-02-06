@@ -370,6 +370,8 @@ const generateBattleResult = (
       
       equipment.forEach(item => {
         if (!item) return;
+        // 天然武器（野兽爪牙等）不掉落
+        if (item.value <= 0) return;
         // 40% 掉落几率
         if (Math.random() > 0.4) return;
         
@@ -630,20 +632,52 @@ export const App: React.FC = () => {
     // 获取敌人配置，默认使用匪徒配置
     const config = enemyConfigs[entity.type] || enemyConfigs['BANDIT'];
     
-    const enemies: CombatUnit[] = config.compositions.slice(0, config.count).map((comp, i) => ({
-      ...createMercenary(`e${i}`, comp.name, comp.bg),
-      team: 'ENEMY' as const,
-      combatPos: { q: 2, r: i - Math.floor(config.count / 2) }, // 敌人初始位置更近
-      currentAP: 9,
-      isDead: false,
-      isShieldWall: false,
-      isHalberdWall: false,
-      movedThisTurn: false,
-      hasWaited: false,
-      freeSwapUsed: false,
-      hasUsedFreeAttack: false, // 控制区机制：是否已使用截击
-      aiType: comp.aiType
-    }));
+    const enemies: CombatUnit[] = config.compositions.slice(0, config.count).map((comp, i) => {
+      const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
+      
+      // BEAST类型敌人：使用天然武器，不穿装备
+      if (comp.aiType === 'BEAST') {
+        const isAlpha = comp.name.includes('头狼');
+        baseChar.equipment = {
+          mainHand: {
+            id: `beast-claw-${i}`,
+            name: isAlpha ? '狼牙' : '利爪',
+            type: 'WEAPON' as const,
+            value: 0,
+            weight: 0,
+            durability: 999,
+            maxDurability: 999,
+            description: isAlpha ? '头狼锋利的獠牙，撕咬力惊人。' : '野狼锋利的爪子。',
+            damage: isAlpha ? [30, 50] as [number, number] : [20, 35] as [number, number],
+            armorPen: isAlpha ? 0.3 : 0.15,
+            armorDmg: 0.5,
+            fatigueCost: 8,
+            range: 1,
+            hitChanceMod: isAlpha ? 15 : 10,
+          },
+          offHand: null,
+          armor: null,
+          helmet: null,
+          ammo: null,
+          accessory: null,
+        };
+      }
+      
+      return {
+        ...baseChar,
+        team: 'ENEMY' as const,
+        combatPos: { q: 2, r: i - Math.floor(config.count / 2) },
+        currentAP: 9,
+        isDead: false,
+        isShieldWall: false,
+        isHalberdWall: false,
+        movedThisTurn: false,
+        hasWaited: false,
+        freeSwapUsed: false,
+        hasUsedFreeAttack: false,
+        aiType: comp.aiType
+      };
+    });
     
     const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map((m, idx) => {
         // 调整玩家位置：前排 q=-2，后排 q=-3

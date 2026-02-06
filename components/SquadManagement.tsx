@@ -408,10 +408,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
             )}
         </div>
 
-        {/* RIGHT COLUMN: Management */}
+        {/* RIGHT COLUMN: Management (Stash / Perks only) */}
         <div className="flex-1 flex flex-col overflow-hidden">
-            
-            {/* Upper: Tabs (Stash or Perks) */}
             <div className="flex-1 flex flex-col min-h-0 bg-[#080705]">
                 <div className="flex h-11 border-b border-amber-900/30 bg-[#0d0b08] shrink-0">
                     <button 
@@ -520,108 +518,102 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                     )}
                 </div>
             </div>
-
-            {/* Lower: Formation + Reserve Roster */}
-            <div className="h-72 border-t border-amber-900/40 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0">
-                {/* Formation Grid */}
-                <div className="flex-1 p-4 border-b border-amber-900/20">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-xs font-bold text-amber-700 uppercase tracking-[0.2em]">战阵布署</h3>
-                        <span className="text-[10px] text-slate-600">出战 {activeRoster.length}/12 人</span>
-                    </div>
-                    <div className="grid grid-cols-9 grid-rows-2 gap-1 h-[calc(100%-24px)]">
-                        {Array.from({length: 18}).map((_, i) => {
-                            const char = party.mercenaries.find(m => m.formationIndex === i);
-                            const isBackRow = i >= 9;
-                            return (
-                                <div 
-                                    key={i}
-                                    draggable={!!char}
-                                    onDragStart={(e) => {
-                                        if (char) handleDragStart(e, { type: 'ROSTER', char });
-                                    }}
-                                    onDragOver={(e) => e.preventDefault()} 
-                                    onDrop={(e) => {
-                                        e.preventDefault();
-                                        const dataStr = e.dataTransfer.getData('text/plain');
-                                        if (!dataStr) return;
-                                        const data: DragData = JSON.parse(dataStr);
-                                        if (data.type !== 'ROSTER' || !data.char) return;
-                                        // 支持互换：把目标格现有角色移到拖拽源角色的原位置
-                                        const draggedCharId = data.char.id;
-                                        const occupantChar = char; // 当前格子上的角色（可能为null）
-                                        const draggedMerc = party.mercenaries.find(m => m.id === draggedCharId);
-                                        const sourceIndex = draggedMerc?.formationIndex ?? null;
-                                        
-                                        const newMercs = party.mercenaries.map(m => {
-                                            if (m.id === draggedCharId) return { ...m, formationIndex: i };
-                                            if (occupantChar && m.id === occupantChar.id) return { ...m, formationIndex: sourceIndex };
-                                            return m;
-                                        });
-                                        onUpdateParty({ ...party, mercenaries: newMercs });
-                                    }}
-                                    onClick={() => char && setSelectedMerc(char)}
-                                    className={`border transition-all flex flex-col items-center justify-center p-1 text-center ${
-                                        char 
-                                            ? (selectedMerc?.id === char.id 
-                                                ? 'border-amber-500 bg-amber-950/40 cursor-grab' 
-                                                : 'border-slate-700 bg-slate-900/50 cursor-grab hover:border-slate-500') 
-                                            : isBackRow 
-                                                ? 'border-slate-800/20 bg-black/10' 
-                                                : 'border-slate-800/30 bg-black/20'
-                                    }`}
-                                >
-                                    {char ? (
-                                        <>
-                                            <span className={`text-[10px] font-bold truncate w-full ${selectedMerc?.id === char.id ? 'text-amber-400' : 'text-slate-300'}`}>{char.name}</span>
-                                            <span className="text-[8px] text-slate-600 truncate w-full">{char.background}</span>
-                                        </>
-                                    ) : (
-                                        <span className="text-[8px] text-slate-800">{isBackRow ? '后' : '前'}{(i % 9) + 1}</span>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Reserve Roster - Battle Brothers Style */}
-                <div className="h-24 p-4 bg-black/30">
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-xs font-bold text-slate-600 uppercase tracking-[0.15em]">后备队伍</h3>
-                        <span className="text-[10px] text-slate-700">后备 {reserveRoster.length} 人 · 拖动至战阵以出战</span>
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
-                        {reserveRoster.length > 0 ? (
-                            reserveRoster.map(m => (
-                                <div 
-                                    key={m.id}
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(e, { type: 'ROSTER', char: m })}
-                                    onClick={() => setSelectedMerc(m)}
-                                    onDoubleClick={() => handleAddToFormation(m)}
-                                    className={`shrink-0 px-3 py-2 border cursor-pointer transition-all min-w-[120px] ${
-                                        selectedMerc?.id === m.id 
-                                            ? 'border-amber-500 bg-amber-950/30' 
-                                            : 'border-slate-800 hover:border-slate-600 bg-black/40'
-                                    }`}
-                                >
-                                    <div className={`text-sm font-bold truncate ${selectedMerc?.id === m.id ? 'text-amber-400' : 'text-slate-400'}`}>{m.name}</div>
-                                    <div className="text-[10px] text-slate-600">{m.background} · Lv.{m.level}</div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-xs text-slate-700 italic py-2">无后备人员 — 所有人员已在战阵中</div>
-                        )}
-                        
-                        {/* Add new recruit hint */}
-                        <div className="shrink-0 px-4 py-2 border border-dashed border-slate-800 flex items-center justify-center text-slate-700 hover:border-slate-600 hover:text-slate-500 cursor-pointer transition-colors min-w-[80px]">
-                            <span className="text-xs">+ 招募</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
+      </div>
+
+      {/* ===== 战阵布署区域 - 始终显示在底部，不受tab切换影响 ===== */}
+      <div className="h-52 border-t border-amber-900/40 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex shrink-0 z-20">
+          {/* Formation Grid */}
+          <div className="flex-1 p-4 border-r border-amber-900/20">
+              <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-xs font-bold text-amber-700 uppercase tracking-[0.2em]">战阵布署</h3>
+                  <span className="text-[10px] text-slate-600">出战 {activeRoster.length}/12 人</span>
+              </div>
+              <div className="grid grid-cols-9 grid-rows-2 gap-1 h-[calc(100%-24px)]">
+                  {Array.from({length: 18}).map((_, i) => {
+                      const char = party.mercenaries.find(m => m.formationIndex === i);
+                      const isBackRow = i >= 9;
+                      return (
+                          <div 
+                              key={i}
+                              draggable={!!char}
+                              onDragStart={(e) => {
+                                  if (char) handleDragStart(e, { type: 'ROSTER', char });
+                              }}
+                              onDragOver={(e) => e.preventDefault()} 
+                              onDrop={(e) => {
+                                  e.preventDefault();
+                                  const dataStr = e.dataTransfer.getData('text/plain');
+                                  if (!dataStr) return;
+                                  const data: DragData = JSON.parse(dataStr);
+                                  if (data.type !== 'ROSTER' || !data.char) return;
+                                  const draggedCharId = data.char.id;
+                                  const occupantChar = char;
+                                  const draggedMerc = party.mercenaries.find(m => m.id === draggedCharId);
+                                  const sourceIndex = draggedMerc?.formationIndex ?? null;
+                                  
+                                  const newMercs = party.mercenaries.map(m => {
+                                      if (m.id === draggedCharId) return { ...m, formationIndex: i };
+                                      if (occupantChar && m.id === occupantChar.id) return { ...m, formationIndex: sourceIndex };
+                                      return m;
+                                  });
+                                  onUpdateParty({ ...party, mercenaries: newMercs });
+                              }}
+                              onClick={() => char && setSelectedMerc(char)}
+                              className={`border transition-all flex flex-col items-center justify-center p-1 text-center ${
+                                  char 
+                                      ? (selectedMerc?.id === char.id 
+                                          ? 'border-amber-500 bg-amber-950/40 cursor-grab' 
+                                          : 'border-slate-700 bg-slate-900/50 cursor-grab hover:border-slate-500') 
+                                      : isBackRow 
+                                          ? 'border-slate-800/20 bg-black/10' 
+                                          : 'border-slate-800/30 bg-black/20'
+                              }`}
+                          >
+                              {char ? (
+                                  <>
+                                      <span className={`text-[10px] font-bold truncate w-full ${selectedMerc?.id === char.id ? 'text-amber-400' : 'text-slate-300'}`}>{char.name}</span>
+                                      <span className="text-[8px] text-slate-600 truncate w-full">{char.background}</span>
+                                  </>
+                              ) : (
+                                  <span className="text-[8px] text-slate-800">{isBackRow ? '后' : '前'}{(i % 9) + 1}</span>
+                              )}
+                          </div>
+                      );
+                  })}
+              </div>
+          </div>
+
+          {/* Reserve Roster - 右侧纵向排列 */}
+          <div className="w-64 p-3 bg-black/30 flex flex-col shrink-0">
+              <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.15em]">后备队伍</h3>
+                  <span className="text-[9px] text-slate-700">{reserveRoster.length} 人</span>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 overflow-y-auto custom-scrollbar">
+                  {reserveRoster.length > 0 ? (
+                      reserveRoster.map(m => (
+                          <div 
+                              key={m.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, { type: 'ROSTER', char: m })}
+                              onClick={() => setSelectedMerc(m)}
+                              onDoubleClick={() => handleAddToFormation(m)}
+                              className={`shrink-0 px-3 py-1.5 border cursor-pointer transition-all ${
+                                  selectedMerc?.id === m.id 
+                                      ? 'border-amber-500 bg-amber-950/30' 
+                                      : 'border-slate-800 hover:border-slate-600 bg-black/40'
+                              }`}
+                          >
+                              <div className={`text-xs font-bold truncate ${selectedMerc?.id === m.id ? 'text-amber-400' : 'text-slate-400'}`}>{m.name}</div>
+                              <div className="text-[9px] text-slate-600">{m.background} · Lv.{m.level}</div>
+                          </div>
+                      ))
+                  ) : (
+                      <div className="text-[10px] text-slate-700 italic py-2">全员已上阵</div>
+                  )}
+              </div>
+          </div>
       </div>
 
       {/* FOOTER: All Roster - Quick Select */}

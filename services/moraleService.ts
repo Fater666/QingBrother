@@ -240,6 +240,21 @@ export const performMoraleCheck = (
 ): MoraleCheckResult => {
   const previousMorale = unit.morale;
   
+  // 野兽和狂战士免疫士气系统（永不动摇、永不逃跑）
+  const aiType = unit.aiType;
+  if (aiType === 'BEAST' || aiType === 'BERSERKER') {
+    return {
+      unitId: unit.id,
+      unitName: unit.name,
+      previousMorale,
+      newMorale: previousMorale,
+      trigger,
+      success: true,
+      roll: 999,
+      difficulty: 0
+    };
+  }
+  
   // 已经在逃跑状态的单位不需要再检定（除非是恢复检定）
   if (previousMorale === MoraleStatus.FLEEING && trigger !== 'TURN_START' && trigger !== 'ENEMY_KILLED') {
     return {
@@ -320,7 +335,8 @@ export const handleAllyDeath = (
   // 检查是否触发大规模伤亡检定
   const totalAllies = state.units.filter(u => u.team === deadUnit.team);
   const deadAllies = state.units.filter(u => u.team === deadUnit.team && u.isDead);
-  const casualtyRate = (deadAllies.length + 1) / totalAllies.length; // +1 因为当前单位刚死亡
+  // 注意：deadUnit 已在 state 中标记为 isDead: true，不需要额外 +1
+  const casualtyRate = deadAllies.length / totalAllies.length;
   
   const isMassCasualty = casualtyRate >= MASS_CASUALTY_THRESHOLD;
   

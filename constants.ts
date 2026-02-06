@@ -110,6 +110,7 @@ export const ABILITIES: Record<string, Ability> = {
     'SHIELDWALL': { id: 'SHIELDWALL', name: '盾墙', description: '大幅提高近战和远程防御。', apCost: 4, fatCost: 20, range: [0, 0], icon: '🛡️', type: 'SKILL', targetType: 'SELF' },
     'KNOCK_BACK': { id: 'KNOCK_BACK', name: '推撞', description: '将敌人推开一格。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🤚', type: 'SKILL', targetType: 'ENEMY' },
     'THROW': { id: 'THROW', name: '投掷', description: '投掷武器进行远程攻击。', apCost: 4, fatCost: 12, range: [2, 4], icon: '🪨', type: 'ATTACK', targetType: 'ENEMY' },
+    'BITE': { id: 'BITE', name: '撕咬', description: '野兽的凶猛撕咬。', apCost: 4, fatCost: 8, range: [1, 1], icon: '🐺', type: 'ATTACK', targetType: 'ENEMY' },
 };
 
 export const getUnitAbilities = (char: Character): Ability[] => {
@@ -139,6 +140,8 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         else if (main.name.includes('鞭') || main.name.includes('锏') || main.name.includes('铁链')) { skills.push(ABILITIES['BASH']); }
         // 戈/戟类
         else if (main.name.includes('戈') || main.name.includes('戟')) { skills.push(ABILITIES['IMPALE']); }
+        // 野兽天然武器（爪/牙）
+        else if (main.name.includes('爪') || main.name.includes('牙') || main.name.includes('獠')) { skills.push(ABILITIES['BITE']); }
         // 弓类
         else if (main.name.includes('弓')) { skills.push(ABILITIES['SHOOT']); }
         // 弩类
