@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes } from '../constants.tsx';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes } from '../constants';
 import { Portrait } from './Portrait.tsx';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {

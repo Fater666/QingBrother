@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Party, City, Item, Character, CityFacility, Quest } from '../types.ts';
-import { BACKGROUNDS } from '../constants.tsx';
+import { BACKGROUNDS } from '../constants';
 
 interface CityViewProps {
   city: City;

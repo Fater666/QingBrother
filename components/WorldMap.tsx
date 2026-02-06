@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { WorldTile, Party, WorldEntity } from '../types.ts';
-import { MAP_SIZE, VIEWPORT_WIDTH, VISION_RADIUS } from '../constants.tsx';
+import { WorldTile, Party, WorldEntity, City } from '../types.ts';
+import { MAP_SIZE, VIEWPORT_WIDTH, VISION_RADIUS } from '../constants';
+import { getBiome, BIOME_CONFIGS } from '../services/mapGenerator.ts';
 
 // ============================================================================
 // 战场兄弟风格配色方案 - 区域特色化调色板
@@ -27,6 +28,19 @@ const TERRAIN_COLORS: Record<string, { base: string; accent: string; detail: str
   DESERT:   { base: '#c4a86a', accent: '#a48850', detail: '#d4b87a', highlight: '#e4c88a' },
 };
 
+// 地形中文名称
+const TERRAIN_NAMES: Record<string, string> = {
+  PLAINS: '平原',
+  FOREST: '森林',
+  MOUNTAIN: '山地',
+  CITY: '城邑',
+  ROAD: '官道',
+  SWAMP: '沼泽',
+  RUINS: '遗迹',
+  SNOW: '雪原',
+  DESERT: '荒漠',
+};
+
 // 伪随机数生成器
 const seededRandom = (x: number, y: number, seed: number = 0): number => {
   const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
@@ -39,6 +53,18 @@ interface RoadNeighbors {
   south: boolean;
   east: boolean;
   west: boolean;
+}
+
+// 悬停信息
+interface HoverInfo {
+  screenX: number;
+  screenY: number;
+  terrainName: string;
+  biomeName: string;
+  entityName?: string;
+  entityFaction?: string;
+  cityName?: string;
+  cityType?: string;
 }
 
 // ============================================================================
@@ -466,7 +492,7 @@ const drawFogTile = (
   }
 };
 
-// 绘制实体
+// 绘制实体（含名称标签）
 const drawEntityIcon = (
   ctx: CanvasRenderingContext2D,
   entity: WorldEntity,
@@ -481,27 +507,33 @@ const drawEntityIcon = (
   let baseColor = '#334155';
   let accentColor = '#475569';
   let iconColor = '#e2e8f0';
+  let nameColor = '#c8d0dc';
   
   if (entity.faction === 'HOSTILE') {
     baseColor = '#7f1d1d';
     accentColor = '#991b1b';
     iconColor = '#fecaca';
+    nameColor = '#fca5a5';
   } else if (entity.faction === 'NEUTRAL') {
     baseColor = '#4a5568';
     accentColor = '#718096';
     iconColor = '#e2e8f0';
+    nameColor = '#cbd5e1';
   }
   
+  // 阴影
   ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
   ctx.beginPath();
   ctx.arc(centerX + 2, centerY + 2, radius, 0, Math.PI * 2);
   ctx.fill();
   
+  // 主体圆
   ctx.fillStyle = baseColor;
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
   ctx.fill();
   
+  // 边框
   ctx.strokeStyle = accentColor;
   ctx.lineWidth = 2;
   ctx.stroke();
@@ -570,6 +602,105 @@ const drawEntityIcon = (
       ctx.textBaseline = 'middle';
       ctx.fillText('?', centerX, centerY);
   }
+  
+  // ---- 名称标签 ----
+  const fontSize = Math.max(9, Math.min(13, tileSize * 0.28));
+  ctx.font = `bold ${fontSize}px "Noto Serif SC", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  
+  const labelY = centerY + radius + 4;
+  const text = entity.name;
+  
+  // 描边（增加可读性）
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, centerX, labelY);
+  
+  // 填充
+  ctx.fillStyle = nameColor;
+  ctx.fillText(text, centerX, labelY);
+};
+
+// 绘制城市标签
+const drawCityLabel = (
+  ctx: CanvasRenderingContext2D,
+  city: City,
+  screenX: number,
+  screenY: number,
+  tileSize: number
+) => {
+  const centerX = screenX + tileSize / 2;
+  const labelY = screenY - 4;
+  
+  // 根据城市类型设置样式
+  let fontSize: number;
+  let labelColor: string;
+  let prefix = '';
+  
+  switch (city.type) {
+    case 'CAPITAL':
+      fontSize = Math.max(13, Math.min(18, tileSize * 0.4));
+      labelColor = '#fbbf24';  // 金色
+      prefix = '★ ';
+      break;
+    case 'TOWN':
+      fontSize = Math.max(11, Math.min(15, tileSize * 0.33));
+      labelColor = '#e2c89a';  // 浅金
+      break;
+    case 'VILLAGE':
+    default:
+      fontSize = Math.max(10, Math.min(13, tileSize * 0.28));
+      labelColor = '#a8b0a0';  // 灰绿
+      break;
+  }
+  
+  ctx.font = `bold ${fontSize}px "Noto Serif SC", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  
+  const text = prefix + city.name;
+  
+  // 文字背景条
+  const textWidth = ctx.measureText(text).width;
+  const bgPadX = 6;
+  const bgPadY = 3;
+  const bgX = centerX - textWidth / 2 - bgPadX;
+  const bgY = labelY - fontSize - bgPadY;
+  const bgW = textWidth + bgPadX * 2;
+  const bgH = fontSize + bgPadY * 2;
+  
+  // 圆角背景
+  const bgRadius = 3;
+  ctx.fillStyle = 'rgba(10, 8, 5, 0.75)';
+  ctx.beginPath();
+  ctx.moveTo(bgX + bgRadius, bgY);
+  ctx.lineTo(bgX + bgW - bgRadius, bgY);
+  ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + bgRadius);
+  ctx.lineTo(bgX + bgW, bgY + bgH - bgRadius);
+  ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - bgRadius, bgY + bgH);
+  ctx.lineTo(bgX + bgRadius, bgY + bgH);
+  ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - bgRadius);
+  ctx.lineTo(bgX, bgY + bgRadius);
+  ctx.quadraticCurveTo(bgX, bgY, bgX + bgRadius, bgY);
+  ctx.closePath();
+  ctx.fill();
+  
+  // 边框
+  ctx.strokeStyle = 'rgba(180, 140, 80, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  
+  // 描边文字
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, centerX, labelY);
+  
+  // 填充文字
+  ctx.fillStyle = labelColor;
+  ctx.fillText(text, centerX, labelY);
 };
 
 // 绘制玩家
@@ -612,20 +743,85 @@ const drawPlayerIcon = (
   ctx.fillText('伍', centerX, centerY);
 };
 
+// 绘制目标路径线（带箭头）
+const drawTargetPath = (
+  ctx: CanvasRenderingContext2D,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  tileSize: number
+) => {
+  // 目标光晕
+  const targetGradient = ctx.createRadialGradient(toX, toY, 0, toX, toY, tileSize * 0.6);
+  targetGradient.addColorStop(0, 'rgba(239, 68, 68, 0.35)');
+  targetGradient.addColorStop(0.6, 'rgba(239, 68, 68, 0.1)');
+  targetGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+  ctx.fillStyle = targetGradient;
+  ctx.beginPath();
+  ctx.arc(toX, toY, tileSize * 0.6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 虚线路径
+  ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // 箭头
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 10) {
+    const arrowSize = Math.min(10, tileSize * 0.3);
+    const angle = Math.atan2(dy, dx);
+    // 箭头位置在线段末端前一点
+    const ax = toX - Math.cos(angle) * tileSize * 0.25;
+    const ay = toY - Math.sin(angle) * tileSize * 0.25;
+    
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.7)';
+    ctx.beginPath();
+    ctx.moveTo(ax + Math.cos(angle) * arrowSize, ay + Math.sin(angle) * arrowSize);
+    ctx.lineTo(ax + Math.cos(angle + 2.5) * arrowSize * 0.6, ay + Math.sin(angle + 2.5) * arrowSize * 0.6);
+    ctx.lineTo(ax + Math.cos(angle - 2.5) * arrowSize * 0.6, ay + Math.sin(angle - 2.5) * arrowSize * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  
+  // 目标点
+  ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
+  ctx.beginPath();
+  ctx.arc(toX, toY, 4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 目标点外圈
+  ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(toX, toY, 8, 0, Math.PI * 2);
+  ctx.stroke();
+};
+
 interface WorldMapProps {
   tiles: WorldTile[];
   party: Party;
   entities: WorldEntity[];
+  cities: City[];
   onSetTarget: (x: number, y: number) => void;
 }
 
-export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSetTarget }) => {
+export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, cities, onSetTarget }) => {
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH);
+  const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   // 使用 ref 存储最新的 props，避免 useEffect 依赖变化导致重新创建渲染循环
-  const propsRef = useRef({ tiles, party, entities, viewportWidth });
-  propsRef.current = { tiles, party, entities, viewportWidth };
+  const propsRef = useRef({ tiles, party, entities, cities, viewportWidth });
+  propsRef.current = { tiles, party, entities, cities, viewportWidth };
   
   // 离屏Canvas缓存
   const terrainCacheRef = useRef<HTMLCanvasElement | null>(null);
@@ -643,7 +839,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
   const cameraRef = useRef({ x: party.x, y: party.y });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const dragDistRef = useRef(0);
   const requestRef = useRef<number>(0);
+  const mouseScreenRef = useRef({ x: 0, y: 0 });
 
   // Sync camera with party when not dragging
   useEffect(() => {
@@ -661,29 +859,101 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     isDraggingRef.current = true;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
+    dragDistRef.current = 0;
   }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDraggingRef.current) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const { viewportWidth } = propsRef.current;
-    const tilesPerPixel = viewportWidth / canvas.clientWidth;
     
-    cameraRef.current.x = Math.max(0, Math.min(MAP_SIZE, cameraRef.current.x - dx * tilesPerPixel));
-    cameraRef.current.y = Math.max(0, Math.min(MAP_SIZE, cameraRef.current.y - dy * tilesPerPixel));
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    const canvasRect = canvas.getBoundingClientRect();
+    mouseScreenRef.current = { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top };
+    
+    if (isDraggingRef.current) {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      dragDistRef.current += Math.abs(dx) + Math.abs(dy);
+      
+      const { viewportWidth } = propsRef.current;
+      const tilesPerPixel = viewportWidth / canvas.clientWidth;
+      
+      cameraRef.current.x = Math.max(0, Math.min(MAP_SIZE, cameraRef.current.x - dx * tilesPerPixel));
+      cameraRef.current.y = Math.max(0, Math.min(MAP_SIZE, cameraRef.current.y - dy * tilesPerPixel));
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+    }
+    
+    // 计算悬停的世界坐标
+    const { viewportWidth: vw, tiles: t, entities: ents, cities: cts } = propsRef.current;
+    const aspectRatio = canvas.clientWidth / canvas.clientHeight;
+    const viewportHeight = vw / aspectRatio;
+    const tileSize = canvas.clientWidth / vw;
+    
+    const camX = cameraRef.current.x;
+    const camY = cameraRef.current.y;
+    
+    const worldX = mouseScreenRef.current.x / tileSize + (camX - vw / 2);
+    const worldY = mouseScreenRef.current.y / tileSize + (camY - viewportHeight / 2);
+    const tileX = Math.floor(worldX);
+    const tileY = Math.floor(worldY);
+    
+    if (tileX >= 0 && tileX < MAP_SIZE && tileY >= 0 && tileY < MAP_SIZE) {
+      const tile = t[tileY * MAP_SIZE + tileX];
+      if (tile && tile.explored) {
+        const biome = getBiome(tileY, MAP_SIZE);
+        const biomeName = BIOME_CONFIGS[biome].name;
+        const terrainName = TERRAIN_NAMES[tile.type] || tile.type;
+        
+        // 检测实体
+        let entityName: string | undefined;
+        let entityFaction: string | undefined;
+        for (const ent of ents) {
+          if (Math.floor(ent.x) === tileX && Math.floor(ent.y) === tileY) {
+            entityName = ent.name;
+            entityFaction = ent.faction === 'HOSTILE' ? '敌对' : ent.faction === 'NEUTRAL' ? '中立' : '友军';
+            break;
+          }
+        }
+        
+        // 检测城市
+        let cityName: string | undefined;
+        let cityType: string | undefined;
+        for (const c of cts) {
+          if (c.x === tileX && c.y === tileY) {
+            cityName = c.name;
+            cityType = c.type === 'CAPITAL' ? '王都' : c.type === 'TOWN' ? '城镇' : '村落';
+            break;
+          }
+        }
+        
+        setHoverInfo({
+          screenX: e.clientX,
+          screenY: e.clientY,
+          terrainName,
+          biomeName,
+          entityName,
+          entityFaction,
+          cityName,
+          cityType,
+        });
+      } else {
+        setHoverInfo(null);
+      }
+    } else {
+      setHoverInfo(null);
+    }
   }, []);
 
   const handleMouseUp = useCallback(() => { 
     isDraggingRef.current = false; 
   }, []);
+  
+  const handleMouseLeave = useCallback(() => {
+    isDraggingRef.current = false;
+    setHoverInfo(null);
+  }, []);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    if (isDraggingRef.current && (Math.abs(e.clientX - dragStartRef.current.x) > 5)) return;
+    if (dragDistRef.current > 5) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -723,7 +993,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
       }
 
       // 从 ref 读取最新的 props
-      const { tiles, party, entities, viewportWidth } = propsRef.current;
+      const { tiles, party, entities, cities, viewportWidth } = propsRef.current;
 
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
@@ -850,7 +1120,20 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
         y: (wy - (camY - viewportHeight / 2)) * tileSize
       });
 
-      // 绘制动态实体 - 加 0.5 偏移到格子中心
+      // 绘制城市名称标签（在迷雾之后、实体之前）
+      for (const city of cities) {
+        // 只显示已探索的城市
+        const cityTile = tiles[city.y * MAP_SIZE + city.x];
+        if (!cityTile || !cityTile.explored) continue;
+        
+        const pos = toScreen(city.x + 0.5, city.y + 0.5);
+        if (pos.x < -tileSize * 2 || pos.x > rect.width + tileSize * 2 || 
+            pos.y < -tileSize * 2 || pos.y > rect.height + tileSize * 2) continue;
+        
+        drawCityLabel(ctx, city, pos.x - tileSize / 2, pos.y - tileSize / 2, tileSize);
+      }
+
+      // 绘制动态实体（含名称标签） - 加 0.5 偏移到格子中心
       for (let i = 0; i < entities.length; i++) {
         const ent = entities[i];
         const distToParty = Math.hypot(ent.x - party.x, ent.y - party.y);
@@ -867,32 +1150,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
       const pPos = toScreen(party.x + 0.5, party.y + 0.5);
       drawPlayerIcon(ctx, pPos.x, pPos.y, tileSize);
 
-      // 目标线
+      // 目标路径线（带箭头）
       if (party.targetX !== null && party.targetY !== null) {
-        // 加 0.5 偏移到格子中心
         const tPos = toScreen(party.targetX + 0.5, party.targetY + 0.5);
-        
-        const targetGradient = ctx.createRadialGradient(tPos.x, tPos.y, 0, tPos.x, tPos.y, tileSize * 0.6);
-        targetGradient.addColorStop(0, 'rgba(239, 68, 68, 0.4)');
-        targetGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
-        ctx.fillStyle = targetGradient;
-        ctx.beginPath();
-        ctx.arc(tPos.x, tPos.y, tileSize * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([8, 6]);
-        ctx.beginPath();
-        ctx.moveTo(pPos.x, pPos.y);
-        ctx.lineTo(tPos.x, tPos.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.8)';
-        ctx.beginPath();
-        ctx.arc(tPos.x, tPos.y, 4, 0, Math.PI * 2);
-        ctx.fill();
+        drawTargetPath(ctx, pPos.x, pPos.y, tPos.x, tPos.y, tileSize);
       }
 
       requestRef.current = requestAnimationFrame(render);
@@ -906,6 +1167,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
     };
   }, []); // 空依赖数组 - 只初始化一次
 
+  // 获取玩家当前位置信息
+  const playerTileX = Math.floor(party.x);
+  const playerTileY = Math.floor(party.y);
+  const playerTile = (playerTileX >= 0 && playerTileX < MAP_SIZE && playerTileY >= 0 && playerTileY < MAP_SIZE)
+    ? tiles[playerTileY * MAP_SIZE + playerTileX]
+    : null;
+  const playerBiome = getBiome(playerTileY, MAP_SIZE);
+  const playerBiomeName = BIOME_CONFIGS[playerBiome].name;
+  const playerTerrainName = playerTile ? (TERRAIN_NAMES[playerTile.type] || playerTile.type) : '未知';
+  
+  // 缩放等级
+  const zoomPercent = Math.round((1 - (viewportWidth - 10) / (MAP_SIZE - 10)) * 100);
+
   return (
     <div className="relative w-full h-full bg-[#0a0a0a] overflow-hidden select-none">
       <canvas 
@@ -914,20 +1188,106 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, onSe
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onClick={handleClick}
         onWheel={handleWheel}
       />
-      <div className="absolute bottom-8 right-8 z-50 text-right pointer-events-none">
-        <div className="text-4xl font-bold text-amber-600 font-serif tracking-widest drop-shadow-2xl"
-             style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
-            第 {Math.floor(party.day)} 天
+      
+      {/* ===== 悬停提示框 (Tooltip) ===== */}
+      {hoverInfo && !isDraggingRef.current && (
+        <div 
+          className="fixed z-[200] pointer-events-none"
+          style={{ 
+            left: hoverInfo.screenX + 16, 
+            top: hoverInfo.screenY - 10,
+          }}
+        >
+          <div className="bg-[#0f0d0a]/90 border border-amber-900/50 rounded px-3 py-2 shadow-xl backdrop-blur-sm min-w-[120px]">
+            {/* 城市名 */}
+            {hoverInfo.cityName && (
+              <div className="text-amber-400 font-bold text-sm mb-1 tracking-wide">
+                {hoverInfo.cityName}
+                <span className="text-amber-600 text-[10px] ml-1.5 font-normal">({hoverInfo.cityType})</span>
+              </div>
+            )}
+            {/* 实体名 */}
+            {hoverInfo.entityName && (
+              <div className="text-red-400 font-bold text-sm mb-1">
+                {hoverInfo.entityName}
+                <span className="text-red-600/70 text-[10px] ml-1.5 font-normal">[{hoverInfo.entityFaction}]</span>
+              </div>
+            )}
+            {/* 地形 + 区域 */}
+            <div className="text-slate-400 text-xs">
+              <span className="text-slate-300">{hoverInfo.biomeName}</span>
+              <span className="text-slate-600 mx-1">·</span>
+              <span>{hoverInfo.terrainName}</span>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* ===== 底部信息栏 (Bottom HUD) ===== */}
+      <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none">
+        <div className="bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-10 pb-0">
+          <div className="flex items-end justify-between px-5 pb-3">
+            {/* 左侧：位置信息 */}
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-0.5">
+                <div className="text-[10px] text-slate-600 tracking-widest uppercase">位置</div>
+                <div className="text-xs font-mono text-slate-400">
+                  <span className="text-amber-600/80">{playerBiomeName}</span>
+                  <span className="text-slate-700 mx-1.5">|</span>
+                  <span>{playerTerrainName}</span>
+                  <span className="text-slate-700 mx-1.5">|</span>
+                  <span className="text-slate-500">({playerTileX}, {playerTileY})</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* 中间：天数 */}
+            <div className="flex flex-col items-center">
+              <div className="text-3xl font-bold text-amber-600 font-serif tracking-widest"
+                   style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
+                第 {Math.floor(party.day)} 天
+              </div>
+            </div>
+            
+            {/* 右侧：缩放 */}
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="text-[10px] text-slate-600 tracking-widest uppercase">视野</div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  {[10, 20, 35, 50, 64].map((level, i) => (
+                    <div 
+                      key={i}
+                      className={`h-1.5 rounded-full transition-all ${
+                        viewportWidth <= level 
+                          ? 'bg-amber-600 w-3' 
+                          : 'bg-slate-800 w-2'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-slate-500 font-mono ml-1">{zoomPercent}%</span>
+              </div>
+            </div>
+          </div>
+          
+          {/* 底部装饰线 */}
+          <div className="h-px bg-gradient-to-r from-transparent via-amber-900/30 to-transparent" />
         </div>
       </div>
       
+      {/* ===== Vignette 边缘效果（改进版） ===== */}
       <div className="absolute inset-0 pointer-events-none"
            style={{
-             boxShadow: 'inset 0 0 60px 20px rgba(0,0,0,0.6)',
+             boxShadow: 'inset 0 0 80px 30px rgba(0,0,0,0.7), inset 0 -40px 60px -20px rgba(0,0,0,0.5)',
+           }} />
+      {/* 顶部画卷边缘 */}
+      <div className="absolute top-0 left-0 right-0 h-8 pointer-events-none"
+           style={{
+             background: 'linear-gradient(to bottom, rgba(10,8,5,0.6) 0%, transparent 100%)',
            }} />
     </div>
   );

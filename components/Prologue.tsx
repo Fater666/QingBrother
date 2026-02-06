@@ -73,7 +73,7 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
   const timerRef = useRef<number | null>(null);
   const skipRef = useRef(false);
 
-  const segment = SEGMENTS[currentSegment];
+  const segment = SEGMENTS[Math.min(currentSegment, SEGMENTS.length - 1)];
 
   // 清理定时器
   const clearTimer = useCallback(() => {
@@ -152,6 +152,8 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
 
   // 处理继续/下一段
   const handleContinue = useCallback(() => {
+    if (segmentFade === 'out') return; // 防止淡出动画期间重复点击
+
     if (isTyping) {
       // 如果正在打字，快速完成当前段
       skipRef.current = true;
@@ -177,7 +179,7 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
       setSegmentFade('out');
       setTimeout(() => onComplete(), SEGMENT_FADE_DURATION);
     }
-  }, [isTyping, currentSegment, completeSegment, onComplete]);
+  }, [isTyping, currentSegment, segmentFade, completeSegment, onComplete]);
 
   // 跳过全部
   const handleSkip = useCallback(() => {

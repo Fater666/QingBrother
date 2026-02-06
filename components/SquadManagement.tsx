@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Party, Character, Item, Perk } from '../types.ts';
-import { BACKGROUNDS, PERK_TREE } from '../constants.tsx';
+import { BACKGROUNDS, PERK_TREE } from '../constants';
 
 interface SquadManagementProps {
   party: Party;
@@ -254,7 +254,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('helmet') : handleUnequip('helmet')}
                                 onDrop={(e) => handleDropOnEquip(e, 'helmet')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'helmet')}
                             />
                             <div /> {/* 右空 */}
                             
@@ -265,7 +265,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('mainHand') : handleUnequip('mainHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'mainHand')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'mainHand')}
                             />
                             <EquipSlotText 
                                 label="身甲" 
@@ -273,7 +273,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('armor') : handleUnequip('armor')}
                                 onDrop={(e) => handleDropOnEquip(e, 'armor')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'armor')}
                             />
                             <EquipSlotText 
                                 label="副手" 
@@ -281,7 +281,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('offHand') : handleUnequip('offHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'offHand')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'offHand')}
                             />
                             
                             {/* Row 3: 弹药 | 空 | 饰品 */}
@@ -291,7 +291,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('ammo') : handleUnequip('ammo')}
                                 onDrop={(e) => handleDropOnEquip(e, 'ammo')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'ammo')}
                             />
                             <div /> {/* 中空 */}
                             <EquipSlotText 
@@ -300,7 +300,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('accessory') : handleUnequip('accessory')}
                                 onDrop={(e) => handleDropOnEquip(e, 'accessory')}
-                                isTarget={!!selectedStashItem}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory')}
                             />
                         </div>
                     </div>
@@ -535,7 +535,11 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                             const isBackRow = i >= 9;
                             return (
                                 <div 
-                                    key={i} 
+                                    key={i}
+                                    draggable={!!char}
+                                    onDragStart={(e) => {
+                                        if (char) handleDragStart(e, { type: 'ROSTER', char });
+                                    }}
                                     onDragOver={(e) => e.preventDefault()} 
                                     onDrop={(e) => {
                                         e.preventDefault();
@@ -543,15 +547,25 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                         if (!dataStr) return;
                                         const data: DragData = JSON.parse(dataStr);
                                         if (data.type !== 'ROSTER' || !data.char) return;
-                                        const newMercs = party.mercenaries.map(m => m.id === data.char!.id ? { ...m, formationIndex: i } : (m.formationIndex === i ? { ...m, formationIndex: null } : m));
+                                        // 支持互换：把目标格现有角色移到拖拽源角色的原位置
+                                        const draggedCharId = data.char.id;
+                                        const occupantChar = char; // 当前格子上的角色（可能为null）
+                                        const draggedMerc = party.mercenaries.find(m => m.id === draggedCharId);
+                                        const sourceIndex = draggedMerc?.formationIndex ?? null;
+                                        
+                                        const newMercs = party.mercenaries.map(m => {
+                                            if (m.id === draggedCharId) return { ...m, formationIndex: i };
+                                            if (occupantChar && m.id === occupantChar.id) return { ...m, formationIndex: sourceIndex };
+                                            return m;
+                                        });
                                         onUpdateParty({ ...party, mercenaries: newMercs });
                                     }}
                                     onClick={() => char && setSelectedMerc(char)}
                                     className={`border transition-all flex flex-col items-center justify-center p-1 text-center ${
                                         char 
                                             ? (selectedMerc?.id === char.id 
-                                                ? 'border-amber-500 bg-amber-950/40' 
-                                                : 'border-slate-700 bg-slate-900/50 cursor-pointer hover:border-slate-500') 
+                                                ? 'border-amber-500 bg-amber-950/40 cursor-grab' 
+                                                : 'border-slate-700 bg-slate-900/50 cursor-grab hover:border-slate-500') 
                                             : isBackRow 
                                                 ? 'border-slate-800/20 bg-black/10' 
                                                 : 'border-slate-800/30 bg-black/20'

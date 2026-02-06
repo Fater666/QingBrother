@@ -1,5 +1,5 @@
 
-import { EVENT_TEMPLATES } from "../constants.tsx";
+import { EVENT_TEMPLATES } from "../constants";
 
 /**
  * 以前用于调用 AI 生成事件。
