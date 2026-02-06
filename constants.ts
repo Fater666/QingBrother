@@ -109,6 +109,7 @@ export const ABILITIES: Record<string, Ability> = {
     'PUNCTURE': { id: 'PUNCTURE', name: '透甲', description: '匕首攻击，完全无视护甲，但很难命中。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🔪', type: 'ATTACK', targetType: 'ENEMY' },
     'SHIELDWALL': { id: 'SHIELDWALL', name: '盾墙', description: '大幅提高近战和远程防御。', apCost: 4, fatCost: 20, range: [0, 0], icon: '🛡️', type: 'SKILL', targetType: 'SELF' },
     'KNOCK_BACK': { id: 'KNOCK_BACK', name: '推撞', description: '将敌人推开一格。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🤚', type: 'SKILL', targetType: 'ENEMY' },
+    'THROW': { id: 'THROW', name: '投掷', description: '投掷武器进行远程攻击。', apCost: 4, fatCost: 12, range: [2, 4], icon: '🪨', type: 'ATTACK', targetType: 'ENEMY' },
 };
 
 export const getUnitAbilities = (char: Character): Ability[] => {
@@ -116,13 +117,33 @@ export const getUnitAbilities = (char: Character): Ability[] => {
     const main = char.equipment.mainHand;
     const off = char.equipment.offHand;
     if (main) {
-        if (main.name.includes('剑')) { skills.push(ABILITIES['SLASH']); if(main.value>200) skills.push(ABILITIES['RIPOSTE']); }
+        // 投掷类武器优先检查（名称可能包含 枪/矛/斧 等字，需优先匹配）
+        if (main.name.includes('飞石') || main.name.includes('飞蝗') || main.name.includes('标枪') || main.name.includes('投矛') || main.name.includes('飞斧')) {
+            skills.push(ABILITIES['THROW']);
+        }
+        // 匕首类
+        else if (main.name.includes('匕')) { skills.push(ABILITIES['PUNCTURE']); skills.push(ABILITIES['SLASH']); }
+        // 剑类
+        else if (main.name.includes('剑')) { skills.push(ABILITIES['SLASH']); if(main.value>200) skills.push(ABILITIES['RIPOSTE']); }
+        // 斧类
         else if (main.name.includes('斧')) { skills.push(ABILITIES['CHOP']); skills.push(ABILITIES['SPLIT_SHIELD']); }
+        // 刀类（厨刀、环首刀、斩马刀等）
+        else if (main.name.includes('刀')) { skills.push(ABILITIES['SLASH']); }
+        // 矛/枪类
         else if (main.name.includes('矛') || main.name.includes('枪')) { skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']); }
+        // 锤类（石锤、铁骨朵锤等）
+        else if (main.name.includes('锤') || main.name.includes('骨朵')) { skills.push(ABILITIES['BASH']); }
+        // 棒/殳类
         else if (main.name.includes('棒') || main.name.includes('殳')) { skills.push(ABILITIES['BASH']); }
+        // 鞭/锏/铁链类（铁连鞭、精钢狼牙锏、木柄铁链等）
+        else if (main.name.includes('鞭') || main.name.includes('锏') || main.name.includes('铁链')) { skills.push(ABILITIES['BASH']); }
+        // 戈/戟类
         else if (main.name.includes('戈') || main.name.includes('戟')) { skills.push(ABILITIES['IMPALE']); }
+        // 弓类
         else if (main.name.includes('弓')) { skills.push(ABILITIES['SHOOT']); }
+        // 弩类
         else if (main.name.includes('弩')) { skills.push(ABILITIES['SHOOT']); skills.push(ABILITIES['RELOAD']); }
+        // 默认近战攻击
         else { skills.push(ABILITIES['SLASH']); }
     } else { skills.push({ ...ABILITIES['SLASH'], name: '拳击', icon: '✊' }); }
     if (off && off.type === 'SHIELD') { skills.push(ABILITIES['SHIELDWALL']); skills.push(ABILITIES['KNOCK_BACK']); }

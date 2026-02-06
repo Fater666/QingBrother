@@ -30,13 +30,62 @@ interface CombatViewProps {
   onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number) => void;
 }
 
+type FloatingTextType = 'damage' | 'heal' | 'miss' | 'critical' | 'morale' | 'block' | 'intercept';
+
 interface FloatingText {
     id: number;
     text: string;
     x: number;
     y: number;
     color: string;
+    type: FloatingTextType;
+    size?: 'sm' | 'md' | 'lg';
 }
+
+type CombatLogType = 'attack' | 'move' | 'morale' | 'kill' | 'skill' | 'intercept' | 'info' | 'flee';
+
+interface CombatLogEntry {
+    id: number;
+    text: string;
+    type: CombatLogType;
+    timestamp: number;
+}
+
+interface CenterBanner {
+    id: number;
+    text: string;
+    color: string;
+    icon: string;
+}
+
+interface AttackLineEffect {
+    fromQ: number;
+    fromR: number;
+    toQ: number;
+    toR: number;
+    startTime: number;
+    color: string;
+    duration: number;
+}
+
+interface DeathEffect {
+    id: number;
+    q: number;
+    r: number;
+    startTime: number;
+}
+
+// 日志类型颜色和图标映射
+const LOG_STYLES: Record<CombatLogType, { color: string; icon: string }> = {
+    attack: { color: '#ef4444', icon: '⚔' },
+    move: { color: '#60a5fa', icon: '👣' },
+    morale: { color: '#fbbf24', icon: '🛡' },
+    kill: { color: '#f59e0b', icon: '💀' },
+    skill: { color: '#a78bfa', icon: '✦' },
+    intercept: { color: '#f97316', icon: '⚡' },
+    info: { color: '#94a3b8', icon: '•' },
+    flee: { color: '#f87171', icon: '💨' },
+};
 
 // ==================== 单位卡片组件 ====================
 // 类型背景色映射
@@ -56,7 +105,7 @@ const TYPE_STYLES: Record<string, { bg: string; accent: string }> = {
   BERSERKER: { bg: 'bg-rose-950/90', accent: 'border-rose-800' },
 };
 
-const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isActive }) => {
+const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean }> = ({ unit, isActive, isHit }) => {
   // 血量百分比和颜色
   const hpPercent = (unit.hp / unit.maxHp) * 100;
   const hpColor = hpPercent > 50 ? 'bg-gradient-to-r from-green-600 to-green-400' : hpPercent > 25 ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : 'bg-gradient-to-r from-red-700 to-red-500';
@@ -110,10 +159,18 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean }> = ({ unit, isA
         border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
         ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105' : ''}
         ${isFleeing ? 'opacity-70' : ''}
+        ${isHit ? 'anim-hit-shake' : ''}
         transition-all duration-200
       `}
       style={cardStyle}
     >
+      {/* 受击红色闪光叠加 */}
+      {isHit && (
+        <div 
+          className="absolute inset-0 z-10 pointer-events-none anim-hit-flash rounded"
+          style={{ background: 'radial-gradient(circle, rgba(255,60,60,0.7) 0%, rgba(255,0,0,0.3) 70%, transparent 100%)' }}
+        />
+      )}
       {/* 顶部高光效果 */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
       
@@ -174,6 +231,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [hoveredSkill, setHoveredSkill] = useState<Ability | null>(null);
   const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
 
+  // ==================== 新增：战斗特效状态 ====================
+  const [hitUnits, setHitUnits] = useState<Set<string>>(new Set());
+  const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none');
+  const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>([]);
+  const [centerBanner, setCenterBanner] = useState<CenterBanner | null>(null);
+  const attackLinesRef = useRef<AttackLineEffect[]>([]);
+  const deathEffectsRef = useRef<DeathEffect[]>([]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const unitRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -183,6 +248,52 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
+
+  // ==================== 特效触发函数 ====================
+  
+  /** 触发受击闪烁+抖动 */
+  const triggerHitEffect = useCallback((unitId: string) => {
+    setHitUnits(prev => new Set(prev).add(unitId));
+    setTimeout(() => {
+      setHitUnits(prev => {
+        const next = new Set(prev);
+        next.delete(unitId);
+        return next;
+      });
+    }, 400);
+  }, []);
+
+  /** 触发屏幕震动 */
+  const triggerScreenShake = useCallback((intensity: 'light' | 'heavy') => {
+    setScreenShake(intensity);
+    setTimeout(() => setScreenShake('none'), intensity === 'heavy' ? 500 : 300);
+  }, []);
+
+  /** 触发攻击连线特效 */
+  const triggerAttackLine = useCallback((fromQ: number, fromR: number, toQ: number, toR: number, color: string = '#ef4444') => {
+    attackLinesRef.current.push({
+      fromQ, fromR, toQ, toR,
+      startTime: performance.now(),
+      color,
+      duration: 400,
+    });
+  }, []);
+
+  /** 触发击杀特效 */
+  const triggerDeathEffect = useCallback((q: number, r: number) => {
+    deathEffectsRef.current.push({
+      id: Date.now() + Math.random(),
+      q, r,
+      startTime: performance.now(),
+    });
+  }, []);
+
+  /** 显示中央事件横幅 */
+  const showCenterBanner = useCallback((text: string, color: string, icon: string) => {
+    const banner: CenterBanner = { id: Date.now(), text, color, icon };
+    setCenterBanner(banner);
+    setTimeout(() => setCenterBanner(prev => prev?.id === banner.id ? null : prev), 2200);
+  }, []);
 
   // --- 风格常量 ---
   const HEX_SIZE = 45;
@@ -608,6 +719,92 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
       });
 
+      // 3. 渲染攻击连线特效
+      const now = performance.now();
+      attackLinesRef.current = attackLinesRef.current.filter(line => {
+        const elapsed = now - line.startTime;
+        if (elapsed > line.duration) return false;
+        
+        const progress = elapsed / line.duration;
+        const alpha = 1 - progress;
+        
+        const from = getPixelPos(line.fromQ, line.fromR);
+        const to = getPixelPos(line.toQ, line.toR);
+        const fromTerrain = terrainData.get(`${line.fromQ},${line.fromR}`);
+        const toTerrain = terrainData.get(`${line.toQ},${line.toR}`);
+        const fromHeight = (fromTerrain?.height || 0) * HEIGHT_MULTIPLIER;
+        const toHeight = (toTerrain?.height || 0) * HEIGHT_MULTIPLIER;
+        
+        // 绘制闪光线
+        ctx.save();
+        ctx.strokeStyle = line.color;
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.lineWidth = 3 * (1 - progress * 0.5);
+        ctx.shadowColor = line.color;
+        ctx.shadowBlur = 12 * alpha;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y - fromHeight);
+        ctx.lineTo(to.x, to.y - toHeight);
+        ctx.stroke();
+        
+        // 内发光线
+        ctx.strokeStyle = '#ffffff';
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.lineWidth = 1.5 * (1 - progress * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y - fromHeight);
+        ctx.lineTo(to.x, to.y - toHeight);
+        ctx.stroke();
+        ctx.restore();
+        
+        return true;
+      });
+      
+      // 4. 渲染击杀爆发效果
+      deathEffectsRef.current = deathEffectsRef.current.filter(effect => {
+        const elapsed = now - effect.startTime;
+        if (elapsed > 800) return false;
+        
+        const progress = elapsed / 800;
+        const { x, y } = getPixelPos(effect.q, effect.r);
+        const terrain = terrainData.get(`${effect.q},${effect.r}`);
+        const heightOffset = (terrain?.height || 0) * HEIGHT_MULTIPLIER;
+        
+        // 扩散红色圆环
+        ctx.save();
+        const radius = 15 + progress * 40;
+        const alpha = (1 - progress) * 0.6;
+        
+        ctx.strokeStyle = '#ef4444';
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 3 * (1 - progress);
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 15 * (1 - progress);
+        ctx.beginPath();
+        ctx.arc(x, y - heightOffset, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 内部闪光
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.beginPath();
+        ctx.arc(x, y - heightOffset, radius * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 小骷髅标记（中心）
+        if (progress < 0.5) {
+          ctx.globalAlpha = 1 - progress * 2;
+          ctx.fillStyle = '#fbbf24';
+          ctx.font = `${16 + progress * 10}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('💀', x, y - heightOffset);
+        }
+        
+        ctx.restore();
+        return true;
+      });
+
       ctx.restore();
       animId = requestAnimationFrame(render);
     };
@@ -651,8 +848,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   }, [state.units, zoom, visibleSet, terrainData]);
 
   // --- 逻辑函数 ---
-  const addToLog = (msg: string) => {
-    setState(prev => ({ ...prev, combatLog: [msg, ...prev.combatLog].slice(0, 5) }));
+  const addToLog = (msg: string, logType: CombatLogType = 'info') => {
+    const entry: CombatLogEntry = { id: Date.now() + Math.random(), text: msg, type: logType, timestamp: Date.now() };
+    setCombatLogEntries(prev => [entry, ...prev].slice(0, 15));
+    // 也保留原始 combatLog 以防其他系统使用
+    setState(prev => ({ ...prev, combatLog: [msg, ...prev.combatLog].slice(0, 15) }));
   };
 
   // ==================== 士气系统处理 ====================
@@ -673,10 +873,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       text,
       x: unit.combatPos.q,
       y: unit.combatPos.r,
-      color
+      color,
+      type: 'morale' as FloatingTextType,
+      size: result.newMorale === MoraleStatus.FLEEING ? 'lg' : 'md',
     }]);
     
-    setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1500);
+    // 士气崩溃/溃逃 显示中央横幅
+    if (result.newMorale === MoraleStatus.FLEEING) {
+      showCenterBanner(`${unit.name} 溃逃了！`, '#ef4444', '💨');
+    } else if (result.newMorale === MoraleStatus.BREAKING) {
+      showCenterBanner(`${unit.name} 士气崩溃！`, '#f59e0b', '😱');
+    }
+    
+    setTimeout(() => setFloatingTexts(prev => prev.filter(ft => ft.id !== (Date.now() + Math.random()))), 1500);
   };
 
   /**
@@ -746,7 +955,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         [...allResults, ...chainResults].forEach(result => {
           const displayText = getMoraleDisplayText(result);
           if (displayText) {
-            addToLog(displayText);
+            addToLog(displayText, 'morale');
             const unit = finalUnits.find(u => u.id === result.unitId);
             if (unit) {
               showMoraleFloatingText(result, unit);
@@ -788,7 +997,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               : u
           )
         }));
-        addToLog(`${unit.name} 惊慌逃窜！`);
+        addToLog(`${unit.name} 惊慌逃窜！`, 'flee');
       }
     } else {
       setState(prev => ({
@@ -799,7 +1008,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             : u
         )
       }));
-      addToLog(`${unit.name} 惊慌逃窜！`);
+      addToLog(`${unit.name} 惊慌逃窜！`, 'flee');
     }
   }, [state]);
 
@@ -825,7 +1034,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       const displayText = getMoraleDisplayText(result);
       if (displayText) {
-        addToLog(displayText);
+        addToLog(displayText, 'morale');
         showMoraleFloatingText(result, unit);
       }
     }
@@ -900,7 +1109,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         
         // 检查崩溃状态是否跳过行动
         if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
-          addToLog(`${activeUnit.name} 惊慌失措，无法行动！`);
+          addToLog(`${activeUnit.name} 惊慌失措，无法行动！`, 'morale');
           setTimeout(nextTurn, 800);
         }
       }
@@ -939,7 +1148,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       // 检查崩溃状态是否跳过行动
       if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
-        addToLog(`${activeUnit.name} 惊慌失措，无法行动！`);
+        addToLog(`${activeUnit.name} 惊慌失措，无法行动！`, 'morale');
         await new Promise(r => setTimeout(r, 800));
         isProcessingAI.current = false;
         nextTurn();
@@ -969,7 +1178,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         console.log(`[AI决策] ${activeUnit.name}: ${action.type}`, JSON.stringify(action));
         
         if (action.type === 'WAIT') {
-          addToLog(`${activeUnit.name} 观望形势。`);
+          addToLog(`${activeUnit.name} 观望形势。`, 'info');
           break;
         }
         
@@ -992,16 +1201,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               
               // 显示截击结果
               for (const result of results) {
-                addToLog(getFreeAttackLogText(result));
+                addToLog(getFreeAttackLogText(result), 'intercept');
                 
                 if (result.hit && result.damage > 0) {
                   setFloatingTexts(prev => [...prev, {
                     id: Date.now() + Math.random(),
-                    text: `-${result.damage}`,
+                    text: `⚡-${result.damage}`,
                     x: currentPos.q,
                     y: currentPos.r,
-                    color: '#3b82f6' // 蓝色表示玩家截击
+                    color: '#3b82f6',
+                    type: 'intercept' as FloatingTextType,
+                    size: 'md' as const,
                   }]);
+                  triggerHitEffect(activeUnit.id);
+                  triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, currentPos.q, currentPos.r, '#3b82f6');
+                  triggerScreenShake('light');
                 }
               }
               
@@ -1032,9 +1246,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               
               if (movementAllowed) {
                 currentPos = { ...action.targetPos };
-                addToLog(`${activeUnit.name} 受到截击后继续移动。`);
+                addToLog(`${activeUnit.name} 受到截击后继续移动。`, 'move');
               } else {
-                addToLog(`${activeUnit.name} 的移动被截击阻止！`);
+                addToLog(`${activeUnit.name} 的移动被截击阻止！`, 'intercept');
               }
               
               actionsPerformed++;
@@ -1061,7 +1275,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 : u
             )
           }));
-          addToLog(`${activeUnit.name} 移动。`);
+          addToLog(`${activeUnit.name} 移动。`, 'move');
           actionsPerformed++;
           
         } else if (action.type === 'ATTACK' && action.targetUnitId && action.ability) {
@@ -1073,14 +1287,25 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
             currentAP -= action.ability.apCost;
             
-            // 显示伤害数字
+            const isCritical = damage >= 25;
+            const willKill = target.hp - damage <= 0;
+            const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+            
+            // 显示伤害数字（增强版）
             setFloatingTexts(prev => [...prev, { 
               id: Date.now(), 
-              text: `-${damage}`, 
+              text: isCritical ? `💥-${damage}` : `-${damage}`, 
               x: target.combatPos.q, 
               y: target.combatPos.r, 
-              color: '#ef4444' 
+              color: isCritical ? '#ff6b35' : '#ef4444',
+              type: (isCritical ? 'critical' : 'damage') as FloatingTextType,
+              size: isCritical ? 'lg' as const : 'md' as const,
             }]);
+            
+            // 触发受击特效
+            triggerHitEffect(target.id);
+            triggerAttackLine(currentPos.q, currentPos.r, target.combatPos.q, target.combatPos.r, '#ef4444');
+            triggerScreenShake(isCritical || willKill ? 'heavy' : 'light');
             
             // 先更新攻击者AP
             setState(prev => ({
@@ -1093,11 +1318,26 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               })
             }));
             
-            addToLog(`${activeUnit.name} 攻击 ${target.name}，造成 ${damage} 伤害！`);
-            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            // 详细播报
+            const logMsg = `${activeUnit.name}「${weaponName}」${action.ability.name} → ${target.name}，${isCritical ? '暴击！' : ''}造成 ${damage} 伤害！`;
+            addToLog(logMsg, 'attack');
+            
+            // 暴击横幅
+            if (isCritical) {
+              showCenterBanner(`${activeUnit.name} 暴击！-${damage}`, '#ff6b35', '💥');
+            }
+            
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
             
             // 处理伤害和士气检定
             processDamageWithMorale(target.id, damage, activeUnit.id);
+            
+            // 击杀特效
+            if (willKill) {
+              triggerDeathEffect(target.combatPos.q, target.combatPos.r);
+              showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
+              addToLog(`💀 ${target.name} 阵亡！`, 'kill');
+            }
             
             actionsPerformed++;
           } else {
@@ -1152,7 +1392,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 检查玩家单位是否在逃跑状态
     if (activeUnit.morale === MoraleStatus.FLEEING) {
-      addToLog(`${activeUnit.name} 正在逃跑，无法行动！`);
+      addToLog(`${activeUnit.name} 正在逃跑，无法行动！`, 'flee');
       return;
     }
     
@@ -1197,7 +1437,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })
       }));
       
-      addToLog(`${activeUnit.name} 使用脱身，灵巧地避开了敌人！`);
+      addToLog(`${activeUnit.name} 使用脱身，灵巧地避开了敌人！`, 'skill');
       setSelectedAbility(null);
       return;
     }
@@ -1213,7 +1453,24 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const baseDmg = Math.floor(Math.random() * 20) + 15;
             const dmg = Math.floor(baseDmg * (1 + moraleEffects.damageMod / 100));
             
-            setFloatingTexts(prev => [...prev, { id: Date.now(), text: `-${dmg}`, x: hoveredHex.q, y: hoveredHex.r, color: '#ef4444' }]);
+            const isCritical = dmg >= 25;
+            const willKill = target.hp - dmg <= 0;
+            const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+            
+            setFloatingTexts(prev => [...prev, { 
+              id: Date.now(), 
+              text: isCritical ? `💥-${dmg}` : `-${dmg}`, 
+              x: hoveredHex.q, 
+              y: hoveredHex.r, 
+              color: isCritical ? '#ff6b35' : '#ef4444',
+              type: (isCritical ? 'critical' : 'damage') as FloatingTextType,
+              size: isCritical ? 'lg' as const : 'md' as const,
+            }]);
+            
+            // 触发受击特效
+            triggerHitEffect(target.id);
+            triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#3b82f6');
+            triggerScreenShake(isCritical || willKill ? 'heavy' : 'light');
             
             // 先更新攻击者的 AP
             setState(prev => ({
@@ -1224,11 +1481,25 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 })
             }));
             
-            addToLog(`${activeUnit.name} 攻击 ${target.name}，造成 ${dmg} 伤害。`);
-            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            // 详细播报
+            const logMsg = `${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，${isCritical ? '暴击！' : ''}造成 ${dmg} 伤害。`;
+            addToLog(logMsg, 'attack');
+            
+            if (isCritical) {
+              showCenterBanner(`${activeUnit.name} 暴击！-${dmg}`, '#ff6b35', '💥');
+            }
+            
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
             
             // 处理伤害和士气检定
             processDamageWithMorale(target.id, dmg, activeUnit.id);
+            
+            // 击杀特效
+            if (willKill) {
+              triggerDeathEffect(target.combatPos.q, target.combatPos.r);
+              showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
+              addToLog(`💀 ${target.name} 阵亡！`, 'kill');
+            }
         }
     }
   };
@@ -1239,7 +1510,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 检查玩家单位是否在逃跑状态
     if (activeUnit.morale === MoraleStatus.FLEEING) {
-      addToLog(`${activeUnit.name} 正在逃跑，无法控制！`);
+      addToLog(`${activeUnit.name} 正在逃跑，无法控制！`, 'flee');
       return;
     }
     
@@ -1268,18 +1539,23 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       results.forEach((result, index) => {
         setTimeout(() => {
           // 添加日志
-          addToLog(getFreeAttackLogText(result));
+          addToLog(getFreeAttackLogText(result), 'intercept');
           
           // 显示伤害浮动文字
           if (result.hit && result.damage > 0) {
             setFloatingTexts(prev => [...prev, {
               id: Date.now() + index,
-              text: `-${result.damage}`,
+              text: `⚡-${result.damage}`,
               x: activeUnit.combatPos.q,
               y: activeUnit.combatPos.r,
-              color: '#ef4444'
+              color: '#f97316',
+              type: 'intercept' as FloatingTextType,
+              size: 'md' as const,
             }]);
-            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1000);
+            triggerHitEffect(activeUnit.id);
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, activeUnit.combatPos.q, activeUnit.combatPos.r, '#f97316');
+            triggerScreenShake('light');
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
           }
         }, index * 300);
       });
@@ -1343,7 +1619,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       if (!movementAllowed) {
         const lastResult = results[results.length - 1];
         if (lastResult?.targetKilled) {
-          addToLog(`${activeUnit.name} 被截击击杀！`);
+          addToLog(`${activeUnit.name} 被截击击杀！`, 'kill');
+          triggerDeathEffect(activeUnit.combatPos.q, activeUnit.combatPos.r);
+          showCenterBanner(`${activeUnit.name} 被截击击杀！`, '#ef4444', '💀');
         }
       }
       
@@ -1375,8 +1653,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
     const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
     
-    if (noEnemiesAlive || enemyRouted) {
-      // 敌人全部死亡或溃逃，玩家胜利
+    // 敌人溃逃判定：需要至少一半敌人已死亡，剩余全部溃逃才算胜利
+    // 防止杀死一个敌人后士气连锁导致直接胜利
+    const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
+    const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
+    const enemyRoutedValid = enemyRouted && deadEnemies >= Math.ceil(totalEnemies / 2);
+    
+    if (noEnemiesAlive || enemyRoutedValid) {
+      // 敌人全部死亡或半数以上阵亡且剩余溃逃，玩家胜利
       const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(true, survivors, enemyUnits, state.round);
@@ -1474,7 +1758,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })}
       </div>
 
-      <div ref={containerRef} className="flex-1 relative bg-[#0a0a0a]" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))}>
+      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))}>
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={performAttack} onContextMenu={performMove} />
         
         <div className="absolute inset-0 pointer-events-none">
@@ -1485,14 +1769,34 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               className="absolute"
               style={{ width: '72px', height: 'auto' }}
             >
-              <UnitCard unit={u} isActive={activeUnit?.id === u.id} />
+              <UnitCard unit={u} isActive={activeUnit?.id === u.id} isHit={hitUnits.has(u.id)} />
             </div>
           ))}
           {floatingTexts.map(ft => {
             const { x, y } = getPixelPos(ft.x, ft.y);
             const screenX = (window.innerWidth/2) + (x + cameraRef.current.x) * zoom;
             const screenY = (window.innerHeight/2) + (y + cameraRef.current.y) * zoom - 60;
-            return <div key={ft.id} className="absolute text-xl font-bold animate-bounce" style={{ left: screenX, top: screenY, color: ft.color, textShadow: '2px 2px 0 black' }}>{ft.text}</div>;
+            const fontSize = ft.size === 'lg' ? 'text-3xl' : ft.size === 'sm' ? 'text-sm' : 'text-xl';
+            const animClass = ft.type === 'critical' ? 'anim-float-up-crit' 
+              : ft.type === 'miss' ? 'anim-float-miss'
+              : 'anim-float-up';
+            return (
+              <div 
+                key={ft.id} 
+                className={`absolute ${fontSize} font-bold ${animClass} pointer-events-none`} 
+                style={{ 
+                  left: screenX, 
+                  top: screenY, 
+                  color: ft.color, 
+                  textShadow: ft.type === 'critical' 
+                    ? '0 0 10px rgba(255,107,53,0.8), 2px 2px 0 black' 
+                    : '2px 2px 0 black, 0 0 6px rgba(0,0,0,0.5)',
+                  zIndex: ft.type === 'critical' ? 60 : 55,
+                }}
+              >
+                {ft.text}
+              </div>
+            );
           })}
         </div>
 
@@ -1608,10 +1912,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           ))}
         </div>
 
-        <div className="w-64 flex flex-col items-end gap-3">
-          <div className="h-12 overflow-hidden flex flex-col-reverse text-[9px] text-slate-500 text-right">
-            {state.combatLog.map((log, i) => <div key={i} className="opacity-80">{log}</div>)}
-          </div>
+        <div className="w-48 flex flex-col items-end gap-3">
           {isPlayerTurn ? (
             <button 
               onClick={nextTurn} 
@@ -1645,6 +1946,66 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               射程: {hoveredSkill.range[0]}-{hoveredSkill.range[1]} 格
             </div>
           )}
+        </div>
+      )}
+
+      {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
+      <div className="fixed left-3 top-20 w-72 max-h-[45vh] z-[60] pointer-events-none">
+        <div className="bg-gradient-to-b from-black/85 to-black/70 border border-amber-900/30 rounded-sm overflow-hidden backdrop-blur-sm">
+          {/* 日志标题 */}
+          <div className="px-3 py-1.5 border-b border-amber-900/30 flex items-center gap-2">
+            <span className="text-amber-600 text-[10px] font-bold tracking-widest">战斗日志</span>
+            <span className="text-slate-600 text-[9px]">第{state.round}回合</span>
+          </div>
+          {/* 日志条目 */}
+          <div className="px-2 py-1 space-y-0.5 max-h-[38vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+            {combatLogEntries.slice(0, 12).map((entry, i) => {
+              const style = LOG_STYLES[entry.type];
+              return (
+                <div 
+                  key={entry.id}
+                  className={`flex items-start gap-1.5 py-1 px-1.5 rounded-sm text-[11px] leading-snug ${i === 0 ? 'anim-slide-in' : ''}`}
+                  style={{ 
+                    opacity: Math.max(0.3, 1 - i * 0.07),
+                    borderLeft: i === 0 ? `2px solid ${style.color}` : '2px solid transparent',
+                    backgroundColor: i === 0 ? `${style.color}10` : 'transparent',
+                  }}
+                >
+                  <span className="flex-shrink-0 mt-0.5" style={{ color: style.color }}>{style.icon}</span>
+                  <span style={{ color: i === 0 ? style.color : '#94a3b8' }}>{entry.text}</span>
+                </div>
+              );
+            })}
+            {combatLogEntries.length === 0 && (
+              <div className="text-slate-600 text-[10px] py-2 text-center italic">战斗开始...</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ==================== 中央事件横幅 ==================== */}
+      {centerBanner && (
+        <div 
+          key={centerBanner.id}
+          className="fixed top-1/3 left-1/2 z-[100] anim-banner pointer-events-none"
+          style={{ transform: 'translateX(-50%)' }}
+        >
+          <div 
+            className="px-10 py-3 border-2 rounded-sm flex items-center gap-3 whitespace-nowrap"
+            style={{ 
+              backgroundColor: 'rgba(0,0,0,0.9)',
+              borderColor: centerBanner.color,
+              boxShadow: `0 0 30px ${centerBanner.color}40, 0 0 60px ${centerBanner.color}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
+            }}
+          >
+            <span className="text-2xl">{centerBanner.icon}</span>
+            <span 
+              className="text-xl font-bold tracking-wider"
+              style={{ color: centerBanner.color, textShadow: `0 0 10px ${centerBanner.color}60` }}
+            >
+              {centerBanner.text}
+            </span>
+          </div>
         </div>
       )}
 

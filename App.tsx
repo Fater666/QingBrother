@@ -645,12 +645,12 @@ export const App: React.FC = () => {
       aiType: comp.aiType
     }));
     
-    const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map(m => {
-        // 调整玩家位置：前排 q=-2，后排 q=-3，r 在 -2 到 2 之间
+    const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map((m, idx) => {
+        // 调整玩家位置：前排 q=-2，后排 q=-3
         const row = m.formationIndex! >= 9 ? 1 : 0; // 0=前排, 1=后排
         const col = m.formationIndex! % 9;
         const q = -2 - row;
-        const r = Math.min(2, Math.max(-2, col - 4)); // 限制在 -2 到 2 范围
+        const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
         return { ...m, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, hasWaited: false, freeSwapUsed: false, hasUsedFreeAttack: false };
     });
     const allUnits = [...playerUnits, ...enemies];
