@@ -10,6 +10,7 @@ import { MainMenu } from './components/MainMenu.tsx';
 import { Prologue } from './components/Prologue.tsx';
 import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
 import { BattleResultView } from './components/BattleResultView.tsx';
+import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
 
@@ -443,7 +444,8 @@ export const App: React.FC = () => {
   const [combatState, setCombatState] = useState<CombatState | null>(null);
   const [currentCity, setCurrentCity] = useState<City | null>(null);
   const lastUpdateRef = useRef<number>(performance.now());
-  const hasSaveData = useRef<boolean>(!!localStorage.getItem('zhanguo_with_five_save'));
+  const [hasSave, setHasSave] = useState<boolean>(hasAnySaveData());
+  const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
 
   // 叙事流程状态
   const [selectedOrigin, setSelectedOrigin] = useState<OriginConfig | null>(null);
@@ -481,8 +483,8 @@ export const App: React.FC = () => {
     setTimeScale(0);
   }, []);
 
-  // --- SAVE & LOAD SYSTEM ---
-  const saveGame = useCallback(() => {
+  // --- SAVE & LOAD SYSTEM (多栏位) ---
+  const saveGame = useCallback((slotIndex: number) => {
     const saveData = {
         tiles,
         cities,
@@ -492,17 +494,28 @@ export const App: React.FC = () => {
         view: view === 'COMBAT' ? 'WORLD_MAP' : view // 不保存战斗状态，退回地图
     };
     try {
-        localStorage.setItem('zhanguo_with_five_save', JSON.stringify(saveData));
-        alert("战绩已刻录简牍（存档成功）。");
+        localStorage.setItem(getSaveSlotKey(slotIndex), JSON.stringify(saveData));
+        // 更新元数据
+        const metas = getAllSaveMetas();
+        metas[slotIndex] = {
+          slotIndex,
+          timestamp: Date.now(),
+          day: party.day,
+          gold: party.gold,
+          mercCount: party.mercenaries.length,
+          leaderName: party.mercenaries[0]?.name || '无名',
+          view: saveData.view as string,
+        };
+        saveMetas(metas);
+        setHasSave(true);
     } catch (e) {
         alert("简牍告罄，无法刻录（存档失败）。");
     }
   }, [tiles, cities, entities, party, view]);
 
-  const loadGame = useCallback((fromMenu: boolean = false) => {
-    const raw = localStorage.getItem('zhanguo_with_five_save');
+  const loadGame = useCallback((slotIndex: number) => {
+    const raw = localStorage.getItem(getSaveSlotKey(slotIndex));
     if (!raw) {
-        if (!fromMenu) alert("未发现往昔简牍（无存档）。");
         return;
     }
     try {
@@ -514,9 +527,32 @@ export const App: React.FC = () => {
         setGameInitialized(true);
         setView(data.view || 'WORLD_MAP');
         setTimeScale(0);
-        if (!fromMenu) alert("往昔历历在目（读档成功）。");
     } catch (e) {
         alert("简牍残破，无法辨识（读档失败）。");
+    }
+  }, []);
+
+  // 兼容旧存档：迁移到新的多栏位系统
+  useEffect(() => {
+    const oldSave = localStorage.getItem('zhanguo_with_five_save');
+    if (oldSave && !hasAnySaveData()) {
+      try {
+        localStorage.setItem(getSaveSlotKey(0), oldSave);
+        const data = JSON.parse(oldSave);
+        const metas = getAllSaveMetas();
+        metas[0] = {
+          slotIndex: 0,
+          timestamp: Date.now(),
+          day: data.party?.day || 1,
+          gold: data.party?.gold || 0,
+          mercCount: data.party?.mercenaries?.length || 0,
+          leaderName: data.party?.mercenaries?.[0]?.name || '无名',
+          view: data.view || 'WORLD_MAP',
+        };
+        saveMetas(metas);
+        localStorage.removeItem('zhanguo_with_five_save');
+        setHasSave(true);
+      } catch { /* 忽略迁移失败 */ }
     }
   }, []);
 
@@ -781,8 +817,8 @@ export const App: React.FC = () => {
                     战团营地
                 </button>
                 <div className="flex gap-2 ml-4">
-                    <button onClick={saveGame} className="px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
-                    <button onClick={() => loadGame()} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
+                    <button onClick={() => setSaveLoadMode('SAVE')} className="px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
+                    <button onClick={() => setSaveLoadMode('LOAD')} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
                 </div>
              </div>
 
@@ -807,9 +843,9 @@ export const App: React.FC = () => {
         {/* ===== 主菜单 ===== */}
         {view === 'MAIN_MENU' && (
           <MainMenu
-            hasSaveData={hasSaveData.current}
+            hasSaveData={hasSave}
             onNewGame={() => setView('PROLOGUE')}
-            onContinue={() => loadGame(true)}
+            onLoadGame={() => setSaveLoadMode('LOAD')}
           />
         )}
 
@@ -1001,11 +1037,39 @@ export const App: React.FC = () => {
                 onLeave={() => { setView('WORLD_MAP'); setTimeScale(0); }}
                 onUpdateParty={setParty}
                 onUpdateCity={(newCity) => { setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c)); setCurrentCity(newCity); }}
-                onAcceptQuest={(q) => setParty(p => ({ ...p, activeQuest: q }))}
+                onAcceptQuest={(q) => {
+                    // 寻找地图上名称匹配的最近敌人实体，绑定targetEntityId
+                    let linkedQuest = { ...q };
+                    if (q.type === 'HUNT' && q.targetEntityName) {
+                        const sourceCity = cities.find(c => c.id === q.sourceCityId);
+                        const cx = sourceCity?.x ?? party.x;
+                        const cy = sourceCity?.y ?? party.y;
+                        let bestDist = Infinity;
+                        let bestId: string | undefined;
+                        for (const ent of entities) {
+                            if (ent.faction !== 'HOSTILE') continue;
+                            if (ent.name !== q.targetEntityName) continue;
+                            const d = Math.hypot(ent.x - cx, ent.y - cy);
+                            if (d < bestDist) { bestDist = d; bestId = ent.id; }
+                        }
+                        if (bestId) linkedQuest.targetEntityId = bestId;
+                    }
+                    setParty(p => ({ ...p, activeQuest: linkedQuest }));
+                }}
             />
         )}
 
         {/* Post-Combat UI / Interaction Dialogs */}
+        {/* ===== 存档/读档面板 ===== */}
+        {saveLoadMode && (
+          <SaveLoadPanel
+            mode={saveLoadMode}
+            onSave={(slot) => saveGame(slot)}
+            onLoad={(slot) => loadGame(slot)}
+            onClose={() => setSaveLoadMode(null)}
+          />
+        )}
+
         {preCombatEntity && (
             <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-10">
                 <div className="w-full max-w-md bg-[#1a110a] border border-amber-900/50 p-8 shadow-2xl relative">

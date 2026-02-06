@@ -460,6 +460,7 @@ export const generateCities = (
         difficulty: 1, 
         rewardGold: 300, 
         sourceCityId: `city-${nameIndex}`, 
+        targetEntityName: questDesc.targetEntityName,
         isCompleted: false, 
         daysLeft: 7
       }];
@@ -493,30 +494,44 @@ export const generateCities = (
 };
 
 /**
- * 根据区域生成任务描述
+ * 根据区域生成任务描述（含目标敌人名称）
  */
-const getQuestDescription = (biome: BiomeType): { title: string; desc: string } => {
+const getQuestDescription = (biome: BiomeType): { title: string; desc: string; targetEntityName: string } => {
+  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+  
   switch (biome) {
-    case 'NORTHERN_TUNDRA':
+    case 'NORTHERN_TUNDRA': {
+      const target = pick(['北疆狼群', '雪狼', '冻土野狼']);
       return {
         title: '驱逐狼群',
-        desc: '北疆苦寒，野狼成群出没，威胁边民安全。请前往雪原深处清剿狼群。'
+        desc: `北疆苦寒，一群名为「${target}」的恶狼成群出没，威胁边民安全。请前往雪原深处将其清剿。`,
+        targetEntityName: target
       };
-    case 'CENTRAL_PLAINS':
+    }
+    case 'CENTRAL_PLAINS': {
+      const target = pick(['流寇', '山贼', '劫匪', '盗贼', '响马']);
       return {
         title: '剿灭山贼',
-        desc: '市井传闻，附近官道上有一伙流寇打劫商旅。官府悬赏缉拿。'
+        desc: `市井传闻，附近官道上有一伙「${target}」打劫商旅，气焰嚣张。官府悬赏缉拿。`,
+        targetEntityName: target
       };
-    case 'SOUTHERN_WETLANDS':
+    }
+    case 'SOUTHERN_WETLANDS': {
+      const target = pick(['沼泽蛮人', '密林蛮族', '越人战士']);
       return {
-        title: '探索遗迹',
-        desc: '密林深处发现古代遗迹，但有蛮族盘踞其中。请前往清理并探查宝物。'
+        title: '清剿蛮族',
+        desc: `密林深处有一股「${target}」盘踞，时常袭扰往来行人。请前往清理，恢复通途。`,
+        targetEntityName: target
       };
-    case 'FAR_SOUTH_DESERT':
+    }
+    case 'FAR_SOUTH_DESERT': {
+      const target = pick(['胡人劫掠者', '沙匪', '戎狄骑兵']);
       return {
         title: '击退胡骑',
-        desc: '沙漠中的胡人骑兵频繁劫掠绿洲商队。绿洲城主急需雇佣勇士抵御外敌。'
+        desc: `沙漠中一伙「${target}」频繁劫掠绿洲商队。绿洲城主急需雇佣勇士将其击退。`,
+        targetEntityName: target
       };
+    }
   }
 };
 

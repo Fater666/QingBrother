@@ -136,6 +136,7 @@ export interface Quest {
     sourceCityId: string;
     targetCityId?: string; 
     targetEntityId?: string; 
+    targetEntityName?: string; // 目标敌人名称（杀敌任务用）
     isCompleted: boolean;
     daysLeft: number;
 }

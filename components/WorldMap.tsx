@@ -806,6 +806,145 @@ const drawTargetPath = (
   ctx.stroke();
 };
 
+// ============================================================================
+// 追踪系统 - 足迹绘制（仿战场兄弟）
+// ============================================================================
+
+const TRACK_RADIUS = 18;  // 足迹可见范围（比视野大很多）
+
+// 在目标实体附近已探索的格子上绘制足迹标记
+const drawTrackMarkers = (
+  ctx: CanvasRenderingContext2D,
+  targetEntity: WorldEntity,
+  tiles: WorldTile[],
+  partyX: number,
+  partyY: number,
+  toScreen: (wx: number, wy: number) => { x: number; y: number },
+  tileSize: number,
+  rectWidth: number,
+  rectHeight: number,
+  animTime: number
+) => {
+  const tx = targetEntity.x;
+  const ty = targetEntity.y;
+  const distToPlayer = Math.hypot(tx - partyX, ty - partyY);
+  
+  // 只在视野外但追踪范围内显示足迹
+  if (distToPlayer <= VISION_RADIUS || distToPlayer > TRACK_RADIUS * 1.5) return;
+  
+  // 在从目标向玩家方向上散布足迹点
+  const dx = partyX - tx;
+  const dy = partyY - ty;
+  const dist = Math.hypot(dx, dy);
+  const ndx = dx / dist;
+  const ndy = dy / dist;
+  
+  // 生成足迹点：从目标位置往玩家方向排列
+  const trackCount = Math.min(8, Math.floor(dist / 2));
+  
+  for (let i = 1; i <= trackCount; i++) {
+    const t = i / (trackCount + 1);
+    // 沿方向线偏移 + 小幅随机扰动
+    const baseX = tx + ndx * dist * t;
+    const baseY = ty + ndy * dist * t;
+    // 使用确定性伪随机（根据坐标和索引）
+    const offsetX = Math.sin(baseX * 12.9898 + baseY * 78.233 + i * 43.12) * 1.5;
+    const offsetY = Math.cos(baseX * 78.233 + baseY * 12.9898 + i * 17.45) * 1.5;
+    const fx = Math.floor(baseX + offsetX);
+    const fy = Math.floor(baseY + offsetY);
+    
+    if (fx < 0 || fx >= MAP_SIZE || fy < 0 || fy >= MAP_SIZE) continue;
+    
+    const tile = tiles[fy * MAP_SIZE + fx];
+    if (!tile || !tile.explored) continue;
+    
+    // 只在玩家追踪范围内的格子上显示
+    const distFromPlayer = Math.hypot(fx - partyX, fy - partyY);
+    if (distFromPlayer > TRACK_RADIUS || distFromPlayer <= VISION_RADIUS - 1) continue;
+    
+    const pos = toScreen(fx + 0.5, fy + 0.5);
+    if (pos.x < -tileSize || pos.x > rectWidth + tileSize || 
+        pos.y < -tileSize || pos.y > rectHeight + tileSize) continue;
+    
+    // 绘制足迹标记 - 小爪印/脚印符号
+    const alpha = 0.4 + Math.sin(animTime * 2 + i * 1.5) * 0.15;
+    const markerSize = tileSize * 0.15;
+    
+    // 方向朝向目标
+    const angle = Math.atan2(ty - fy, tx - fx);
+    
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(angle);
+    
+    // 足迹本体 - 两个椭圆（鞋印形状）
+    ctx.fillStyle = `rgba(180, 100, 50, ${alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(-markerSize * 0.4, -markerSize * 0.3, markerSize * 0.5, markerSize * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-markerSize * 0.4, markerSize * 0.3, markerSize * 0.5, markerSize * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 脚趾印 - 前方小点
+    ctx.fillStyle = `rgba(160, 80, 40, ${alpha * 0.8})`;
+    for (let j = -1; j <= 1; j++) {
+      ctx.beginPath();
+      ctx.arc(markerSize * 0.5, j * markerSize * 0.35, markerSize * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
+  }
+};
+
+// 绘制任务目标实体的高亮光环
+const drawQuestTargetGlow = (
+  ctx: CanvasRenderingContext2D,
+  screenX: number,
+  screenY: number,
+  tileSize: number,
+  animTime: number
+) => {
+  const centerX = screenX + tileSize / 2;
+  const centerY = screenY + tileSize / 2;
+  const pulseRadius = tileSize * 0.6 + Math.sin(animTime * 3) * tileSize * 0.1;
+  
+  // 外层脉冲光环
+  const gradient = ctx.createRadialGradient(centerX, centerY, pulseRadius * 0.3, centerX, centerY, pulseRadius);
+  gradient.addColorStop(0, 'rgba(239, 68, 68, 0)');
+  gradient.addColorStop(0.5, `rgba(239, 68, 68, ${0.15 + Math.sin(animTime * 3) * 0.1})`);
+  gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 红色标记环
+  ctx.strokeStyle = `rgba(239, 68, 68, ${0.5 + Math.sin(animTime * 4) * 0.2})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, tileSize * 0.55, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // 顶部"讨伐"标记
+  const labelY = centerY - tileSize * 0.65;
+  const fontSize = Math.max(8, tileSize * 0.2);
+  ctx.font = `bold ${fontSize}px "Noto Serif SC", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeText('⚔ 讨伐目标', centerX, labelY);
+  
+  ctx.fillStyle = `rgba(239, 68, 68, ${0.8 + Math.sin(animTime * 3) * 0.2})`;
+  ctx.fillText('⚔ 讨伐目标', centerX, labelY);
+};
+
 interface WorldMapProps {
   tiles: WorldTile[];
   party: Party;
@@ -842,6 +981,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   const dragDistRef = useRef(0);
   const requestRef = useRef<number>(0);
   const mouseScreenRef = useRef({ x: 0, y: 0 });
+  const animTimeRef = useRef(0);
 
   // Sync camera with party when not dragging
   useEffect(() => {
@@ -1133,6 +1273,30 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         drawCityLabel(ctx, city, pos.x - tileSize / 2, pos.y - tileSize / 2, tileSize);
       }
 
+      // ===== 追踪系统：足迹标记 =====
+      animTimeRef.current += 0.016; // ~60fps
+      const animTime = animTimeRef.current;
+      
+      // 查找任务目标实体
+      let questTargetEntity: WorldEntity | null = null;
+      if (party.activeQuest && party.activeQuest.type === 'HUNT' && party.activeQuest.targetEntityId) {
+        questTargetEntity = entities.find(e => e.id === party.activeQuest!.targetEntityId) || null;
+      }
+      // 如果通过ID没找到，尝试通过名称匹配最近的
+      if (!questTargetEntity && party.activeQuest && party.activeQuest.type === 'HUNT' && party.activeQuest.targetEntityName) {
+        let bestDist = Infinity;
+        for (const ent of entities) {
+          if (ent.faction !== 'HOSTILE' || ent.name !== party.activeQuest.targetEntityName) continue;
+          const d = Math.hypot(ent.x - party.x, ent.y - party.y);
+          if (d < bestDist) { bestDist = d; questTargetEntity = ent; }
+        }
+      }
+      
+      // 绘制足迹追踪标记
+      if (questTargetEntity) {
+        drawTrackMarkers(ctx, questTargetEntity, tiles, party.x, party.y, toScreen, tileSize, rect.width, rect.height, animTime);
+      }
+
       // 绘制动态实体（含名称标签） - 加 0.5 偏移到格子中心
       for (let i = 0; i < entities.length; i++) {
         const ent = entities[i];
@@ -1143,6 +1307,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         if (pos.x < -tileSize || pos.x > rect.width + tileSize || 
             pos.y < -tileSize || pos.y > rect.height + tileSize) continue;
 
+        // 如果是任务目标，先绘制高亮光环
+        if (questTargetEntity && ent.id === questTargetEntity.id) {
+          drawQuestTargetGlow(ctx, pos.x - tileSize / 2, pos.y - tileSize / 2, tileSize, animTime);
+        }
+        
         drawEntityIcon(ctx, ent, pos.x - tileSize / 2, pos.y - tileSize / 2, tileSize);
       }
 
@@ -1179,6 +1348,53 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   
   // 缩放等级
   const zoomPercent = Math.round((1 - (viewportWidth - 10) / (MAP_SIZE - 10)) * 100);
+
+  // 查找任务目标实体（用于HUD显示）
+  const questTarget = (() => {
+    if (!party.activeQuest || party.activeQuest.type !== 'HUNT') return null;
+    const quest = party.activeQuest;
+    // 尝试通过ID找
+    if (quest.targetEntityId) {
+      const ent = entities.find(e => e.id === quest.targetEntityId);
+      if (ent) return ent;
+    }
+    // 尝试通过名称匹配最近
+    if (quest.targetEntityName) {
+      let best: WorldEntity | null = null;
+      let bestDist = Infinity;
+      for (const ent of entities) {
+        if (ent.faction !== 'HOSTILE' || ent.name !== quest.targetEntityName) continue;
+        const d = Math.hypot(ent.x - party.x, ent.y - party.y);
+        if (d < bestDist) { bestDist = d; best = ent; }
+      }
+      return best;
+    }
+    return null;
+  })();
+
+  const questTargetDist = questTarget ? Math.hypot(questTarget.x - party.x, questTarget.y - party.y) : null;
+  const questTargetAngle = questTarget ? Math.atan2(questTarget.y - party.y, questTarget.x - party.x) : null;
+  
+  // 方向文字
+  const getDirectionText = (angle: number): string => {
+    const deg = ((angle * 180 / Math.PI) + 360) % 360;
+    if (deg >= 337.5 || deg < 22.5) return '东';
+    if (deg >= 22.5 && deg < 67.5) return '东南';
+    if (deg >= 67.5 && deg < 112.5) return '南';
+    if (deg >= 112.5 && deg < 157.5) return '西南';
+    if (deg >= 157.5 && deg < 202.5) return '西';
+    if (deg >= 202.5 && deg < 247.5) return '西北';
+    if (deg >= 247.5 && deg < 292.5) return '北';
+    return '东北';
+  };
+
+  // 距离描述
+  const getDistanceText = (dist: number): string => {
+    if (dist <= VISION_RADIUS) return '已发现目标！';
+    if (dist <= 10) return '足迹清晰 · 近在咫尺';
+    if (dist <= TRACK_RADIUS) return '足迹可见 · 尚有距离';
+    return '足迹模糊 · 距离较远';
+  };
 
   return (
     <div className="relative w-full h-full bg-[#0a0a0a] overflow-hidden select-none">
@@ -1227,6 +1443,79 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         </div>
       )}
       
+      {/* ===== 当前任务面板 (Quest HUD) ===== */}
+      {party.activeQuest && (
+        <div className="absolute top-4 right-4 z-50 pointer-events-none">
+          <div className="bg-[#0f0d0a]/85 border border-amber-900/50 backdrop-blur-sm shadow-xl min-w-[220px] max-w-[280px]">
+            <div className="px-3 py-1.5 bg-amber-900/20 border-b border-amber-900/30 flex items-center gap-2">
+              <span className="text-[9px] text-amber-700 uppercase tracking-[0.2em] font-bold">当前契约</span>
+            </div>
+            <div className="px-3 py-2 space-y-1.5">
+              <div className="text-sm font-bold text-amber-400 tracking-wider">{party.activeQuest.title}</div>
+              {party.activeQuest.type === 'HUNT' && party.activeQuest.targetEntityName && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] text-red-700 uppercase tracking-widest">讨伐</span>
+                  <span className="text-red-400 text-xs font-bold">「{party.activeQuest.targetEntityName}」</span>
+                </div>
+              )}
+              
+              {/* 追踪信息 */}
+              {party.activeQuest.type === 'HUNT' && questTarget && questTargetDist !== null && questTargetAngle !== null && (
+                <div className="mt-1.5 pt-1.5 border-t border-amber-900/20 space-y-1">
+                  {/* 方向指示 */}
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 flex items-center justify-center">
+                      <svg width="20" height="20" viewBox="0 0 20 20" className="drop-shadow-sm">
+                        <g transform={`rotate(${(questTargetAngle * 180 / Math.PI) - 90}, 10, 10)`}>
+                          <polygon 
+                            points="10,2 14,14 10,11 6,14" 
+                            fill={questTargetDist <= VISION_RADIUS ? '#ef4444' : '#b45309'} 
+                            opacity={0.9} 
+                          />
+                        </g>
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-[10px] text-slate-400">
+                        方向 <span className="text-amber-500 font-bold">{getDirectionText(questTargetAngle)}</span>
+                        <span className="text-slate-600 ml-1.5">约 {Math.round(questTargetDist)} 格</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* 足迹状态 */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px]">
+                      {questTargetDist <= VISION_RADIUS ? '👁' : questTargetDist <= TRACK_RADIUS ? '👣' : '❓'}
+                    </span>
+                    <span className={`text-[10px] ${
+                      questTargetDist <= VISION_RADIUS 
+                        ? 'text-red-400 font-bold' 
+                        : questTargetDist <= TRACK_RADIUS 
+                          ? 'text-amber-500' 
+                          : 'text-slate-500'
+                    }`}>
+                      {getDistanceText(questTargetDist)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              {/* 目标不存在 - 可能已被消灭或找不到 */}
+              {party.activeQuest.type === 'HUNT' && !questTarget && party.activeQuest.targetEntityName && (
+                <div className="mt-1.5 pt-1.5 border-t border-amber-900/20">
+                  <span className="text-[10px] text-slate-600 italic">目标已不在此地…</span>
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between text-[10px] pt-1">
+                <span className="text-amber-600 font-mono">{party.activeQuest.rewardGold} 金</span>
+                <span className="text-slate-600">剩余 {party.activeQuest.daysLeft} 天</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== 底部信息栏 (Bottom HUD) ===== */}
       <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none">
         <div className="bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-10 pb-0">
