@@ -209,6 +209,25 @@ export interface WorldEntity {
   strength?: number;                           // 队伍实力（用于判断是否追击）
   linkedCityId?: string;                       // 绑定城市ID（军队/商队）
   destinationCityId?: string;                  // 目的地城市ID（商队）
+  campId?: string;                             // 所属巢穴ID（用于刷新计数）
+}
+
+// ==================== 巢穴系统（仿战场兄弟） ====================
+
+export type CampRegion = 'NORTH' | 'CENTRAL' | 'SOUTH' | 'DESERT';
+
+export interface EnemyCamp {
+  id: string;
+  x: number;
+  y: number;
+  region: CampRegion;
+  entityType: WorldAIType;       // 产出的实体类型
+  maxAlive: number;              // 最大同时存活数
+  currentAlive: number;          // 当前存活数
+  spawnCooldown: number;         // 刷新冷却（游戏天数）
+  lastSpawnDay: number;          // 上次刷新天数
+  namePool: string[];            // 名字池
+  destroyed: boolean;            // 是否被摧毁
 }
 
 // ==================== 野心目标系统 ====================

@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -90,174 +90,217 @@ const generateMap = (): { tiles: WorldTile[], cities: City[] } => {
   return { tiles: result.tiles, cities: result.cities };
 };
 
-const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => {
+// ==================== 巢穴系统（仿战场兄弟） ====================
+
+// 巢穴配置表：每个区域的巢穴模板
+interface CampTemplate {
+  region: CampRegion;
+  entityType: WorldAIType;
+  entitySubType: WorldEntity['type'];
+  faction: WorldEntity['faction'];
+  maxAlive: number;
+  spawnCooldown: number; // 游戏天数
+  namePool: string[];
+  // 实体属性模板
+  speed: [number, number];       // [min, max]
+  alertRadius: [number, number];
+  chaseRadius: [number, number];
+  strength?: [number, number];
+  fleeThreshold?: [number, number];
+  territoryRadius?: [number, number];
+  aiState: WorldEntity['aiState'];
+  preferredTerrain: string[];    // 巢穴偏好地形
+  yRange: [number, number];     // Y轴范围比例 (0-1)
+}
+
+const CAMP_TEMPLATES: CampTemplate[] = [
+  // 北疆 - 3个狼群巢穴
+  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
+    maxAlive: 3, spawnCooldown: 2.5, namePool: ['北疆狼群', '雪狼', '冻土野狼', '雪豹'],
+    speed: [1.0, 1.2], alertRadius: [4, 4], chaseRadius: [7, 9], territoryRadius: [5, 8],
+    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST'], yRange: [0, 0.25] },
+  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['北疆狼群', '雪狼', '冻土野狼'],
+    speed: [0.9, 1.1], alertRadius: [3, 5], chaseRadius: [6, 8], territoryRadius: [4, 7],
+    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST'], yRange: [0, 0.3] },
+  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['雪豹', '冻土野狼'],
+    speed: [1.0, 1.3], alertRadius: [4, 5], chaseRadius: [7, 9], territoryRadius: [5, 8],
+    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST', 'MOUNTAIN'], yRange: [0, 0.25] },
+  // 中原 - 4个土匪巢穴
+  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 3, spawnCooldown: 2, namePool: ['流寇', '山贼', '劫匪', '盗贼', '响马'],
+    speed: [0.7, 1.0], alertRadius: [4, 6], chaseRadius: [10, 14], strength: [3, 5], fleeThreshold: [0.2, 0.3],
+    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS', 'FOREST'], yRange: [0.2, 0.6] },
+  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 3, spawnCooldown: 2, namePool: ['流寇', '山贼', '劫匪', '响马'],
+    speed: [0.7, 1.0], alertRadius: [4, 6], chaseRadius: [10, 14], strength: [3, 6], fleeThreshold: [0.2, 0.3],
+    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS', 'FOREST'], yRange: [0.25, 0.55] },
+  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 2.5, namePool: ['流寇', '盗贼', '劫匪'],
+    speed: [0.7, 0.9], alertRadius: [3, 5], chaseRadius: [8, 12], strength: [2, 4], fleeThreshold: [0.25, 0.35],
+    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS'], yRange: [0.3, 0.6] },
+  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['山贼', '响马'],
+    speed: [0.8, 1.0], alertRadius: [5, 6], chaseRadius: [10, 14], strength: [4, 6], fleeThreshold: [0.15, 0.25],
+    aiState: 'PATROL', preferredTerrain: ['FOREST', 'PLAINS', 'MOUNTAIN'], yRange: [0.2, 0.55] },
+  // 江南 - 3个蛮族/野兽巢穴
+  { region: 'SOUTH', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 3, spawnCooldown: 2.5, namePool: ['沼泽蛮人', '密林蛮族', '越人战士'],
+    speed: [0.8, 1.0], alertRadius: [3, 4], chaseRadius: [6, 8], territoryRadius: [4, 7],
+    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.55, 0.8] },
+  { region: 'SOUTH', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['沼泽蛮人', '越人战士', '密林蛮族'],
+    speed: [0.7, 0.9], alertRadius: [3, 5], chaseRadius: [6, 9], territoryRadius: [4, 6],
+    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.6, 0.8] },
+  { region: 'SOUTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['猛虎', '毒蛇群', '林中巨蟒'],
+    speed: [0.9, 1.2], alertRadius: [3, 5], chaseRadius: [6, 8], territoryRadius: [4, 7],
+    aiState: 'WANDER', preferredTerrain: ['FOREST', 'SWAMP'], yRange: [0.55, 0.8] },
+  // 南疆 - 3个游牧民巢穴
+  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'HOSTILE',
+    maxAlive: 3, spawnCooldown: 2.5, namePool: ['胡人劫掠者', '沙匪', '戎狄骑兵'],
+    speed: [1.1, 1.4], alertRadius: [5, 7], chaseRadius: [9, 12], strength: [4, 6],
+    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.75, 1.0] },
+  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['沙匪', '戎狄骑兵', '胡人劫掠者'],
+    speed: [1.0, 1.3], alertRadius: [5, 7], chaseRadius: [8, 11], strength: [3, 5],
+    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.8, 1.0] },
+  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'NEUTRAL',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['胡人游骑', '沙漠商旅'],
+    speed: [1.0, 1.2], alertRadius: [5, 6], chaseRadius: [8, 10], strength: [3, 5],
+    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.75, 1.0] },
+];
+
+/**
+ * 在指定区域找一个合适的巢穴位置
+ */
+const findCampPosition = (
+  tiles: WorldTile[],
+  yRange: [number, number],
+  preferredTerrain: string[],
+  maxAttempts: number = 30
+): { x: number; y: number } => {
+  const yMin = Math.floor(yRange[0] * MAP_SIZE);
+  const yMax = Math.floor(yRange[1] * MAP_SIZE);
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const tx = Math.floor(Math.random() * MAP_SIZE);
+    const ty = yMin + Math.floor(Math.random() * Math.max(1, yMax - yMin));
+    if (ty < 0 || ty >= MAP_SIZE || tx < 0 || tx >= MAP_SIZE) continue;
+    const tile = tiles[ty * MAP_SIZE + tx];
+    if (tile && preferredTerrain.includes(tile.type)) {
+      return { x: tx, y: ty };
+    }
+  }
+  // 回退：随机位置
+  return {
+    x: Math.floor(Math.random() * MAP_SIZE),
+    y: Math.floor(yRange[0] * MAP_SIZE + Math.random() * ((yRange[1] - yRange[0]) * MAP_SIZE))
+  };
+};
+
+/**
+ * 辅助：在范围内生成随机数
+ */
+const rollRange = (range: [number, number]): number => range[0] + Math.random() * (range[1] - range[0]);
+const rollRangeInt = (range: [number, number]): number => range[0] + Math.floor(Math.random() * (range[1] - range[0] + 1));
+
+/**
+ * 从巢穴产出一个实体
+ */
+const spawnEntityFromCamp = (
+  camp: EnemyCamp,
+  template: CampTemplate,
+  entityIndex: number,
+  tiles: WorldTile[]
+): WorldEntity => {
+  // 在巢穴附近找一个位置
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 1 + Math.random() * 4;
+  const ex = Math.max(0, Math.min(MAP_SIZE - 1, camp.x + Math.cos(angle) * dist));
+  const ey = Math.max(0, Math.min(MAP_SIZE - 1, camp.y + Math.sin(angle) * dist));
+  
+  const name = template.namePool[Math.floor(Math.random() * template.namePool.length)];
+  
+  const entity: WorldEntity = {
+    id: `${camp.id}-ent-${entityIndex}-${Date.now().toString(36)}`,
+    name,
+    type: template.entitySubType,
+    faction: template.faction,
+    x: ex, y: ey,
+    targetX: null, targetY: null,
+    speed: rollRange(template.speed),
+    aiState: template.aiState,
+    homeX: camp.x, homeY: camp.y,
+    worldAIType: template.entityType,
+    alertRadius: rollRange(template.alertRadius),
+    chaseRadius: rollRange(template.chaseRadius),
+    campId: camp.id,
+    wanderCooldown: Math.random() * 5,
+  };
+  
+  if (template.strength) entity.strength = rollRangeInt(template.strength);
+  if (template.fleeThreshold) entity.fleeThreshold = rollRange(template.fleeThreshold);
+  if (template.territoryRadius) entity.territoryRadius = rollRange(template.territoryRadius);
+  
+  // 土匪类型生成巡逻点
+  if (template.entityType === 'BANDIT' && template.aiState === 'PATROL') {
+    entity.patrolPoints = generateRoadPatrolPoints(camp.x, camp.y, tiles, 3, 12);
+    entity.patrolIndex = 0;
+  }
+  
+  return entity;
+};
+
+/**
+ * 生成所有巢穴
+ */
+const generateCamps = (tiles: WorldTile[]): EnemyCamp[] => {
+  const camps: EnemyCamp[] = [];
+  
+  CAMP_TEMPLATES.forEach((template, idx) => {
+    const pos = findCampPosition(tiles, template.yRange, template.preferredTerrain);
+    
+    camps.push({
+      id: `camp-${template.region.toLowerCase()}-${idx}`,
+      x: pos.x,
+      y: pos.y,
+      region: template.region,
+      entityType: template.entityType,
+      maxAlive: template.maxAlive,
+      currentAlive: 0,  // 稍后在 spawnInitial 中更新
+      spawnCooldown: template.spawnCooldown,
+      lastSpawnDay: 0,
+      namePool: template.namePool,
+      destroyed: false,
+    });
+  });
+  
+  return camps;
+};
+
+/**
+ * 从巢穴初始产出实体 + 生成军队和商队
+ */
+const generateEntities = (cities: City[], tiles: WorldTile[], camps: EnemyCamp[]): WorldEntity[] => {
     const ents: WorldEntity[] = [];
+    let entityCounter = 0;
     
-    // 根据区域生成不同类型的实体
-    // 北疆冻土 (y < 25%): 更多野兽（狼群）
-    // 中原沃野 (25%-60%): 更多土匪和军队
-    // 江南水乡 (60%-80%): 蛮族和野兽
-    // 南疆荒漠 (>80%): 游牧民骑兵
+    // 从每个巢穴产出初始实体（每个巢穴产出2个）
+    camps.forEach((camp, campIdx) => {
+      const template = CAMP_TEMPLATES[campIdx];
+      if (!template) return;
+      
+      const initialCount = Math.min(2, camp.maxAlive);
+      for (let i = 0; i < initialCount; i++) {
+        const ent = spawnEntityFromCamp(camp, template, entityCounter++, tiles);
+        ents.push(ent);
+        camp.currentAlive++;
+      }
+    });
     
-    // 北疆野兽 - 狼群为主
-    for(let i = 0; i < 5; i++) {
-        let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(Math.random() * (MAP_SIZE * 0.25));  // 北疆区域
-        
-        // 尝试在雪原或森林生成
-        for (let attempt = 0; attempt < 20; attempt++) {
-            const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(Math.random() * (MAP_SIZE * 0.3));
-            const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'SNOW' || tile.type === 'FOREST')) {
-                x = tx;
-                y = ty;
-                break;
-            }
-        }
-        
-        const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
-        ents.push({ 
-            id: `beast-north-${i}`, 
-            name: beastNames[Math.floor(Math.random() * beastNames.length)], 
-            type: 'BEAST', 
-            faction: 'HOSTILE', 
-            x, y, 
-            targetX: null, 
-            targetY: null, 
-            speed: 1.0 + Math.random() * 0.2,
-            aiState: 'WANDER', 
-            homeX: x, 
-            homeY: y,
-            worldAIType: 'BEAST',
-            alertRadius: 4,
-            chaseRadius: 8,
-            territoryRadius: 5 + Math.random() * 3,
-            wanderCooldown: Math.random() * 5
-        });
-    }
-    
-    // 中原土匪 - 在道路附近活动
-    for(let i = 0; i < 10; i++) {
-        let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(MAP_SIZE * 0.25 + Math.random() * (MAP_SIZE * 0.35));  // 中原区域
-        
-        // 尝试在道路附近生成
-        for (let attempt = 0; attempt < 15; attempt++) {
-            const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(MAP_SIZE * 0.2 + Math.random() * (MAP_SIZE * 0.45));
-            const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'ROAD' || tile.type === 'PLAINS' || tile.type === 'FOREST')) {
-                x = tx;
-                y = ty;
-                break;
-            }
-        }
-        
-        const names = ['流寇', '山贼', '劫匪', '盗贼', '响马'];
-        const patrolPoints = generateRoadPatrolPoints(x, y, tiles, 3, 12);
-        
-        ents.push({ 
-            id: `bandit-${i}`, 
-            name: names[Math.floor(Math.random() * names.length)], 
-            type: 'BANDIT', 
-            faction: 'HOSTILE', 
-            x, y, 
-            targetX: null, 
-            targetY: null, 
-            speed: 0.7 + Math.random() * 0.3, 
-            aiState: 'PATROL', 
-            homeX: x, 
-            homeY: y,
-            worldAIType: 'BANDIT',
-            alertRadius: 4 + Math.random() * 2,
-            chaseRadius: 10 + Math.random() * 4,
-            strength: 3 + Math.floor(Math.random() * 3),
-            fleeThreshold: 0.2 + Math.random() * 0.1,
-            patrolPoints,
-            patrolIndex: 0
-        });
-    }
-    
-    // 江南水乡野兽和蛮族
-    for(let i = 0; i < 4; i++) {
-        let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(MAP_SIZE * 0.6 + Math.random() * (MAP_SIZE * 0.2));  // 江南区域
-        
-        // 尝试在沼泽或森林生成
-        for (let attempt = 0; attempt < 20; attempt++) {
-            const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(MAP_SIZE * 0.55 + Math.random() * (MAP_SIZE * 0.25));
-            const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'SWAMP' || tile.type === 'FOREST')) {
-                x = tx;
-                y = ty;
-                break;
-            }
-        }
-        
-        const names = ['沼泽蛮人', '密林蛮族', '越人战士'];
-        ents.push({ 
-            id: `beast-south-${i}`, 
-            name: names[Math.floor(Math.random() * names.length)], 
-            type: 'BANDIT',  // 作为土匪类型处理
-            faction: 'HOSTILE', 
-            x, y, 
-            targetX: null, 
-            targetY: null, 
-            speed: 0.8 + Math.random() * 0.2,
-            aiState: 'WANDER', 
-            homeX: x, 
-            homeY: y,
-            worldAIType: 'BANDIT',
-            alertRadius: 3,
-            chaseRadius: 6,
-            territoryRadius: 4 + Math.random() * 3,
-            wanderCooldown: Math.random() * 5
-        });
-    }
-    
-    // 南疆游牧民 - 沙漠地带
-    for(let i = 0; i < 6; i++) {
-        let x = Math.floor(Math.random() * MAP_SIZE);
-        let y = Math.floor(MAP_SIZE * 0.8 + Math.random() * (MAP_SIZE * 0.2));  // 南疆区域
-        
-        // 尝试在沙漠生成
-        for (let attempt = 0; attempt < 15; attempt++) {
-            const tx = Math.floor(Math.random() * MAP_SIZE);
-            const ty = Math.floor(MAP_SIZE * 0.75 + Math.random() * (MAP_SIZE * 0.25));
-            const tile = tiles[ty * MAP_SIZE + tx];
-            if (tile && (tile.type === 'DESERT' || tile.type === 'PLAINS')) {
-                x = tx;
-                y = ty;
-                break;
-            }
-        }
-        
-        const isHostile = Math.random() > 0.4;  // 60%概率敌对
-        const names = isHostile ? ['胡人劫掠者', '沙匪', '戎狄骑兵'] : ['胡人游骑', '沙漠商旅'];
-        
-        ents.push({ 
-            id: `nomad-${i}`, 
-            name: names[Math.floor(Math.random() * names.length)], 
-            type: 'NOMAD', 
-            faction: isHostile ? 'HOSTILE' : 'NEUTRAL', 
-            x, y, 
-            targetX: null, 
-            targetY: null, 
-            speed: 1.1 + Math.random() * 0.3,  // 游牧民速度最快
-            aiState: 'WANDER', 
-            homeX: x, 
-            homeY: y,
-            worldAIType: 'NOMAD',
-            alertRadius: 6,
-            chaseRadius: 10,
-            wanderCooldown: Math.random() * 5,
-            strength: 4 + Math.floor(Math.random() * 2)
-        });
-    }
-    
-    // 巡防军 - 在城市附近
+    // 巡防军 - 在城市附近（非巢穴系统）
     for(let i = 0; i < Math.min(4, cities.length); i++) {
         const nearCity = cities[i];
         const offsetX = (Math.random() - 0.5) * 10;
@@ -289,7 +332,7 @@ const generateEntities = (cities: City[], tiles: WorldTile[]): WorldEntity[] => 
         });
     }
     
-    // 商队 - 在城市间往返
+    // 商队 - 在城市间往返（非巢穴系统）
     cities.forEach((city, idx) => {
         if (cities.length < 2) return;
         const targetCity = cities[(idx + 1) % cities.length];
@@ -680,6 +723,7 @@ export const App: React.FC = () => {
   const [tiles, setTiles] = useState<WorldTile[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [entities, setEntities] = useState<WorldEntity[]>([]);
+  const [camps, setCamps] = useState<EnemyCamp[]>([]);
   const [timeScale, setTimeScale] = useState<number>(0); 
   const [preCombatEntity, setPreCombatEntity] = useState<WorldEntity | null>(null);
   const [battleResult, setBattleResult] = useState<BattleResult | null>(null);
@@ -731,7 +775,9 @@ export const App: React.FC = () => {
   const initGameWithOrigin = useCallback((origin: OriginConfig, name: string, mapData: { tiles: WorldTile[], cities: City[] }) => {
     setTiles(mapData.tiles);
     setCities(mapData.cities);
-    setEntities(generateEntities(mapData.cities, mapData.tiles));
+    const newCamps = generateCamps(mapData.tiles);
+    setCamps(newCamps);
+    setEntities(generateEntities(mapData.cities, mapData.tiles, newCamps));
 
     const mercs = origin.mercenaries.map((m, i) => {
       const merc = createMercenary(`${i + 1}`, i === 0 ? name : m.name, m.bg, m.formationIndex);
@@ -764,6 +810,7 @@ export const App: React.FC = () => {
         tiles,
         cities,
         entities,
+        camps,
         party,
         day: party.day,
         view: view === 'COMBAT' ? 'WORLD_MAP' : view // 不保存战斗状态，退回地图
@@ -786,7 +833,7 @@ export const App: React.FC = () => {
     } catch (e) {
         alert("简牍告罄，无法刻录（存档失败）。");
     }
-  }, [tiles, cities, entities, party, view]);
+  }, [tiles, cities, entities, camps, party, view]);
 
   const loadGame = useCallback((slotIndex: number) => {
     const raw = localStorage.getItem(getSaveSlotKey(slotIndex));
@@ -798,6 +845,8 @@ export const App: React.FC = () => {
         setTiles(data.tiles);
         setCities(data.cities);
         setEntities(data.entities);
+        // 旧存档兼容：巢穴系统
+        setCamps(data.camps || []);
         // 旧存档兼容：补充缺失的野心/声望字段
         const loadedParty: Party = {
           ...data.party,
@@ -979,6 +1028,10 @@ export const App: React.FC = () => {
       terrainType: worldTerrain
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
+    // 巢穴计数减少
+    if (entity.campId) {
+      setCamps(prev => prev.map(c => c.id === entity.campId ? { ...c, currentAlive: Math.max(0, c.currentAlive - 1) } : c));
+    }
     // 士气修正已应用到开场士气，重置为0
     if (party.moraleModifier !== 0) {
       setParty(p => ({ ...p, moraleModifier: 0 }));
@@ -1059,7 +1112,7 @@ export const App: React.FC = () => {
                 // 使用行为树更新 AI
                 const updatedEnt = updateWorldEntityAI(ent, party, prev, tiles, cities, dt * timeScale);
                 
-                // 碰撞检测
+                // 碰撞检测（玩家）
                 const distToPlayer = Math.hypot(updatedEnt.x - party.x, updatedEnt.y - party.y);
                 if (distToPlayer < 0.6 && updatedEnt.faction === 'HOSTILE' && !preCombatEntity && !combatTriggered) {
                     combatTriggered = true;
@@ -1075,14 +1128,103 @@ export const App: React.FC = () => {
                 setTimeScale(0);
             }
             
+            // ===== 实体间碰撞互动（匪劫商队、军灭匪、兽袭商队） =====
+            const toRemoveIds = new Set<string>();
+            const campDecrements = new Map<string, number>(); // campId -> decrement count
+            
+            for (let i = 0; i < updatedEntities.length; i++) {
+              const a = updatedEntities[i];
+              if (toRemoveIds.has(a.id)) continue;
+              
+              for (let j = i + 1; j < updatedEntities.length; j++) {
+                const b = updatedEntities[j];
+                if (toRemoveIds.has(b.id)) continue;
+                
+                const dist = Math.hypot(a.x - b.x, a.y - b.y);
+                if (dist > 0.8) continue;
+                
+                // 只在玩家视野外处理NPC间碰撞
+                const distAPlayer = Math.hypot(a.x - party.x, a.y - party.y);
+                const distBPlayer = Math.hypot(b.x - party.x, b.y - party.y);
+                if (distAPlayer < VISION_RADIUS || distBPlayer < VISION_RADIUS) continue;
+                
+                // 土匪/野兽/游牧(敌对) vs 商队 -> 商队被劫
+                const isHostileA = a.faction === 'HOSTILE' && (a.type === 'BANDIT' || a.type === 'BEAST' || a.type === 'NOMAD');
+                const isHostileB = b.faction === 'HOSTILE' && (b.type === 'BANDIT' || b.type === 'BEAST' || b.type === 'NOMAD');
+                
+                if (isHostileA && b.type === 'TRADER') {
+                  toRemoveIds.add(b.id);
+                  continue;
+                }
+                if (isHostileB && a.type === 'TRADER') {
+                  toRemoveIds.add(a.id);
+                  continue;
+                }
+                
+                // 军队 vs 土匪/野兽(敌对) -> 匪被剿
+                if (a.type === 'ARMY' && isHostileB) {
+                  toRemoveIds.add(b.id);
+                  if (b.campId) campDecrements.set(b.campId, (campDecrements.get(b.campId) || 0) + 1);
+                  continue;
+                }
+                if (b.type === 'ARMY' && isHostileA) {
+                  toRemoveIds.add(a.id);
+                  if (a.campId) campDecrements.set(a.campId, (campDecrements.get(a.campId) || 0) + 1);
+                  continue;
+                }
+              }
+            }
+            
+            // 更新巢穴计数
+            if (campDecrements.size > 0) {
+              setCamps(prevCamps => prevCamps.map(c => {
+                const dec = campDecrements.get(c.id);
+                return dec ? { ...c, currentAlive: Math.max(0, c.currentAlive - dec) } : c;
+              }));
+            }
+            
+            // 移除被消灭的实体
+            if (toRemoveIds.size > 0) {
+              return updatedEntities.filter(e => !toRemoveIds.has(e.id));
+            }
+            
             return updatedEntities;
+        });
+        
+        // ===== 巢穴定期刷怪 =====
+        const dayNow = Math.floor(party.day);
+        setCamps(prevCamps => {
+          let anyChanged = false;
+          const newCamps = prevCamps.map(camp => {
+            if (camp.destroyed) return camp;
+            if (camp.currentAlive >= camp.maxAlive) return camp;
+            if (dayNow - camp.lastSpawnDay < camp.spawnCooldown) return camp;
+            
+            // 检查巢穴是否远离玩家（>10格）
+            const distToPlayer = Math.hypot(camp.x - party.x, camp.y - party.y);
+            if (distToPlayer < 10) return camp;
+            
+            // 找到对应的模板
+            const templateIdx = prevCamps.indexOf(camp);
+            const template = CAMP_TEMPLATES[templateIdx];
+            if (!template) return camp;
+            
+            // 产出一个新实体
+            const newEnt = spawnEntityFromCamp(camp, template, Date.now(), tiles);
+            setEntities(prev => [...prev, newEnt]);
+            
+            anyChanged = true;
+            return { ...camp, currentAlive: camp.currentAlive + 1, lastSpawnDay: dayNow };
+          });
+          
+          return anyChanged ? newCamps : prevCamps;
         });
       }
       anim = requestAnimationFrame(loop);
     };
     anim = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(anim);
-  }, [view, timeScale, party, cities, preCombatEntity, gameInitialized]);
+  }, [view, timeScale, party, cities, camps, preCombatEntity, gameInitialized]);
 
   // --- INTRO STORY 逐字显示逻辑 ---
   useEffect(() => {
