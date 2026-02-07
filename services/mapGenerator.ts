@@ -400,10 +400,10 @@ export const generateCities = (
   
   // 各区域城市数量配置
   const biomesCityCount: Record<BiomeType, number> = {
-    NORTHERN_TUNDRA: 1,      // 北疆：1个城市
-    CENTRAL_PLAINS: 4,       // 中原：4个城市（最多）
-    SOUTHERN_WETLANDS: 2,    // 江南：2个城市
-    FAR_SOUTH_DESERT: 1      // 南疆：1个绿洲城市
+    NORTHERN_TUNDRA: 2,      // 北疆：2个城市
+    CENTRAL_PLAINS: 5,       // 中原：5个城市（最多）
+    SOUTHERN_WETLANDS: 3,    // 江南：3个城市
+    FAR_SOUTH_DESERT: 2      // 南疆：2个绿洲城市
   };
   
   // 城市名称索引
@@ -427,7 +427,7 @@ export const generateCities = (
         cy = yMin + Math.floor(Math.random() * (yMax - yMin - 4)) + 2;
         
         // 检查与其他城市的距离
-        const tooClose = placedCities.some(pc => Math.hypot(pc.x - cx, pc.y - cy) < 10);
+        const tooClose = placedCities.some(pc => Math.hypot(pc.x - cx, pc.y - cy) < 14);
         
         // 检查地形是否适合建城（避开山地和沼泽）
         const idx = cy * mapSize + cx;
