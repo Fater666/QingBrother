@@ -105,7 +105,25 @@ const TYPE_STYLES: Record<string, { bg: string; accent: string }> = {
   BERSERKER: { bg: 'bg-rose-950/90', accent: 'border-rose-800' },
 };
 
-const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean }> = ({ unit, isActive, isHit }) => {
+// 武器图标映射
+const getWeaponIcon = (w: Item | null): string => {
+  if (!w) return '✊';
+  const n = w.name;
+  if (n.includes('爪') || n.includes('牙') || n.includes('獠')) return '🐺';
+  if (n.includes('弓')) return '🏹';
+  if (n.includes('弩')) return '🏹';
+  if (n.includes('斧') || n.includes('飞斧')) return '🪓';
+  if (n.includes('矛') || n.includes('枪') || n.includes('标枪') || n.includes('投矛')) return '🔱';
+  if (n.includes('锤') || n.includes('骨朵')) return '🔨';
+  if (n.includes('棒') || n.includes('殳')) return '🔨';
+  if (n.includes('戈') || n.includes('戟')) return '⚔️';
+  if (n.includes('匕')) return '🔪';
+  if (n.includes('飞石') || n.includes('飞蝗')) return '🪨';
+  if (n.includes('鞭') || n.includes('锏') || n.includes('铁链')) return '⛓️';
+  return '🗡️';
+};
+
+const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; turnIndex: number }> = ({ unit, isActive, isHit, turnIndex }) => {
   // 血量百分比和颜色
   const hpPercent = (unit.hp / unit.maxHp) * 100;
   const hpColor = hpPercent > 50 ? 'bg-gradient-to-r from-green-600 to-green-400' : hpPercent > 25 ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : 'bg-gradient-to-r from-red-700 to-red-500';
@@ -114,14 +132,23 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean }
   // 护甲信息
   const armor = unit.equipment.armor;
   const armorPercent = armor ? (armor.durability / armor.maxDurability) * 100 : 0;
-  const armorText = armor ? `${armor.durability}` : '--';
 
-  // 武器名称（截取前4字）
-  const weaponName = unit.equipment.mainHand?.name?.slice(0, 4) || '徒手';
+  // 头甲信息
+  const helmet = unit.equipment.helmet;
+  const helmetPercent = helmet ? (helmet.durability / helmet.maxDurability) * 100 : 0;
+
+  // 武器信息
+  const weapon = unit.equipment.mainHand;
+  const weaponName = weapon?.name?.slice(0, 3) || '徒手';
+  const weaponDmg = weapon?.damage ? `${weapon.damage[0]}-${weapon.damage[1]}` : '';
+  const weaponIcon = getWeaponIcon(weapon);
+
+  // 盾牌信息
+  const shield = unit.equipment.offHand;
+  const hasShield = shield?.type === 'SHIELD';
 
   // 获取类型名称
   const bgKey = unit.team === 'ENEMY' ? (unit.aiType || 'BANDIT') : unit.background;
-  const typeStyle = TYPE_STYLES[bgKey] || TYPE_STYLES['BANDIT'];
   const typeName = unit.team === 'ENEMY' 
     ? (unit.aiType === 'BEAST' ? '野兽' : unit.aiType === 'ARMY' ? '军士' : unit.aiType === 'ARCHER' ? '弓手' : '贼寇')
     : (BACKGROUNDS[unit.background]?.name || unit.background);
@@ -132,6 +159,10 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean }
   const moraleIcon = MORALE_ICONS[unit.morale];
   const moraleColor = MORALE_COLORS[unit.morale];
   const isFleeing = unit.morale === MoraleStatus.FLEEING;
+
+  // AP
+  const totalAP = 9;
+  const currentAP = unit.currentAP;
 
   // 立体感样式
   const cardStyle: React.CSSProperties = isEnemy ? {
@@ -153,70 +184,170 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean }
   };
 
   return (
-    <div
-      className={`
-        w-[72px] p-1.5 text-center font-mono relative overflow-hidden
-        border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
-        ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105' : ''}
-        ${isFleeing ? 'opacity-70' : ''}
-        ${isHit ? 'anim-hit-shake' : ''}
-        transition-all duration-200
-      `}
-      style={cardStyle}
-    >
-      {/* 受击红色闪光叠加 */}
-      {isHit && (
-        <div 
-          className="absolute inset-0 z-10 pointer-events-none anim-hit-flash rounded"
-          style={{ background: 'radial-gradient(circle, rgba(255,60,60,0.7) 0%, rgba(255,0,0,0.3) 70%, transparent 100%)' }}
-        />
-      )}
-      {/* 顶部高光效果 */}
-      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-      
-      {/* 士气图标 - 显示在右上角 */}
-      <div 
-        className="absolute top-0.5 right-0.5 text-[10px] drop-shadow-md"
-        style={{ color: moraleColor }}
-        title={unit.morale}
+    <div className="relative" style={{ width: '80px' }}>
+      {/* 主卡片 */}
+      <div
+        className={`
+          w-[80px] p-2 text-center font-mono relative overflow-hidden
+          border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
+          ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105' : ''}
+          ${isFleeing ? 'opacity-70' : ''}
+          ${isHit ? 'anim-hit-shake' : ''}
+          transition-all duration-200
+        `}
+        style={cardStyle}
       >
-        {moraleIcon}
-      </div>
-      
-      {/* 类型标签 */}
-      <div className={`text-[9px] font-bold truncate mb-1 drop-shadow-md ${isEnemy ? 'text-red-300' : 'text-blue-300'}`}>
-        {typeName}
-      </div>
-
-      {/* 血量条 - 带凹槽效果 */}
-      <div className="h-[8px] bg-black/70 rounded-sm overflow-hidden mb-0.5 border border-black/50" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>
-        <div className={`h-full ${hpColor} transition-all relative`} style={{ width: `${hpPercent}%` }}>
-          <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent h-1/2" />
+        {/* 受击红色闪光叠加 */}
+        {isHit && (
+          <div 
+            className="absolute inset-0 z-10 pointer-events-none anim-hit-flash rounded"
+            style={{ background: 'radial-gradient(circle, rgba(255,60,60,0.7) 0%, rgba(255,0,0,0.3) 70%, transparent 100%)' }}
+          />
+        )}
+        {/* 顶部高光效果 */}
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+        
+        {/* 行动顺序标记 - 左上角 */}
+        <div 
+          className={`absolute -top-2 -left-2 w-[16px] h-[16px] rounded-full flex items-center justify-center text-[8px] font-black z-20 border ${
+            isActive 
+              ? 'bg-amber-500 border-amber-300 text-black' 
+              : turnIndex <= 3 
+                ? 'bg-slate-700 border-slate-500 text-amber-300' 
+                : 'bg-slate-800 border-slate-600 text-slate-400'
+          }`}
+          style={{ boxShadow: isActive ? '0 0 6px rgba(245,158,11,0.6)' : '0 1px 3px rgba(0,0,0,0.5)' }}
+          title={isActive ? '当前行动' : `第${turnIndex}个行动`}
+        >
+          {isActive ? '▶' : turnIndex}
         </div>
-      </div>
-      <div className={`text-[8px] font-bold ${hpTextColor} drop-shadow-sm`}>
-        ♥ {unit.hp}/{unit.maxHp}
-      </div>
 
-      {/* 护甲条 */}
-      {armor && (
-        <>
-          <div className="h-[6px] bg-black/70 rounded-sm overflow-hidden mb-0.5 mt-1 border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)' }}>
-            <div className="h-full bg-gradient-to-r from-slate-500 to-slate-300 transition-all relative" style={{ width: `${armorPercent}%` }}>
-              <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent h-1/2" />
+        {/* 士气图标 - 显示在右上角 */}
+        <div 
+          className="absolute top-0.5 right-0.5 text-[10px] drop-shadow-md"
+          style={{ color: moraleColor }}
+          title={unit.morale}
+        >
+          {moraleIcon}
+        </div>
+        
+        {/* 角色名字 - 小字副标题 */}
+        <div className={`text-[7px] truncate drop-shadow-sm mb-0.5 ${isEnemy ? 'text-red-300/70' : 'text-blue-300/70'}`}>
+          {unit.name.slice(0, 4)}{typeName ? ` · ${typeName}` : ''}</div>
+
+        {/* 头甲条 */}
+        {helmet && (
+          <div className="flex items-center gap-0.5 mb-0.5">
+            <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🪖</span>
+            <div className="flex-1 h-[7px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)' }}>
+              <div className="h-full bg-gradient-to-r from-cyan-700 to-cyan-500 transition-all relative" style={{ width: `${helmetPercent}%` }}>
+                <div className="absolute inset-0 bg-gradient-to-b from-white/25 to-transparent h-1/2" />
+              </div>
+            </div>
+            <span className="text-[7px] font-bold text-cyan-400 w-5 text-right flex-shrink-0">{helmet.durability}</span>
+          </div>
+        )}
+
+        {/* 体甲条 */}
+        {armor && (
+          <div className="flex items-center gap-0.5 mb-0.5">
+            <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🛡</span>
+            <div className="flex-1 h-[7px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)' }}>
+              <div className="h-full bg-gradient-to-r from-slate-500 to-slate-300 transition-all relative" style={{ width: `${armorPercent}%` }}>
+                <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent h-1/2" />
+              </div>
+            </div>
+            <span className="text-[7px] font-bold text-slate-300 w-5 text-right flex-shrink-0">{armor.durability}</span>
+          </div>
+        )}
+
+        {/* HP条 - 最突出 */}
+        <div className="flex items-center gap-0.5 mb-0.5">
+          <span className="text-[7px] w-3 flex-shrink-0" style={{ color: hpPercent > 50 ? '#4ade80' : hpPercent > 25 ? '#facc15' : '#ef4444' }}>♥</span>
+          <div className="flex-1 h-[8px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)' }}>
+            <div className={`h-full ${hpColor} transition-all relative`} style={{ width: `${hpPercent}%` }}>
+              <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent h-1/2" />
             </div>
           </div>
-          <div className="text-[7px] text-slate-300 drop-shadow-sm">⛨ {armorText}</div>
-        </>
-      )}
+          <span className={`text-[7px] font-black w-5 text-right flex-shrink-0 ${hpTextColor}`}>{unit.hp}</span>
+        </div>
 
-      {/* 武器名称 - 底部区域 */}
-      <div className="text-[8px] text-amber-400 truncate mt-1 pt-1 border-t border-white/10 drop-shadow-sm font-semibold">
-        {isFleeing ? '逃跑中' : weaponName}
+        {/* AP 指示器 - 小圆点 */}
+        <div className="flex justify-center gap-[2px]">
+          {Array.from({ length: totalAP }, (_, i) => (
+            <div
+              key={i}
+              className={`w-[5px] h-[5px] rounded-full border ${
+                i < currentAP 
+                  ? 'bg-amber-500 border-amber-400' 
+                  : 'bg-black/50 border-slate-700'
+              }`}
+              style={i < currentAP ? { boxShadow: '0 0 3px rgba(245,158,11,0.5)' } : undefined}
+            />
+          ))}
+        </div>
+
+        {/* 底部阴影边缘 */}
+        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-t from-black/40 to-transparent" />
       </div>
 
-      {/* 底部阴影边缘 */}
-      <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-t from-black/40 to-transparent" />
+      {/* 武器子卡片 - 己方在右侧(面朝右), 敌方在左侧(面朝左) */}
+      {!isFleeing && (
+        <div 
+          className="absolute flex flex-col gap-0.5"
+          style={isEnemy ? { 
+            right: '100%', top: '40%', transform: 'translateY(-50%)', marginRight: '-6px'
+          } : { 
+            left: '100%', top: '40%', transform: 'translateY(-50%)', marginLeft: '-6px'
+          }}
+        >
+          {/* 主手武器 */}
+          <div 
+            className="px-1 py-0.5 text-center rounded-sm border border-amber-800/50"
+            style={{ 
+              background: 'linear-gradient(180deg, rgba(60,40,20,0.95) 0%, rgba(40,25,10,0.98) 100%)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+              transform: isEnemy 
+                ? `rotate(${hasShield ? '8deg' : '5deg'})` 
+                : `rotate(${hasShield ? '-8deg' : '-5deg'})`,
+              minWidth: '32px',
+              maxWidth: '38px',
+            }}
+          >
+            <div className="text-[9px] leading-none">{weaponIcon}</div>
+            <div className="text-[5px] text-amber-400 font-bold truncate mt-0.5 whitespace-nowrap">{weaponName}</div>
+            {weaponDmg && <div className="text-[5px] text-amber-600/80 whitespace-nowrap">{weaponDmg}</div>}
+          </div>
+
+          {/* 副手盾牌 */}
+          {hasShield && shield && (
+            <div 
+              className="px-1 py-0.5 text-center rounded-sm border border-sky-800/50"
+              style={{
+                background: 'linear-gradient(180deg, rgba(20,40,60,0.95) 0%, rgba(10,25,40,0.98) 100%)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                transform: isEnemy ? 'rotate(-5deg)' : 'rotate(5deg)',
+                minWidth: '32px',
+                maxWidth: '38px',
+              }}
+            >
+              <div className="text-[9px] leading-none">🛡️</div>
+              <div className="text-[5px] text-sky-400 font-bold truncate mt-0.5 whitespace-nowrap">{shield.name.slice(0, 3)}</div>
+              {shield.defenseBonus && <div className="text-[5px] text-sky-600/80">+{shield.defenseBonus}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 逃跑状态显示 */}
+      {isFleeing && (
+        <div 
+          className="absolute left-1/2 -translate-x-1/2 text-[8px] text-red-400 font-bold animate-pulse whitespace-nowrap"
+          style={{ top: '100%', marginTop: '-2px' }}
+        >
+          💨 逃跑中
+        </div>
+      )}
     </div>
   );
 };
@@ -242,6 +373,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const unitRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // 单位动画位置（世界坐标），用于平滑移动
+  const animPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -813,9 +946,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return () => cancelAnimationFrame(animId);
   }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom, hexPoints]);
 
-  // DOM 图层同步 - 考虑地形高度
+  // DOM 图层同步 - 考虑地形高度 + 平滑移动动画 + 活动单位z-index
+  const activeUnitId = state.turnOrder[state.currentUnitIndex];
+  
   useEffect(() => {
     let anim: number;
+    const LERP_SPEED = 0.12; // 移动插值速度 (0~1, 越大越快)
+    const SNAP_THRESHOLD = 0.5; // 小于此距离直接snap到目标
+    
     const sync = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
@@ -830,14 +968,38 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             el.style.display = 'none';
           } else {
             el.style.display = 'block';
-            const { x, y } = getPixelPos(u.combatPos.q, u.combatPos.r);
-            // 获取地形高度偏移
+            
+            // 计算目标世界坐标
+            const { x: targetX, y: targetY } = getPixelPos(u.combatPos.q, u.combatPos.r);
             const terrain = terrainData.get(key);
             const heightOffset = (terrain?.height || 0) * HEIGHT_MULTIPLIER;
-            // 调整偏移量：卡片锚点在底部中心，让卡片"站"在地块上
-            const screenX = cx + (x + cameraRef.current.x) * zoom - 36; // 水平居中 (72px / 2)
-            const screenY = cy + (y - heightOffset + cameraRef.current.y) * zoom - 85; // 卡片底部对齐到地块顶部偏上
+            const targetWorldY = targetY - heightOffset;
+            
+            // 获取或初始化动画位置
+            let animPos = animPosRef.current.get(u.id);
+            if (!animPos) {
+              animPos = { x: targetX, y: targetWorldY };
+              animPosRef.current.set(u.id, animPos);
+            }
+            
+            // 平滑插值到目标位置
+            const dx = targetX - animPos.x;
+            const dy = targetWorldY - animPos.y;
+            if (Math.abs(dx) > SNAP_THRESHOLD || Math.abs(dy) > SNAP_THRESHOLD) {
+              animPos.x += dx * LERP_SPEED;
+              animPos.y += dy * LERP_SPEED;
+            } else {
+              animPos.x = targetX;
+              animPos.y = targetWorldY;
+            }
+            
+            // 转换为屏幕坐标
+            const screenX = cx + (animPos.x + cameraRef.current.x) * zoom - 40;
+            const screenY = cy + (animPos.y + cameraRef.current.y) * zoom - 80;
             el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${zoom})`;
+            
+            // 活动单位置于最高层
+            el.style.zIndex = u.id === activeUnitId ? '50' : '10';
           }
         }
       });
@@ -845,7 +1007,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     };
     anim = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(anim);
-  }, [state.units, zoom, visibleSet, terrainData]);
+  }, [state.units, zoom, visibleSet, terrainData, activeUnitId]);
 
   // --- 逻辑函数 ---
   const addToLog = (msg: string, logType: CombatLogType = 'info') => {
@@ -1060,12 +1222,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         currentUnitIndex: nextIdx,
         round: isNewRound ? prev.round + 1 : prev.round,
         units: prev.units.map(u => {
-          // 新回合开始时重置所有单位的截击使用状态
+          // 新回合开始时重置所有单位的截击使用状态和等待计数
           if (isNewRound) {
             if (u.id === prev.turnOrder[nextIdx]) {
-              return { ...u, currentAP: 9, hasUsedFreeAttack: false };
+              return { ...u, currentAP: 9, hasUsedFreeAttack: false, waitCount: 0 };
             }
-            return { ...u, hasUsedFreeAttack: false };
+            return { ...u, hasUsedFreeAttack: false, waitCount: 0 };
           }
           // 当前单位回合开始时恢复AP
           if (u.id === prev.turnOrder[nextIdx]) {
@@ -1077,6 +1239,49 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     });
     setSelectedAbility(null);
   }, []);
+
+  // ==================== 等待（推迟行动顺序，每回合最多1次）====================
+  const waitTurn = useCallback(() => {
+    if (!activeUnit || activeUnit.team !== 'PLAYER') return;
+    
+    // 检查等待次数：已等待1次则直接结束回合
+    if (activeUnit.waitCount >= 1) {
+      nextTurn();
+      return;
+    }
+    
+    setState(prev => {
+      const currentId = prev.turnOrder[prev.currentUnitIndex];
+      // 将当前单位移到回合队列的末尾
+      const newTurnOrder = [...prev.turnOrder];
+      newTurnOrder.splice(prev.currentUnitIndex, 1);
+      newTurnOrder.push(currentId);
+      
+      // 调整 currentUnitIndex: 移除后当前索引自动指向下一个，但不能越界
+      let nextIdx = prev.currentUnitIndex;
+      if (nextIdx >= newTurnOrder.length) nextIdx = 0;
+      
+      // 跳过死亡单位
+      let attempts = 0;
+      while (attempts < newTurnOrder.length) {
+        const nextUnit = prev.units.find(u => u.id === newTurnOrder[nextIdx]);
+        if (nextUnit && !nextUnit.isDead) break;
+        nextIdx = (nextIdx + 1) % newTurnOrder.length;
+        attempts++;
+      }
+      
+      return {
+        ...prev,
+        turnOrder: newTurnOrder,
+        currentUnitIndex: nextIdx,
+        // 增加该单位的等待计数
+        units: prev.units.map(u => 
+          u.id === currentId ? { ...u, waitCount: u.waitCount + 1 } : u
+        ),
+      };
+    });
+    setSelectedAbility(null);
+  }, [activeUnit, nextTurn]);
 
   // ==================== 敌人 AI 行动逻辑 ====================
   const isProcessingAI = useRef(false);
@@ -1706,8 +1911,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
       }
 
-      // Space 或 Enter 结束回合
-      if (e.key === ' ' || e.key === 'Enter') {
+      // Space 等待（推迟行动顺序）
+      if (e.key === ' ') {
+        waitTurn();
+        e.preventDefault();
+      }
+
+      // F 结束回合
+      if (e.key === 'f' || e.key === 'F') {
         nextTurn();
         e.preventDefault();
       }
@@ -1758,7 +1969,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlayerTurn, activeUnit, nextTurn]);
+  }, [isPlayerTurn, activeUnit, nextTurn, waitTurn]);
 
   return (
     <div className="flex flex-col h-full w-full bg-[#050505] font-serif select-none overflow-hidden relative">
@@ -1767,10 +1978,18 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const u = state.units.find(u => u.id === uid);
           if (!u || u.isDead) return null;
           const isCurrent = i === state.currentUnitIndex;
+          const orderNum = i >= state.currentUnitIndex 
+            ? i - state.currentUnitIndex 
+            : state.turnOrder.length - state.currentUnitIndex + i;
           return (
             <div key={uid} className={`relative flex-shrink-0 transition-all duration-300 ${isCurrent ? 'scale-110' : 'opacity-40 grayscale'}`}>
               <Portrait character={u} size="sm" className={u.team === 'ENEMY' ? 'border-red-900' : 'border-blue-900'} />
               {isCurrent && <div className="absolute -bottom-1 left-0 w-full h-1 bg-amber-500" />}
+              <div className={`absolute -top-1 -left-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                isCurrent ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'
+              }`} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                {isCurrent ? '▶' : orderNum}
+              </div>
             </div>
           );
         })}
@@ -1780,16 +1999,23 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={performAttack} onContextMenu={performMove} />
         
         <div className="absolute inset-0 pointer-events-none">
-          {state.units.map(u => (
-            <div 
-              key={u.id} 
-              ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
-              className="absolute"
-              style={{ width: '72px', height: 'auto' }}
-            >
-              <UnitCard unit={u} isActive={activeUnit?.id === u.id} isHit={hitUnits.has(u.id)} />
-            </div>
-          ))}
+          {state.units.map(u => {
+            // 计算行动顺序：从当前活动单位开始往后数
+            const orderIdx = state.turnOrder.indexOf(u.id);
+            const turnIndex = orderIdx >= state.currentUnitIndex
+              ? orderIdx - state.currentUnitIndex
+              : state.turnOrder.length - state.currentUnitIndex + orderIdx;
+            return (
+              <div 
+                key={u.id} 
+                ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
+                className="absolute"
+                style={{ width: '80px', height: 'auto' }}
+              >
+                <UnitCard unit={u} isActive={activeUnit?.id === u.id} isHit={hitUnits.has(u.id)} turnIndex={turnIndex} />
+              </div>
+            );
+          })}
           {floatingTexts.map(ft => {
             const { x, y } = getPixelPos(ft.x, ft.y);
             const screenX = (window.innerWidth/2) + (x + cameraRef.current.x) * zoom;
@@ -1827,11 +2053,64 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
           const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
           
+          // 攻击命中率计算
+          const targetUnit = state.units.find(u => !u.isDead && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
+          const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+          const canAttack = selectedAbility && selectedAbility.type === 'ATTACK' && targetUnit && 
+            dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] && activeUnit.currentAP >= selectedAbility.apCost;
+          
+          let hitChance = 0;
+          if (canAttack && targetUnit) {
+            const isRanged = selectedAbility!.range[1] > 1;
+            // 基础命中 = 攻击者技能
+            hitChance = isRanged ? activeUnit.stats.rangedSkill : activeUnit.stats.meleeSkill;
+            // 减去目标防御
+            hitChance -= isRanged ? targetUnit.stats.rangedDefense : targetUnit.stats.meleeDefense;
+            // 武器命中修正
+            const weapon = activeUnit.equipment.mainHand;
+            if (weapon?.hitChanceMod) hitChance += weapon.hitChanceMod;
+            // 士气影响
+            const moraleEffects = getMoraleEffects(activeUnit.morale);
+            hitChance += moraleEffects.hitChanceMod || 0;
+            // 目标盾牌防御
+            const targetShield = targetUnit.equipment.offHand;
+            if (targetShield?.type === 'SHIELD' && targetShield.defenseBonus) hitChance -= targetShield.defenseBonus;
+            // 盾墙状态
+            if (targetUnit.isShieldWall && targetShield?.type === 'SHIELD') hitChance -= 15;
+            // 高地加成
+            if (heightDiff > 0) hitChance += 10;
+            else if (heightDiff < 0) hitChance -= 10;
+            // 限制在5-95
+            hitChance = Math.max(5, Math.min(95, hitChance));
+          }
+
+          const hitColor = hitChance >= 70 ? '#4ade80' : hitChance >= 40 ? '#facc15' : '#ef4444';
+          
           return (
             <div 
               className="absolute pointer-events-none bg-gradient-to-b from-black/95 to-gray-900/95 border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
               style={{ left: mousePos.x + 20, top: mousePos.y + 20, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
             >
+              {/* 攻击命中率 - 选中攻击技能且悬停敌人时显示 */}
+              {canAttack && targetUnit && (
+                <div className="mb-2 pb-2 border-b border-red-500/30">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-red-300 font-bold">⚔ {selectedAbility!.name} → {targetUnit.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-slate-400 text-[9px]">命中率:</span>
+                    <span className="text-lg font-bold" style={{ color: hitColor }}>{hitChance}%</span>
+                  </div>
+                  <div className="text-[8px] text-slate-500 mt-0.5">
+                    技能 {activeUnit.stats.meleeSkill} - 防御 {targetUnit.stats.meleeDefense}
+                    {activeUnit.equipment.mainHand?.hitChanceMod ? ` + 武器 ${activeUnit.equipment.mainHand.hitChanceMod}` : ''}
+                  </div>
+                  {activeUnit.currentAP < (selectedAbility!.apCost || 4) && (
+                    <div className="text-red-500 text-[9px] mt-1 font-bold">AP不足!</div>
+                  )}
+                </div>
+              )}
+
               {/* 地形信息 */}
               {terrainInfo && (
                 <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-white/10">
@@ -1930,16 +2209,31 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           ))}
         </div>
 
-        <div className="w-48 flex flex-col items-end gap-3">
+        <div className="w-52 flex flex-col items-end gap-2">
           {isPlayerTurn ? (
-            <button 
-              onClick={nextTurn} 
-              className="px-8 py-2 bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold text-xs hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all tracking-widest uppercase flex items-center gap-2"
-              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
-            >
-              结束回合
-              <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">Space</span>
-            </button>
+            <>
+              <button 
+                onClick={waitTurn} 
+                className={`w-full px-6 py-1.5 border font-bold text-xs transition-all tracking-widest uppercase flex items-center justify-center gap-2 ${
+                  activeUnit && activeUnit.waitCount >= 1
+                    ? 'bg-gradient-to-b from-slate-900/40 to-slate-950/60 border-slate-700/30 text-slate-600 cursor-not-allowed'
+                    : 'bg-gradient-to-b from-slate-800/40 to-slate-900/60 border-slate-600/50 text-slate-400 hover:from-slate-600 hover:to-slate-700 hover:text-white'
+                }`}
+                style={{ boxShadow: '0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)' }}
+                disabled={activeUnit ? activeUnit.waitCount >= 1 : false}
+              >
+                ⏳ 等待 {activeUnit && activeUnit.waitCount >= 1 ? '(已用)' : ''}
+                <span className="text-[9px] bg-slate-700/60 px-1.5 py-0.5 rounded text-slate-300">Space</span>
+              </button>
+              <button 
+                onClick={nextTurn} 
+                className="w-full px-6 py-1.5 bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold text-xs hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all tracking-widest uppercase flex items-center justify-center gap-2"
+                style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
+              >
+                结束回合
+                <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">F</span>
+              </button>
+            </>
           ) : (
             <div className="text-amber-900 animate-pulse font-bold tracking-widest text-sm uppercase">敌军行动...</div>
           )}
@@ -2031,7 +2325,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       <div className="fixed bottom-2 left-2 text-[8px] text-slate-600 z-50 bg-black/50 px-2 py-1 rounded">
         <span className="text-slate-500">快捷键:</span>
         <span className="ml-2"><b className="text-slate-400">1-9</b> 技能</span>
-        <span className="ml-2"><b className="text-slate-400">WASD</b> 移动视角</span>
+        <span className="ml-2"><b className="text-slate-400">Space</b> 等待(每回合1次)</span>
+        <span className="ml-2"><b className="text-slate-400">F</b> 结束</span>
+        <span className="ml-2"><b className="text-slate-400">WASD</b> 视角</span>
         <span className="ml-2"><b className="text-slate-400">+/-</b> 缩放</span>
         <span className="ml-2"><b className="text-slate-400">R</b> 聚焦</span>
         <span className="ml-2"><b className="text-slate-400">Esc</b> 取消</span>

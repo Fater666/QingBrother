@@ -223,7 +223,7 @@ export interface CombatUnit extends Character {
   isShieldWall: boolean;
   isHalberdWall: boolean;
   movedThisTurn: boolean;
-  hasWaited: boolean; 
+  waitCount: number; // 本回合等待次数，最多2次
   freeSwapUsed: boolean;
   hasUsedFreeAttack: boolean; // 本回合是否已使用过截击（控制区机制）
   aiType?: AIType; // 敌人AI行为类型
