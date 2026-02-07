@@ -946,6 +946,212 @@ const drawQuestTargetGlow = (
   ctx.fillText('⚔ 讨伐目标', centerX, labelY);
 };
 
+// ============================================================================
+// 地图边界绘制 - 显示地图范围，超界区域加遮罩
+// ============================================================================
+const drawMapBoundary = (
+  ctx: CanvasRenderingContext2D,
+  toScreen: (wx: number, wy: number) => { x: number; y: number },
+  tileSize: number,
+  rectWidth: number,
+  rectHeight: number,
+  animTime: number
+) => {
+  // 将地图四角转换为屏幕坐标
+  const topLeft = toScreen(0, 0);
+  const topRight = toScreen(MAP_SIZE, 0);
+  const bottomLeft = toScreen(0, MAP_SIZE);
+  const bottomRight = toScreen(MAP_SIZE, MAP_SIZE);
+
+  // --- 超界区域半透明遮罩 ---
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 5, 5, 0.45)';
+
+  // 上方遮罩（地图上边以上）
+  if (topLeft.y > 0) {
+    ctx.fillRect(0, 0, rectWidth, topLeft.y);
+  }
+  // 下方遮罩（地图下边以下）
+  if (bottomLeft.y < rectHeight) {
+    ctx.fillRect(0, bottomLeft.y, rectWidth, rectHeight - bottomLeft.y);
+  }
+  // 左方遮罩（地图左边以左，排除已绘制的上下部分）
+  const maskTop = Math.max(0, topLeft.y);
+  const maskBottom = Math.min(rectHeight, bottomLeft.y);
+  if (topLeft.x > 0 && maskBottom > maskTop) {
+    ctx.fillRect(0, maskTop, topLeft.x, maskBottom - maskTop);
+  }
+  // 右方遮罩（地图右边以右）
+  if (topRight.x < rectWidth && maskBottom > maskTop) {
+    ctx.fillRect(topRight.x, maskTop, rectWidth - topRight.x, maskBottom - maskTop);
+  }
+  ctx.restore();
+
+  // --- 边界线（虚线 + 琥珀色）---
+  ctx.save();
+  const pulseAlpha = 0.4 + Math.sin(animTime * 1.5) * 0.15;
+  ctx.strokeStyle = `rgba(180, 130, 50, ${pulseAlpha})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.rect(topLeft.x, topLeft.y, topRight.x - topLeft.x, bottomLeft.y - topLeft.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // --- 四角标记 ---
+  const cornerLen = Math.max(8, tileSize * 0.8);
+  ctx.strokeStyle = `rgba(200, 150, 60, ${pulseAlpha + 0.15})`;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  const corners = [
+    { x: topLeft.x, y: topLeft.y, dx: 1, dy: 1 },
+    { x: topRight.x, y: topRight.y, dx: -1, dy: 1 },
+    { x: bottomLeft.x, y: bottomLeft.y, dx: 1, dy: -1 },
+    { x: bottomRight.x, y: bottomRight.y, dx: -1, dy: -1 },
+  ];
+  for (const c of corners) {
+    ctx.beginPath();
+    ctx.moveTo(c.x + c.dx * cornerLen, c.y);
+    ctx.lineTo(c.x, c.y);
+    ctx.lineTo(c.x, c.y + c.dy * cornerLen);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
+// ============================================================================
+// 小地图绘制
+// ============================================================================
+const MINIMAP_SIZE = 160;
+const MINIMAP_PADDING = 2; // 内边距
+
+const drawMinimap = (
+  minimapCanvas: HTMLCanvasElement,
+  tiles: WorldTile[],
+  party: Party,
+  entities: WorldEntity[],
+  cities: City[],
+  camX: number,
+  camY: number,
+  viewportWidth: number,
+  viewportHeight: number
+) => {
+  const ctx = minimapCanvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const displaySize = MINIMAP_SIZE;
+  if (minimapCanvas.width !== displaySize * dpr || minimapCanvas.height !== displaySize * dpr) {
+    minimapCanvas.width = displaySize * dpr;
+    minimapCanvas.height = displaySize * dpr;
+    minimapCanvas.style.width = displaySize + 'px';
+    minimapCanvas.style.height = displaySize + 'px';
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // 每格在小地图上的像素大小
+  const pad = MINIMAP_PADDING;
+  const drawArea = displaySize - pad * 2;
+  const cellSize = drawArea / MAP_SIZE;
+
+  // 背景
+  ctx.fillStyle = '#080806';
+  ctx.fillRect(0, 0, displaySize, displaySize);
+
+  // 绘制已探索地形
+  for (let y = 0; y < MAP_SIZE; y++) {
+    for (let x = 0; x < MAP_SIZE; x++) {
+      const tile = tiles[y * MAP_SIZE + x];
+      if (!tile || !tile.explored) continue;
+
+      const colors = TERRAIN_COLORS[tile.type];
+      if (colors) {
+        ctx.fillStyle = colors.base;
+      } else {
+        ctx.fillStyle = '#333';
+      }
+      ctx.fillRect(
+        pad + x * cellSize,
+        pad + y * cellSize,
+        Math.ceil(cellSize),
+        Math.ceil(cellSize)
+      );
+    }
+  }
+
+  // 绘制已探索城市标记
+  for (const city of cities) {
+    const cityTile = tiles[city.y * MAP_SIZE + city.x];
+    if (!cityTile || !cityTile.explored) continue;
+
+    const cx = pad + (city.x + 0.5) * cellSize;
+    const cy = pad + (city.y + 0.5) * cellSize;
+    const r = Math.max(2.5, cellSize * 1.2);
+
+    // 城市光晕
+    ctx.fillStyle = 'rgba(200, 170, 100, 0.4)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 城市点
+    ctx.fillStyle = '#d4a855';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 绘制视野范围内可见的敌方实体
+  for (const ent of entities) {
+    const distToParty = Math.hypot(ent.x - party.x, ent.y - party.y);
+    if (distToParty > VISION_RADIUS) continue;
+
+    const ex = pad + (ent.x + 0.5) * cellSize;
+    const ey = pad + (ent.y + 0.5) * cellSize;
+
+    if (ent.faction === 'HOSTILE') {
+      ctx.fillStyle = '#ef4444';
+    } else {
+      ctx.fillStyle = '#94a3b8';
+    }
+    ctx.beginPath();
+    ctx.arc(ex, ey, Math.max(1.5, cellSize * 0.6), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 绘制视野框（当前 viewport 范围）
+  const vpX = pad + (camX - viewportWidth / 2) * cellSize;
+  const vpY = pad + (camY - viewportHeight / 2) * cellSize;
+  const vpW = viewportWidth * cellSize;
+  const vpH = viewportHeight * cellSize;
+
+  ctx.strokeStyle = 'rgba(200, 160, 60, 0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(vpX, vpY, vpW, vpH);
+
+  // 绘制玩家位置标记（最后绘制，保证在最上层）
+  const px = pad + (party.x + 0.5) * cellSize;
+  const py = pad + (party.y + 0.5) * cellSize;
+  const pr = Math.max(2.5, cellSize * 1.0);
+
+  // 玩家光晕
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.beginPath();
+  ctx.arc(px, py, pr + 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 玩家点
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(px, py, pr, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 外框
+  ctx.strokeStyle = 'rgba(139, 90, 43, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, displaySize - 1, displaySize - 1);
+};
+
 interface WorldMapProps {
   tiles: WorldTile[];
   party: Party;
@@ -958,6 +1164,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH);
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
+  const minimapFrameCounter = useRef(0);
   
   // 使用 ref 存储最新的 props，避免 useEffect 依赖变化导致重新创建渲染循环
   const propsRef = useRef({ tiles, party, entities, cities, viewportWidth });
@@ -1261,6 +1469,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         y: (wy - (camY - viewportHeight / 2)) * tileSize
       });
 
+      // ===== 地图边界线与超界遮罩 =====
+      drawMapBoundary(ctx, toScreen, tileSize, rect.width, rect.height, animTimeRef.current);
+
       // 绘制城市名称标签（在迷雾之后、实体之前）
       for (const city of cities) {
         // 只显示已探索的城市
@@ -1324,6 +1535,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       if (party.targetX !== null && party.targetY !== null) {
         const tPos = toScreen(party.targetX + 0.5, party.targetY + 0.5);
         drawTargetPath(ctx, pPos.x, pPos.y, tPos.x, tPos.y, tileSize);
+      }
+
+      // ===== 小地图（每 6 帧刷新一次，降低开销） =====
+      minimapFrameCounter.current++;
+      if (minimapCanvasRef.current && minimapFrameCounter.current % 6 === 0) {
+        drawMinimap(
+          minimapCanvasRef.current,
+          tiles, party, entities, cities,
+          camX, camY,
+          viewportWidth, viewportHeight
+        );
       }
 
       requestRef.current = requestAnimationFrame(render);
@@ -1603,6 +1825,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         </div>
       </div>
       
+      {/* ===== 小地图 (Minimap) ===== */}
+      <div className="absolute bottom-14 left-4 z-50 pointer-events-none"
+           style={{ 
+             width: MINIMAP_SIZE, 
+             height: MINIMAP_SIZE,
+             opacity: 0.9,
+           }}>
+        <canvas 
+          ref={minimapCanvasRef}
+          style={{ width: MINIMAP_SIZE, height: MINIMAP_SIZE, display: 'block' }}
+        />
+      </div>
+
       {/* ===== Vignette 边缘效果（改进版） ===== */}
       <div className="absolute inset-0 pointer-events-none"
            style={{
