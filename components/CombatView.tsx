@@ -1661,14 +1661,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
     const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
     
-    // 敌人溃逃判定：必须至多只剩1个活敌人且该敌人正在逃跑
-    // 确保不会因为杀死少量敌人后士气连锁导致提前胜利
+    // 溃逃判定：必须至多只剩1个活人且该人正在逃跑，才算该方全军溃败
+    // 防止杀死/死亡少量单位后士气连锁导致提前判定胜负
     const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
     const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
     const aliveEnemies = totalEnemies - deadEnemies;
     const enemyRoutedValid = enemyRouted && aliveEnemies <= 1 && deadEnemies >= 1;
     
-    console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} 合法溃败:${enemyRoutedValid}`);
+    const totalPlayers = state.units.filter(u => u.team === 'PLAYER').length;
+    const deadPlayers = state.units.filter(u => u.team === 'PLAYER' && u.isDead).length;
+    const alivePlayers = totalPlayers - deadPlayers;
+    const playerRoutedValid = playerRouted && alivePlayers <= 1 && deadPlayers >= 1;
+    
+    console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} | 己: ${totalPlayers}总/${deadPlayers}亡/${alivePlayers}存 溃逃:${playerRouted}`);
     
     if (noEnemiesAlive || enemyRoutedValid) {
       // 敌人全部死亡或仅剩1人且溃逃，玩家胜利
@@ -1676,8 +1681,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(true, survivors, enemyUnits, state.round);
-    } else if (noPlayersAlive || playerRouted) {
-      // 玩家全部死亡或溃逃，玩家失败
+    } else if (noPlayersAlive || playerRoutedValid) {
+      // 玩家全部死亡或仅剩1人且溃逃，玩家失败
       combatEndedRef.current = true;
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(false, [], enemyUnits, state.round);
