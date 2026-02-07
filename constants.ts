@@ -201,7 +201,8 @@ export const getHexDistance = (a: {q:number, r:number}, b: {q:number, r:number})
 
 // ==================== 控制区 (Zone of Control) 工具函数 ====================
 
-import { CombatUnit, CombatState } from './types.ts';
+import { CombatUnit, CombatState, MoraleStatus } from './types.ts';
+import { getMoraleEffects } from './services/moraleService';
 
 /**
  * 获取单位的控制区格子（周围6个相邻格）
@@ -275,4 +276,148 @@ export const getAllEnemyZoCHexes = (
     }
   });
   return zocSet;
+};
+
+// ==================== 合围机制 (Surrounding Bonus) ====================
+
+/** 每个额外邻接敌人的命中率加成 */
+export const SURROUND_BONUS_PER_UNIT = 5;
+
+/** 合围加成上限 */
+export const SURROUND_BONUS_MAX = 25;
+
+/**
+ * 计算合围加成
+ * 统计目标周围与攻击者同阵营的存活单位数（不含攻击者自身），
+ * 每个额外单位 +5% 命中率，最多 +25%。
+ * 
+ * @param attacker 攻击者
+ * @param target 目标
+ * @param state 战斗状态
+ * @returns 合围加成百分比（0~25）
+ */
+export const getSurroundingBonus = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  state: CombatState
+): number => {
+  // 统计目标周围1格内与攻击者同阵营的存活单位数（不含攻击者）
+  const adjacentAllies = state.units.filter(u =>
+    !u.isDead &&
+    u.team === attacker.team &&
+    u.id !== attacker.id &&
+    getHexDistance(u.combatPos, target.combatPos) === 1
+  );
+  const bonus = adjacentAllies.length * SURROUND_BONUS_PER_UNIT;
+  return Math.min(bonus, SURROUND_BONUS_MAX);
+};
+
+// ==================== 统一命中率计算 ====================
+
+export interface HitChanceBreakdown {
+  /** 最终命中率（5~95） */
+  final: number;
+  /** 攻击者基础技能 */
+  baseSkill: number;
+  /** 目标防御 */
+  targetDefense: number;
+  /** 武器命中修正 */
+  weaponMod: number;
+  /** 士气修正 */
+  moraleMod: number;
+  /** 盾牌防御 */
+  shieldDef: number;
+  /** 盾墙额外防御 */
+  shieldWallDef: number;
+  /** 高地修正 */
+  heightMod: number;
+  /** 合围加成 */
+  surroundBonus: number;
+}
+
+/**
+ * 统一命中率计算函数
+ * 整合所有命中率影响因素：技能、防御、武器、士气、盾牌、盾墙、高地差、合围加成
+ * 
+ * @param attacker 攻击者
+ * @param target 目标
+ * @param state 战斗状态
+ * @param heightDiff 高度差（正值=攻击者在高处，负值=在低处，0=同高度）
+ * @returns 命中率详情分解
+ */
+export const calculateHitChance = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  state: CombatState,
+  heightDiff: number = 0
+): HitChanceBreakdown => {
+  const isRanged = attacker.equipment.mainHand?.range
+    ? attacker.equipment.mainHand.range > 1
+    : false;
+  // 对远程武器的判定：检查主手武器是否为弓/弩类
+  const weaponName = attacker.equipment.mainHand?.name || '';
+  const isRangedByName = weaponName.includes('弓') || weaponName.includes('弩') ||
+    weaponName.includes('飞石') || weaponName.includes('飞蝗') ||
+    weaponName.includes('标枪') || weaponName.includes('投矛') || weaponName.includes('飞斧');
+
+  // 基础技能
+  const baseSkill = isRangedByName
+    ? attacker.stats.rangedSkill
+    : attacker.stats.meleeSkill;
+
+  // 目标防御
+  const targetDefense = isRangedByName
+    ? target.stats.rangedDefense
+    : target.stats.meleeDefense;
+
+  // 武器命中修正
+  const weapon = attacker.equipment.mainHand;
+  const weaponMod = weapon?.hitChanceMod || 0;
+
+  // 士气修正
+  const moraleEffects = getMoraleEffects(attacker.morale);
+  const moraleMod = moraleEffects.hitChanceMod || 0;
+
+  // 盾牌防御
+  const targetShield = target.equipment.offHand;
+  const shieldDef = (targetShield?.type === 'SHIELD' && targetShield.defenseBonus)
+    ? targetShield.defenseBonus
+    : 0;
+
+  // 盾墙额外防御
+  const shieldWallDef = (target.isShieldWall && targetShield?.type === 'SHIELD') ? 15 : 0;
+
+  // 高地修正
+  let heightMod = 0;
+  if (heightDiff > 0) heightMod = 10;
+  else if (heightDiff < 0) heightMod = -10;
+
+  // 合围加成
+  const surroundBonus = getSurroundingBonus(attacker, target, state);
+
+  // 最终命中率
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus;
+  final = Math.max(5, Math.min(95, final));
+
+  return {
+    final,
+    baseSkill,
+    targetDefense,
+    weaponMod,
+    moraleMod,
+    shieldDef,
+    shieldWallDef,
+    heightMod,
+    surroundBonus,
+  };
+};
+
+/**
+ * 执行命中判定掷骰
+ * @param hitChance 命中率（5~95）
+ * @returns 是否命中
+ */
+export const rollHitCheck = (hitChance: number): boolean => {
+  const roll = Math.random() * 100;
+  return roll <= hitChance;
 };

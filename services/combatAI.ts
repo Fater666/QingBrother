@@ -4,7 +4,7 @@
  */
 
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies } from '../constants';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus } from '../constants';
 import { MORALE_ORDER } from './moraleService';
 
 // 行为树执行结果
@@ -51,9 +51,12 @@ const getMoraleIndex = (morale: MoraleStatus): number => {
 
 /**
  * 计算单位的威胁值（用于目标选择）
- * 现在考虑士气状态
+ * 现在考虑士气状态和合围加成
+ * @param target 目标单位
+ * @param attacker 可选：攻击者（用于计算合围加成）
+ * @param state 可选：战斗状态（用于计算合围加成）
  */
-const calculateThreat = (target: CombatUnit): number => {
+const calculateThreat = (target: CombatUnit, attacker?: CombatUnit, state?: CombatState): number => {
   let threat = 0;
   
   // 低血量目标优先
@@ -82,6 +85,12 @@ const calculateThreat = (target: CombatUnit): number => {
   // 正在逃跑的目标是绝佳的攻击目标
   if (target.morale === MoraleStatus.FLEEING) {
     threat += 25;
+  }
+  
+  // 合围加成：友军已包围目标时，该目标优先级提升
+  if (attacker && state) {
+    const surroundBonus = getSurroundingBonus(attacker, target, state);
+    threat += surroundBonus * 2; // 每5%合围命中加成 → +10威胁值
   }
   
   return threat;
@@ -226,12 +235,12 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     }
   }
   
-  // 选择目标：优先低血量、落单、士气低落的敌人
+  // 选择目标：优先低血量、落单、士气低落的敌人（含合围加成）
   let bestTarget: CombatUnit | null = null;
   let bestScore = -Infinity;
   
   for (const enemy of enemies) {
-    let score = calculateThreat(enemy);
+    let score = calculateThreat(enemy, unit, state);
     
     // 落单目标加分（周围没有友军）
     const nearbyAllies = enemies.filter(e => 
@@ -271,7 +280,7 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     // 尝试攻击任何邻近敌人（而非冒险移动去找更远的目标）
     const adjacentEnemies = enemies
       .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b) - calculateThreat(a));
+      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
     for (const adjEnemy of adjacentEnemies) {
       for (const ability of attackAbilities) {
         if (canAttackTarget(unit, adjEnemy, ability)) {
@@ -377,8 +386,8 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
       score += 50;
     }
     
-    // 威胁评估（包含士气因素）
-    score += calculateThreat(enemy);
+    // 威胁评估（包含士气因素和合围加成）
+    score += calculateThreat(enemy, unit, state);
     
     // 友军附近的敌人优先（包围战术）
     const nearbyAllies = allies.filter(a => 
@@ -416,7 +425,7 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
     // 军队纪律严明，在ZoC内绝不移动，改为攻击邻近任何敌人
     const adjacentEnemies = enemies
       .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b) - calculateThreat(a));
+      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
     for (const adjEnemy of adjacentEnemies) {
       for (const ability of attackAbilities) {
         if (canAttackTarget(unit, adjEnemy, ability)) {
@@ -470,7 +479,7 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   let bestScore = -Infinity;
   
   for (const enemy of enemies) {
-    let score = calculateThreat(enemy);
+    let score = calculateThreat(enemy, unit, state);
     
     // 无盾目标大幅加分
     if (!enemy.equipment.offHand || enemy.equipment.offHand.type !== 'SHIELD') {
@@ -550,7 +559,7 @@ const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIActio
   let maxThreat = -Infinity;
   
   for (const enemy of enemies) {
-    const threat = calculateThreat(enemy);
+    const threat = calculateThreat(enemy, unit, state);
     const dist = getHexDistance(unit.combatPos, enemy.combatPos);
     
     // 狂战士优先挑战强敌，或追杀逃跑者

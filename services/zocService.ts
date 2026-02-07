@@ -10,7 +10,7 @@
  */
 
 import { CombatUnit, CombatState, MoraleStatus } from '../types';
-import { getHexDistance, getThreateningEnemies, isInEnemyZoC, hasFootworkPerk } from '../constants';
+import { getHexDistance, getThreateningEnemies, isInEnemyZoC, hasFootworkPerk, getSurroundingBonus } from '../constants';
 import { getMoraleEffects } from './moraleService';
 import { calculateDamage, DamageResult } from './damageService';
 
@@ -60,11 +60,13 @@ export interface ZoCCheckResult {
  * 计算截击攻击的命中率
  * @param attacker 攻击者
  * @param target 目标（移动中的单位）
+ * @param state 战斗状态（用于计算合围加成）
  * @returns 命中率（0-100）
  */
 export const calculateFreeAttackHitChance = (
   attacker: CombatUnit,
-  target: CombatUnit
+  target: CombatUnit,
+  state?: CombatState
 ): number => {
   // 基础命中率 = 攻击者近战技能
   let hitChance = attacker.stats.meleeSkill;
@@ -94,6 +96,11 @@ export const calculateFreeAttackHitChance = (
   // 盾墙状态额外防御
   if (target.isShieldWall && shield?.type === 'SHIELD') {
     hitChance -= 15;
+  }
+  
+  // 合围加成
+  if (state) {
+    hitChance += getSurroundingBonus(attacker, target, state);
   }
   
   // 限制在5-95之间
@@ -169,13 +176,15 @@ export const calculateMovementBlockChance = (
  * 执行截击攻击（使用护甲伤害系统）
  * @param attacker 截击者
  * @param target 移动单位
+ * @param state 战斗状态（用于计算合围加成）
  * @returns 截击结果
  */
 export const executeFreeAttack = (
   attacker: CombatUnit,
-  target: CombatUnit
+  target: CombatUnit,
+  state?: CombatState
 ): FreeAttackResult => {
-  const hitChance = calculateFreeAttackHitChance(attacker, target);
+  const hitChance = calculateFreeAttackHitChance(attacker, target, state);
   const roll = Math.random() * 100;
   const hit = roll <= hitChance;
   
@@ -295,7 +304,7 @@ export const processZoCAttacks = (
       break;
     }
     
-    const result = executeFreeAttack(enemy, currentTarget as CombatUnit);
+    const result = executeFreeAttack(enemy, currentTarget as CombatUnit, state);
     results.push(result);
     
     if (result.hit) {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes } from '../constants';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus } from '../constants';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {
   handleAllyDeath,
@@ -1568,40 +1568,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         } else if (action.type === 'ATTACK' && action.targetUnitId && action.ability) {
           const target = state.units.find(u => u.id === action.targetUnitId && !u.isDead);
           if (target) {
-            // ==================== AI攻击使用护甲伤害系统 ====================
-            const dmgResult = calculateDamage(activeUnit, target);
+            // ==================== AI攻击：命中判定（含合围加成） ====================
+            const aiAttackerTerrain = terrainData.get(`${currentPos.q},${currentPos.r}`);
+            const aiTargetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
+            const aiHeightDiff = (aiAttackerTerrain?.height || 0) - (aiTargetTerrain?.height || 0);
+            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff);
+            const aiIsHit = rollHitCheck(aiHitInfo.final);
             currentAP -= action.ability.apCost;
             
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
-            
-            // 显示护甲伤害浮动文字
-            const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
-            if (dmgResult.armorDamageDealt > 0) {
-              floatTexts.push({
-                id: Date.now(),
-                text: dmgResult.armorDestroyed ? `🛡💥-${dmgResult.armorDamageDealt}` : `🛡-${dmgResult.armorDamageDealt}`,
-                x: target.combatPos.q,
-                y: target.combatPos.r,
-                color: dmgResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
-                type: 'damage' as FloatingTextType,
-                size: 'sm' as const,
-              });
-            }
-            floatTexts.push({
-              id: Date.now() + 1,
-              text: dmgResult.isCritical ? `💥-${dmgResult.hpDamageDealt}` : `-${dmgResult.hpDamageDealt}`,
-              x: target.combatPos.q,
-              y: target.combatPos.r,
-              color: dmgResult.isCritical ? '#ff6b35' : '#ef4444',
-              type: (dmgResult.isCritical ? 'critical' : 'damage') as FloatingTextType,
-              size: dmgResult.isCritical ? 'lg' as const : 'md' as const,
-            });
-            setFloatingTexts(prev => [...prev, ...floatTexts]);
-            
-            // 触发受击特效
-            triggerHitEffect(target.id);
-            triggerAttackLine(currentPos.q, currentPos.r, target.combatPos.q, target.combatPos.r, '#ef4444');
-            triggerScreenShake(dmgResult.isCritical || dmgResult.willKill ? 'heavy' : 'light');
             
             // 先更新攻击者AP
             setState(prev => ({
@@ -1614,32 +1589,81 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               })
             }));
             
-            // 详细播报（含护甲信息）
-            const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, action.ability.name, dmgResult);
-            addToLog(logMsg, 'attack');
-            
-            // 暴击横幅
-            if (dmgResult.isCritical) {
-              showCenterBanner(`${activeUnit.name} 暴击！-${dmgResult.hpDamageDealt}`, '#ff6b35', '💥');
+            if (!aiIsHit) {
+              // ==================== AI未命中 ====================
+              setFloatingTexts(prev => [...prev, {
+                id: Date.now(),
+                text: 'MISS',
+                x: target.combatPos.q,
+                y: target.combatPos.r,
+                color: '#94a3b8',
+                type: 'miss' as FloatingTextType,
+                size: 'md' as const,
+              }]);
+              triggerAttackLine(currentPos.q, currentPos.r, target.combatPos.q, target.combatPos.r, '#475569');
+              addToLog(`${activeUnit.name}「${weaponName}」${action.ability.name} → ${target.name}，未命中！(${aiHitInfo.final}%)`, 'info');
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              actionsPerformed++;
+            } else {
+              // ==================== AI命中：使用护甲伤害系统 ====================
+              const dmgResult = calculateDamage(activeUnit, target);
+              
+              // 显示护甲伤害浮动文字
+              const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
+              if (dmgResult.armorDamageDealt > 0) {
+                floatTexts.push({
+                  id: Date.now(),
+                  text: dmgResult.armorDestroyed ? `🛡💥-${dmgResult.armorDamageDealt}` : `🛡-${dmgResult.armorDamageDealt}`,
+                  x: target.combatPos.q,
+                  y: target.combatPos.r,
+                  color: dmgResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
+                  type: 'damage' as FloatingTextType,
+                  size: 'sm' as const,
+                });
+              }
+              floatTexts.push({
+                id: Date.now() + 1,
+                text: dmgResult.isCritical ? `💥-${dmgResult.hpDamageDealt}` : `-${dmgResult.hpDamageDealt}`,
+                x: target.combatPos.q,
+                y: target.combatPos.r,
+                color: dmgResult.isCritical ? '#ff6b35' : '#ef4444',
+                type: (dmgResult.isCritical ? 'critical' : 'damage') as FloatingTextType,
+                size: dmgResult.isCritical ? 'lg' as const : 'md' as const,
+              });
+              setFloatingTexts(prev => [...prev, ...floatTexts]);
+              
+              // 触发受击特效
+              triggerHitEffect(target.id);
+              triggerAttackLine(currentPos.q, currentPos.r, target.combatPos.q, target.combatPos.r, '#ef4444');
+              triggerScreenShake(dmgResult.isCritical || dmgResult.willKill ? 'heavy' : 'light');
+              
+              // 详细播报（含护甲信息）
+              const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, action.ability.name, dmgResult);
+              addToLog(logMsg, 'attack');
+              
+              // 暴击横幅
+              if (dmgResult.isCritical) {
+                showCenterBanner(`${activeUnit.name} 暴击！-${dmgResult.hpDamageDealt}`, '#ff6b35', '💥');
+              }
+              if (dmgResult.armorDestroyed) {
+                const armorName = dmgResult.armorType === 'HELMET' ? '头盔' : '护甲';
+                addToLog(`🛡 ${target.name} 的${armorName}破碎了！`, 'attack');
+              }
+              
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              
+              // 处理伤害和士气检定（传入完整伤害结果）
+              processDamageWithMorale(target.id, dmgResult.hpDamageDealt, activeUnit.id, dmgResult);
+              
+              // 击杀特效
+              if (dmgResult.willKill) {
+                triggerDeathEffect(target.combatPos.q, target.combatPos.r);
+                showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
+                addToLog(`💀 ${target.name} 阵亡！`, 'kill');
+              }
+              
+              actionsPerformed++;
             }
-            if (dmgResult.armorDestroyed) {
-              const armorName = dmgResult.armorType === 'HELMET' ? '头盔' : '护甲';
-              addToLog(`🛡 ${target.name} 的${armorName}破碎了！`, 'attack');
-            }
-            
-            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
-            
-            // 处理伤害和士气检定（传入完整伤害结果）
-            processDamageWithMorale(target.id, dmgResult.hpDamageDealt, activeUnit.id, dmgResult);
-            
-            // 击杀特效
-            if (dmgResult.willKill) {
-              triggerDeathEffect(target.combatPos.q, target.combatPos.r);
-              showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
-              addToLog(`💀 ${target.name} 阵亡！`, 'kill');
-            }
-            
-            actionsPerformed++;
           } else {
             break; // 目标无效，结束行动
           }
@@ -1748,7 +1772,41 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
             if (activeUnit.currentAP < selectedAbility.apCost) return;
             
-            // ==================== 使用护甲伤害系统 ====================
+            // ==================== 命中判定（含合围加成） ====================
+            const attackerTerrain = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`);
+            const targetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
+            const heightDiff = (attackerTerrain?.height || 0) - (targetTerrain?.height || 0);
+            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff);
+            const isHit = rollHitCheck(hitInfo.final);
+            
+            // 先扣除 AP（无论命中与否）
+            setState(prev => ({
+                ...prev,
+                units: prev.units.map(u => {
+                    if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - (selectedAbility.apCost || 4) };
+                    return u;
+                })
+            }));
+            
+            if (!isHit) {
+              // ==================== 未命中 ====================
+              const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+              setFloatingTexts(prev => [...prev, {
+                id: Date.now(),
+                text: 'MISS',
+                x: hoveredHex.q,
+                y: hoveredHex.r,
+                color: '#94a3b8',
+                type: 'miss' as FloatingTextType,
+                size: 'md' as const,
+              }]);
+              triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#475569');
+              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)`, 'info');
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              return;
+            }
+            
+            // ==================== 命中：使用护甲伤害系统 ====================
             const dmgResult = calculateDamage(activeUnit, target);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             
@@ -1784,15 +1842,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             triggerHitEffect(target.id);
             triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#3b82f6');
             triggerScreenShake(dmgResult.isCritical || dmgResult.willKill ? 'heavy' : 'light');
-            
-            // 先更新攻击者的 AP
-            setState(prev => ({
-                ...prev,
-                units: prev.units.map(u => {
-                    if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - (selectedAbility.apCost || 4) };
-                    return u;
-                })
-            }));
             
             // 详细播报（含护甲信息）
             const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, selectedAbility.name, dmgResult);
@@ -2229,35 +2278,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
           const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
           
-          // 攻击命中率计算
+          // 攻击命中率计算（使用统一函数，含合围加成）
           const targetUnit = state.units.find(u => !u.isDead && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
           const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
           const canAttack = selectedAbility && selectedAbility.type === 'ATTACK' && targetUnit && 
             dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] && activeUnit.currentAP >= selectedAbility.apCost;
           
           let hitChance = 0;
+          let hitBreakdown: ReturnType<typeof calculateHitChance> | null = null;
           if (canAttack && targetUnit) {
-            const isRanged = selectedAbility!.range[1] > 1;
-            // 基础命中 = 攻击者技能
-            hitChance = isRanged ? activeUnit.stats.rangedSkill : activeUnit.stats.meleeSkill;
-            // 减去目标防御
-            hitChance -= isRanged ? targetUnit.stats.rangedDefense : targetUnit.stats.meleeDefense;
-            // 武器命中修正
-            const weapon = activeUnit.equipment.mainHand;
-            if (weapon?.hitChanceMod) hitChance += weapon.hitChanceMod;
-            // 士气影响
-            const moraleEffects = getMoraleEffects(activeUnit.morale);
-            hitChance += moraleEffects.hitChanceMod || 0;
-            // 目标盾牌防御
-            const targetShield = targetUnit.equipment.offHand;
-            if (targetShield?.type === 'SHIELD' && targetShield.defenseBonus) hitChance -= targetShield.defenseBonus;
-            // 盾墙状态
-            if (targetUnit.isShieldWall && targetShield?.type === 'SHIELD') hitChance -= 15;
-            // 高地加成
-            if (heightDiff > 0) hitChance += 10;
-            else if (heightDiff < 0) hitChance -= 10;
-            // 限制在5-95
-            hitChance = Math.max(5, Math.min(95, hitChance));
+            // 高度差：攻击者高度 - 目标高度（正值=攻击者在高处）
+            const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
+            const targetHeight = terrainAtHover?.height || 0;
+            const atkHeightDiff = attackerHeight - targetHeight;
+            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff);
+            hitChance = hitBreakdown.final;
           }
 
           const hitColor = hitChance >= 70 ? '#4ade80' : hitChance >= 40 ? '#facc15' : '#ef4444';
@@ -2268,7 +2303,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               style={{ left: mousePos.x + 20, top: mousePos.y + 20, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
             >
               {/* 攻击命中率 - 选中攻击技能且悬停敌人时显示 */}
-              {canAttack && targetUnit && (
+              {canAttack && targetUnit && hitBreakdown && (
                 <div className="mb-2 pb-2 border-b border-red-500/30">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-red-300 font-bold">⚔ {selectedAbility!.name} → {targetUnit.name}</span>
@@ -2278,9 +2313,18 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <span className="text-lg font-bold" style={{ color: hitColor }}>{hitChance}%</span>
                   </div>
                   <div className="text-[8px] text-slate-500 mt-0.5">
-                    技能 {activeUnit.stats.meleeSkill} - 防御 {targetUnit.stats.meleeDefense}
-                    {activeUnit.equipment.mainHand?.hitChanceMod ? ` + 武器 ${activeUnit.equipment.mainHand.hitChanceMod}` : ''}
+                    技能 {hitBreakdown.baseSkill} - 防御 {hitBreakdown.targetDefense}
+                    {hitBreakdown.weaponMod ? ` + 武器 ${hitBreakdown.weaponMod > 0 ? '+' : ''}${hitBreakdown.weaponMod}` : ''}
+                    {hitBreakdown.moraleMod ? ` + 士气 ${hitBreakdown.moraleMod > 0 ? '+' : ''}${hitBreakdown.moraleMod}` : ''}
+                    {hitBreakdown.shieldDef ? ` - 盾牌 ${hitBreakdown.shieldDef}` : ''}
+                    {hitBreakdown.shieldWallDef ? ` - 盾墙 ${hitBreakdown.shieldWallDef}` : ''}
+                    {hitBreakdown.heightMod ? ` + 高地 ${hitBreakdown.heightMod > 0 ? '+' : ''}${hitBreakdown.heightMod}` : ''}
                   </div>
+                  {hitBreakdown.surroundBonus > 0 && (
+                    <div className="text-[8px] text-amber-400 mt-0.5 font-bold">
+                      + 合围 +{hitBreakdown.surroundBonus}%
+                    </div>
+                  )}
                   {activeUnit.currentAP < (selectedAbility!.apCost || 4) && (
                     <div className="text-red-500 text-[9px] mt-1 font-bold">AP不足!</div>
                   )}
