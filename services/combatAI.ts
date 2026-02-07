@@ -5,8 +5,7 @@
 
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies } from '../constants';
-import { getMoraleEffects, MORALE_ORDER } from './moraleService';
-import { BASE_MOVEMENT_BLOCK_CHANCE } from './zocService';
+import { MORALE_ORDER } from './moraleService';
 
 // 行为树执行结果
 type BehaviorResult = 'SUCCESS' | 'FAILURE' | 'RUNNING';
@@ -254,18 +253,14 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击首选目标（士气会影响伤害）
+  // 尝试攻击首选目标（伤害由执行层 calculateDamage 统一计算）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
-      const moraleEffects = getMoraleEffects(unit.morale);
-      const baseDamage = Math.floor(Math.random() * 20) + 10;
-      const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
       return { 
         type: 'ATTACK', 
         targetUnitId: bestTarget.id, 
-        ability,
-        damage
+        ability
       };
     }
   }
@@ -280,10 +275,7 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     for (const adjEnemy of adjacentEnemies) {
       for (const ability of attackAbilities) {
         if (canAttackTarget(unit, adjEnemy, ability)) {
-          const moraleEffects = getMoraleEffects(unit.morale);
-          const baseDamage = Math.floor(Math.random() * 20) + 10;
-          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
         }
       }
     }
@@ -334,17 +326,14 @@ const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction =>
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击（野兽不受士气影响）
+  // 尝试攻击（伤害由执行层 calculateDamage 统一计算）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
-      // 野兽攻击伤害更高
-      const damage = Math.floor(Math.random() * 25) + 15;
       return { 
         type: 'ATTACK', 
         targetUnitId: bestTarget.id, 
-        ability,
-        damage
+        ability
       };
     }
   }
@@ -409,18 +398,14 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击首选目标（应用士气伤害修正）
+  // 尝试攻击首选目标（伤害由执行层 calculateDamage 统一计算）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
-      const moraleEffects = getMoraleEffects(unit.morale);
-      const baseDamage = Math.floor(Math.random() * 18) + 12;
-      const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
       return { 
         type: 'ATTACK', 
         targetUnitId: bestTarget.id, 
-        ability,
-        damage
+        ability
       };
     }
   }
@@ -435,10 +420,7 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
     for (const adjEnemy of adjacentEnemies) {
       for (const ability of attackAbilities) {
         if (canAttackTarget(unit, adjEnemy, ability)) {
-          const moraleEffects = getMoraleEffects(unit.morale);
-          const baseDamage = Math.floor(Math.random() * 18) + 12;
-          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
         }
       }
     }
@@ -509,32 +491,25 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试远程攻击（应用士气伤害修正）
+  // 尝试远程攻击（伤害由执行层 calculateDamage 统一计算）
   const attackAbilities = getAttackAbilities(unit);
   const rangedAbility = attackAbilities.find(a => a.range[1] > 2);
-  const moraleEffects = getMoraleEffects(unit.morale);
   
   if (rangedAbility && canAttackTarget(unit, bestTarget, rangedAbility)) {
-    const baseDamage = Math.floor(Math.random() * 22) + 8;
-    const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
     return { 
       type: 'ATTACK', 
       targetUnitId: bestTarget.id, 
-      ability: rangedAbility,
-      damage
+      ability: rangedAbility
     };
   }
   
   // 如果没有远程技能或射程不够，尝试近战（对邻近目标）
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
-      const baseDamage = Math.floor(Math.random() * 15) + 8;
-      const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
       return { 
         type: 'ATTACK', 
         targetUnitId: bestTarget.id, 
-        ability,
-        damage
+        ability
       };
     }
   }
@@ -546,9 +521,7 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     for (const adjEnemy of adjacentEnemies) {
       for (const ability of attackAbilities) {
         if (canAttackTarget(unit, adjEnemy, ability)) {
-          const baseDamage = Math.floor(Math.random() * 15) + 8;
-          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
         }
       }
     }
@@ -596,21 +569,14 @@ const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIActio
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击（血量越低伤害越高，狂战士无视士气惩罚）
+  // 尝试攻击（伤害由执行层 calculateDamage 统一计算，狂战士加成通过 bonusDamage 传递）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
-      const hpPercent = unit.hp / unit.maxHp;
-      const rageBonus = Math.floor((1 - hpPercent) * 20); // 血量越低加成越高
-      // 狂战士只获得士气加成，不受惩罚
-      const moraleEffects = getMoraleEffects(unit.morale);
-      const moraleBonus = Math.max(0, moraleEffects.damageMod);
-      const damage = Math.floor(Math.random() * 25) + 15 + rageBonus + Math.floor(moraleBonus / 5);
       return { 
         type: 'ATTACK', 
         targetUnitId: bestTarget.id, 
-        ability,
-        damage
+        ability
       };
     }
   }

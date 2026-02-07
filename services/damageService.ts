@@ -1,0 +1,298 @@
+/**
+ * 伤害计算服务 —— 仿《战场兄弟》护甲机制
+ * 
+ * 核心规则：
+ * 1. 每次攻击掷骰决定基础伤害（基于武器 dmgMin~dmgMax）
+ * 2. 判定击中部位：~25% 头部 / ~75% 身体
+ * 3. 伤害先由护甲吸收：
+ *    - 护甲耐久扣减 = baseDamage × weapon.armorDmg
+ *    - 穿甲HP伤害   = baseDamage × weapon.armorPen
+ * 4. 若护甲耐久被击穿(<=0)，溢出部分追加到 HP 伤害
+ * 5. 无护甲时伤害全部作用于 HP
+ * 6. 命中必伤（最低 1 HP）
+ */
+
+import { CombatUnit, Item, MoraleStatus } from '../types';
+import { getMoraleEffects } from './moraleService';
+
+// ==================== 常量 ====================
+
+/** 头部命中概率 */
+export const HEAD_HIT_CHANCE = 0.25;
+
+/** 身体命中概率（1 - HEAD_HIT_CHANCE） */
+export const BODY_HIT_CHANCE = 1 - HEAD_HIT_CHANCE;
+
+/** 头部伤害加成倍率（头部更脆弱） */
+export const HEADSHOT_DAMAGE_MULT = 1.5;
+
+/** 徒手基础伤害范围 */
+export const UNARMED_DAMAGE: [number, number] = [5, 15];
+
+/** 徒手穿甲率 */
+export const UNARMED_ARMOR_PEN = 0.3;
+
+/** 徒手破甲效率 */
+export const UNARMED_ARMOR_DMG = 0.5;
+
+// ==================== 类型定义 ====================
+
+export type HitLocation = 'HEAD' | 'BODY';
+
+export interface DamageResult {
+  /** 击中部位 */
+  hitLocation: HitLocation;
+  /** 武器基础伤害（掷骰结果） */
+  baseDamage: number;
+  /** 护甲受损值 */
+  armorDamageDealt: number;
+  /** 实际造成的 HP 伤害 */
+  hpDamageDealt: number;
+  /** 总有效伤害 = armorDamageDealt + hpDamageDealt（用于显示） */
+  totalEffectiveDamage: number;
+  /** 护甲是否被击穿（耐久降为0） */
+  armorDestroyed: boolean;
+  /** 被击中护甲的新耐久值 */
+  newArmorDurability: number;
+  /** 被击中护甲的旧耐久值 */
+  oldArmorDurability: number;
+  /** 是否暴击（伤害超过基础伤害的80%） */
+  isCritical: boolean;
+  /** 目标是否会被击杀 */
+  willKill: boolean;
+  /** 目标被击中的护甲类型 */
+  armorType: 'ARMOR' | 'HELMET' | null;
+}
+
+// ==================== 核心伤害计算 ====================
+
+/**
+ * 判定击中部位
+ */
+export const rollHitLocation = (): HitLocation => {
+  return Math.random() < HEAD_HIT_CHANCE ? 'HEAD' : 'BODY';
+};
+
+/**
+ * 从武器掷骰基础伤害
+ */
+export const rollBaseDamage = (weapon: Item | null): number => {
+  if (weapon?.damage) {
+    const [minDmg, maxDmg] = weapon.damage;
+    return Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
+  }
+  // 徒手
+  const [minDmg, maxDmg] = UNARMED_DAMAGE;
+  return Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
+};
+
+/**
+ * 获取武器的穿甲率
+ */
+const getArmorPen = (weapon: Item | null): number => {
+  if (weapon?.armorPen !== undefined) return weapon.armorPen;
+  return UNARMED_ARMOR_PEN;
+};
+
+/**
+ * 获取武器的破甲效率
+ */
+const getArmorDmg = (weapon: Item | null): number => {
+  if (weapon?.armorDmg !== undefined) return weapon.armorDmg;
+  return UNARMED_ARMOR_DMG;
+};
+
+/**
+ * 核心伤害计算函数
+ * 
+ * @param attacker 攻击者
+ * @param target 目标
+ * @param options 可选参数
+ * @returns DamageResult 结构化伤害结果
+ */
+export const calculateDamage = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  options?: {
+    /** 强制指定击中部位（不掷骰） */
+    forceHitLocation?: HitLocation;
+    /** 伤害乘数（如截击 0.8x） */
+    damageMult?: number;
+    /** 跳过士气修正 */
+    skipMorale?: boolean;
+    /** 额外伤害加成（固定值，如狂战士） */
+    bonusDamage?: number;
+  }
+): DamageResult => {
+  const weapon = attacker.equipment.mainHand;
+  
+  // 1. 掷骰基础伤害
+  let baseDamage = rollBaseDamage(weapon);
+  
+  // 应用伤害乘数（如截击系数）
+  if (options?.damageMult) {
+    baseDamage = Math.floor(baseDamage * options.damageMult);
+  }
+  
+  // 应用士气修正
+  if (!options?.skipMorale) {
+    const moraleEffects = getMoraleEffects(attacker.morale);
+    baseDamage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
+  }
+  
+  // 应用额外伤害加成
+  if (options?.bonusDamage) {
+    baseDamage += options.bonusDamage;
+  }
+  
+  // 确保最低1点伤害
+  baseDamage = Math.max(1, baseDamage);
+  
+  // 2. 判定击中部位
+  const hitLocation = options?.forceHitLocation || rollHitLocation();
+  
+  // 3. 获取对应部位的护甲
+  const armorItem = hitLocation === 'HEAD' ? target.equipment.helmet : target.equipment.armor;
+  const armorDurability = armorItem ? armorItem.durability : 0;
+  const armorType = hitLocation === 'HEAD' ? 'HELMET' : 'ARMOR';
+  
+  // 4. 获取武器穿甲/破甲属性
+  const armorPen = getArmorPen(weapon);
+  const armorDmgMult = getArmorDmg(weapon);
+  
+  let armorDamageDealt = 0;
+  let hpDamageDealt = 0;
+  let armorDestroyed = false;
+  let newArmorDurability = armorDurability;
+  
+  if (armorDurability > 0 && armorItem) {
+    // 5. 有护甲：计算护甲受损和穿甲伤害
+    
+    // 护甲受损 = 基础伤害 × 破甲效率
+    armorDamageDealt = Math.floor(baseDamage * armorDmgMult);
+    armorDamageDealt = Math.max(1, armorDamageDealt); // 至少1点护甲伤害
+    
+    // 穿甲HP伤害 = 基础伤害 × 穿甲率
+    hpDamageDealt = Math.floor(baseDamage * armorPen);
+    
+    // 头部命中时HP伤害额外加成
+    if (hitLocation === 'HEAD') {
+      hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+    }
+    
+    // 检查护甲是否被击穿
+    newArmorDurability = armorDurability - armorDamageDealt;
+    if (newArmorDurability <= 0) {
+      armorDestroyed = true;
+      // 溢出伤害追加到 HP
+      const overflow = Math.abs(newArmorDurability);
+      hpDamageDealt += overflow;
+      newArmorDurability = 0;
+    }
+  } else {
+    // 6. 无护甲：全部伤害作用于 HP
+    hpDamageDealt = baseDamage;
+    
+    // 头部无盔加成
+    if (hitLocation === 'HEAD') {
+      hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+    }
+  }
+  
+  // 7. 命中必伤（至少1HP）
+  hpDamageDealt = Math.max(1, hpDamageDealt);
+  
+  // 判定暴击（伤害超过武器最大伤害的80%）
+  const maxDmg = weapon?.damage ? weapon.damage[1] : UNARMED_DAMAGE[1];
+  const isCritical = baseDamage >= maxDmg * 0.8;
+  
+  // 判定是否击杀
+  const willKill = target.hp - hpDamageDealt <= 0;
+  
+  return {
+    hitLocation,
+    baseDamage,
+    armorDamageDealt,
+    hpDamageDealt,
+    totalEffectiveDamage: armorDamageDealt + hpDamageDealt,
+    armorDestroyed,
+    newArmorDurability,
+    oldArmorDurability: armorDurability,
+    isCritical,
+    willKill,
+    armorType: armorItem ? armorType : null,
+  };
+};
+
+// ==================== 日志生成工具 ====================
+
+/**
+ * 生成伤害日志文本
+ */
+export const getDamageLogText = (
+  attackerName: string,
+  targetName: string,
+  weaponName: string,
+  abilityName: string,
+  result: DamageResult
+): string => {
+  const locationText = result.hitLocation === 'HEAD' ? '头部' : '身体';
+  
+  let log = `${attackerName}「${weaponName}」${abilityName} → ${targetName}【${locationText}】`;
+  
+  if (result.isCritical) {
+    log += '暴击！';
+  }
+  
+  if (result.armorType && result.armorDamageDealt > 0) {
+    const armorName = result.armorType === 'HELMET' ? '头盔' : '护甲';
+    log += `${armorName} -${result.armorDamageDealt}`;
+    if (result.armorDestroyed) {
+      log += '(破碎!)';
+    }
+    log += `，`;
+  }
+  
+  log += `生命 -${result.hpDamageDealt}`;
+  
+  if (result.willKill) {
+    log += '，致命一击！';
+  }
+  
+  return log;
+};
+
+/**
+ * 生成截击伤害日志文本
+ */
+export const getInterceptDamageLogText = (
+  attackerName: string,
+  targetName: string,
+  result: DamageResult,
+  movementBlocked: boolean
+): string => {
+  const locationText = result.hitLocation === 'HEAD' ? '头部' : '身体';
+  
+  let log = `${attackerName} 截击 ${targetName}【${locationText}】`;
+  
+  if (result.armorType && result.armorDamageDealt > 0) {
+    const armorName = result.armorType === 'HELMET' ? '头盔' : '护甲';
+    log += `${armorName} -${result.armorDamageDealt}`;
+    if (result.armorDestroyed) {
+      log += '(破碎!)';
+    }
+    log += `，`;
+  }
+  
+  log += `生命 -${result.hpDamageDealt}`;
+  
+  if (result.willKill) {
+    log += '，将其击杀！';
+  } else if (movementBlocked) {
+    log += '，阻止了移动！';
+  } else {
+    log += '，但未能阻止移动。';
+  }
+  
+  return log;
+};

@@ -12,6 +12,7 @@
 import { CombatUnit, CombatState, MoraleStatus } from '../types';
 import { getHexDistance, getThreateningEnemies, isInEnemyZoC, hasFootworkPerk } from '../constants';
 import { getMoraleEffects } from './moraleService';
+import { calculateDamage, DamageResult } from './damageService';
 
 // ==================== 截击系统常量 ====================
 
@@ -37,10 +38,12 @@ export interface FreeAttackResult {
   target: CombatUnit;
   hit: boolean;
   damage: number;
+  hpDamage: number;
   movementBlocked: boolean;
   targetKilled: boolean;
   hitChance: number;
   blockChance: number;
+  damageResult?: DamageResult; // 完整的护甲伤害计算结果
 }
 
 export interface ZoCCheckResult {
@@ -98,30 +101,18 @@ export const calculateFreeAttackHitChance = (
 };
 
 /**
- * 计算截击攻击的伤害
+ * 计算截击攻击的伤害（使用护甲系统）
  * @param attacker 攻击者
- * @returns 伤害值
+ * @param target 目标
+ * @returns DamageResult 结构化伤害结果
  */
-export const calculateFreeAttackDamage = (attacker: CombatUnit): number => {
-  const weapon = attacker.equipment.mainHand;
-  
-  let baseDamage: number;
-  if (weapon?.damage) {
-    const [minDmg, maxDmg] = weapon.damage;
-    baseDamage = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
-  } else {
-    // 徒手伤害
-    baseDamage = Math.floor(Math.random() * 10) + 5;
-  }
-  
-  // 应用截击伤害系数
-  let damage = Math.floor(baseDamage * FREE_ATTACK_DAMAGE_MULT);
-  
-  // 士气影响伤害
-  const moraleEffects = getMoraleEffects(attacker.morale);
-  damage = Math.floor(damage * (1 + moraleEffects.damageMod / 100));
-  
-  return Math.max(1, damage);
+export const calculateFreeAttackDamageWithArmor = (
+  attacker: CombatUnit,
+  target: CombatUnit
+): DamageResult => {
+  return calculateDamage(attacker, target, {
+    damageMult: FREE_ATTACK_DAMAGE_MULT,
+  });
 };
 
 /**
@@ -175,7 +166,7 @@ export const calculateMovementBlockChance = (
 };
 
 /**
- * 执行截击攻击
+ * 执行截击攻击（使用护甲伤害系统）
  * @param attacker 截击者
  * @param target 移动单位
  * @returns 截击结果
@@ -189,20 +180,25 @@ export const executeFreeAttack = (
   const hit = roll <= hitChance;
   
   let damage = 0;
+  let hpDamage = 0;
   let movementBlocked = false;
   let targetKilled = false;
   let blockChance = 0;
+  let dmgResult: DamageResult | undefined;
   
   if (hit) {
-    damage = calculateFreeAttackDamage(attacker);
+    // 使用护甲伤害系统计算截击伤害
+    dmgResult = calculateFreeAttackDamageWithArmor(attacker, target);
+    damage = dmgResult.totalEffectiveDamage;
+    hpDamage = dmgResult.hpDamageDealt;
     
-    // 检查是否击杀
-    if (target.hp - damage <= 0) {
+    // 检查是否击杀（基于HP伤害）
+    if (target.hp - hpDamage <= 0) {
       targetKilled = true;
       movementBlocked = true; // 击杀必定阻止移动
     } else {
-      // 计算移动阻止
-      blockChance = calculateMovementBlockChance(attacker, target, damage);
+      // 计算移动阻止（基于HP伤害）
+      blockChance = calculateMovementBlockChance(attacker, target, hpDamage);
       movementBlocked = Math.random() < blockChance;
     }
   }
@@ -212,10 +208,12 @@ export const executeFreeAttack = (
     target,
     hit,
     damage,
+    hpDamage,
     movementBlocked,
     targetKilled,
     hitChance,
-    blockChance
+    blockChance,
+    damageResult: dmgResult
   };
 };
 
@@ -283,11 +281,12 @@ export const processZoCAttacks = (
   );
   
   // 每个敌人依次执行截击
+  let totalHpDamage = 0;
   for (const enemy of sortedEnemies) {
-    // 创建一个临时的目标状态，考虑之前截击造成的伤害
+    // 创建一个临时的目标状态，考虑之前截击造成的HP伤害
     const currentTarget = {
       ...unit,
-      hp: unit.hp - totalDamage
+      hp: unit.hp - totalHpDamage
     };
     
     // 如果目标已死亡，停止截击
@@ -300,7 +299,8 @@ export const processZoCAttacks = (
     results.push(result);
     
     if (result.hit) {
-      totalDamage += result.damage;
+      totalDamage += result.hpDamage;
+      totalHpDamage += result.hpDamage;
       
       // 如果移动被阻止，后续截击不再执行
       if (result.movementBlocked) {
@@ -314,7 +314,7 @@ export const processZoCAttacks = (
 };
 
 /**
- * 获取截击的日志文本
+ * 获取截击的日志文本（含护甲信息）
  */
 export const getFreeAttackLogText = (result: FreeAttackResult): string => {
   const attackerName = result.attacker.name;
@@ -324,13 +324,27 @@ export const getFreeAttackLogText = (result: FreeAttackResult): string => {
     return `${attackerName} 对 ${targetName} 发动截击，但未能命中！`;
   }
   
+  const dmg = result.damageResult;
+  let dmgDetail = '';
+  if (dmg) {
+    const locationText = dmg.hitLocation === 'HEAD' ? '头部' : '身体';
+    dmgDetail = `【${locationText}】`;
+    if (dmg.armorDamageDealt > 0) {
+      const armorName = dmg.armorType === 'HELMET' ? '头盔' : '护甲';
+      dmgDetail += `${armorName} -${dmg.armorDamageDealt}${dmg.armorDestroyed ? '(破碎!)' : ''}，`;
+    }
+    dmgDetail += `生命 -${dmg.hpDamageDealt}`;
+  } else {
+    dmgDetail = `造成 ${result.hpDamage} 伤害`;
+  }
+  
   if (result.targetKilled) {
-    return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，将其击杀！`;
+    return `${attackerName} 截击 ${targetName}，${dmgDetail}，将其击杀！`;
   }
   
   if (result.movementBlocked) {
-    return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，阻止了其移动！`;
+    return `${attackerName} 截击 ${targetName}，${dmgDetail}，阻止了其移动！`;
   }
   
-  return `${attackerName} 截击 ${targetName}，造成 ${result.damage} 伤害，但未能阻止其移动。`;
+  return `${attackerName} 截击 ${targetName}，${dmgDetail}，但未能阻止其移动。`;
 };
