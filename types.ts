@@ -9,7 +9,17 @@ export interface OriginConfig {
   description: string;
   gold: number;
   food: number;
-  mercenaries: { name?: string; bg: string; formationIndex: number | null }[];
+  mercenaries: {
+    name?: string;
+    bg: string;
+    formationIndex: number | null;
+    equipment?: {
+      mainHand?: string[];   // 武器ID池，随机选一个
+      offHand?: string[];    // 盾牌ID池
+      armor?: string[];      // 护甲ID池
+      helmet?: string[];     // 头盔ID池
+    };
+  }[];
   introStory: string[];
 }
 

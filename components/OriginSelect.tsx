@@ -11,9 +11,22 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     gold: 1500,
     food: 120,
     mercenaries: [
-      { name: '赵括', bg: 'DESERTER', formationIndex: 0 },
-      { name: '李信', bg: 'DESERTER', formationIndex: 1 },
-      { name: '韩青', bg: 'FARMER', formationIndex: 9 },
+      { name: '赵括', bg: 'DESERTER', formationIndex: 0, equipment: {
+        mainHand: ['w_sword_2', 'w_spear_2'],
+        offHand: ['s_round'],
+        armor: ['a_leather'],
+        helmet: ['h_cap'],
+      }},
+      { name: '李信', bg: 'DESERTER', formationIndex: 1, equipment: {
+        mainHand: ['w_sword_1', 'w_spear_1'],
+        offHand: ['s_buckler'],
+        armor: ['a_robe', 'a_copper_studded'],
+        helmet: ['h_hood', 'h_cap'],
+      }},
+      { name: '韩青', bg: 'FARMER', formationIndex: 9, equipment: {
+        mainHand: ['w_spear_1', 'w_axe_1'],
+        armor: ['a_cloth', 'a_robe'],
+      }},
     ],
     introStory: [
       '长平之战已过去三年。',
@@ -31,8 +44,15 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     gold: 2000,
     food: 100,
     mercenaries: [
-      { name: '韩非', bg: 'NOBLE', formationIndex: 0 },
-      { name: '张仆', bg: 'FARMER', formationIndex: 1 },
+      { name: '韩非', bg: 'NOBLE', formationIndex: 0, equipment: {
+        mainHand: ['w_sword_2'],
+        armor: ['a_leather', 'a_bronze_cuirass'],
+        helmet: ['h_cap', 'h_hardened_leather'],
+      }},
+      { name: '张仆', bg: 'FARMER', formationIndex: 1, equipment: {
+        mainHand: ['w_cleaver_1', 'w_spear_4'],
+        armor: ['a_cloth', 'a_robe'],
+      }},
     ],
     introStory: [
       '韩氏一族，曾是新郑城中有头有脸的人家。',
@@ -50,10 +70,24 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     gold: 800,
     food: 200,
     mercenaries: [
-      { name: '石壮', bg: 'HUNTER', formationIndex: 0 },
-      { name: '王大牛', bg: 'FARMER', formationIndex: 1 },
-      { name: '刘铁柱', bg: 'FARMER', formationIndex: 9 },
-      { name: '陈小六', bg: 'HUNTER', formationIndex: 10 },
+      { name: '石壮', bg: 'HUNTER', formationIndex: 0, equipment: {
+        mainHand: ['w_bow_1', 'w_axe_1'],
+        armor: ['a_leather'],
+        helmet: ['h_cap', 'h_padded_cap'],
+      }},
+      { name: '王大牛', bg: 'FARMER', formationIndex: 1, equipment: {
+        mainHand: ['w_axe_1', 'w_spear_1'],
+        armor: ['a_robe'],
+      }},
+      { name: '刘铁柱', bg: 'FARMER', formationIndex: 9, equipment: {
+        mainHand: ['w_cleaver_1', 'w_mace_1'],
+        armor: ['a_cloth'],
+      }},
+      { name: '陈小六', bg: 'HUNTER', formationIndex: 10, equipment: {
+        mainHand: ['w_bow_1'],
+        armor: ['a_robe', 'a_leather'],
+        helmet: ['h_hood', 'h_padded_cap'],
+      }},
     ],
     introStory: [
       '太行山，自古便是匪患丛生之地。',
@@ -72,9 +106,23 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     gold: 1000,
     food: 150,
     mercenaries: [
-      { name: '呼延豹', bg: 'NOMAD', formationIndex: 0 },
-      { name: '拓跋青', bg: 'NOMAD', formationIndex: 1 },
-      { name: '阿史那', bg: 'NOMAD', formationIndex: 9 },
+      { name: '呼延豹', bg: 'NOMAD', formationIndex: 0, equipment: {
+        mainHand: ['w_cleaver_2', 'w_axe_4'],
+        offHand: ['s_light_wood'],
+        armor: ['a_copper_studded', 'a_leather'],
+        helmet: ['h_hardened_leather'],
+      }},
+      { name: '拓跋青', bg: 'NOMAD', formationIndex: 1, equipment: {
+        mainHand: ['w_bow_1', 'w_bow_2'],
+        armor: ['a_leather'],
+        helmet: ['h_padded_cap', 'h_hood'],
+      }},
+      { name: '阿史那', bg: 'NOMAD', formationIndex: 9, equipment: {
+        mainHand: ['w_spear_2', 'w_spear_1'],
+        offHand: ['s_buckler', 's_reinforced_wicker'],
+        armor: ['a_robe', 'a_leather'],
+        helmet: ['h_hood'],
+      }},
     ],
     introStory: [
       '北方的草原上，强者为王。',

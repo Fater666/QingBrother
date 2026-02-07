@@ -716,6 +716,14 @@ export const App: React.FC = () => {
   // 预生成地图数据 (在起源选择阶段就准备好)
   const pendingMapRef = useRef<{ tiles: WorldTile[], cities: City[] } | null>(null);
 
+  // --- 从装备ID池中随机选取一件装备 ---
+  const resolveItemFromPool = (ids: string[] | undefined, templates: Item[]): Item | null => {
+    if (!ids || ids.length === 0) return null;
+    const chosenId = ids[Math.floor(Math.random() * ids.length)];
+    const found = templates.find(t => t.id === chosenId);
+    return found ? { ...found } : null;
+  };
+
   // --- 新战役：根据起源生成初始队伍 ---
   const initGameWithOrigin = useCallback((origin: OriginConfig, name: string, mapData: { tiles: WorldTile[], cities: City[] }) => {
     setTiles(mapData.tiles);
@@ -724,6 +732,14 @@ export const App: React.FC = () => {
 
     const mercs = origin.mercenaries.map((m, i) => {
       const merc = createMercenary(`${i + 1}`, i === 0 ? name : m.name, m.bg, m.formationIndex);
+      // 如果起源配置了固定装备池，覆盖随机装备
+      if (m.equipment) {
+        const eq = m.equipment;
+        merc.equipment.mainHand = resolveItemFromPool(eq.mainHand, WEAPON_TEMPLATES);
+        merc.equipment.offHand = resolveItemFromPool(eq.offHand, SHIELD_TEMPLATES);
+        merc.equipment.armor = resolveItemFromPool(eq.armor, ARMOR_TEMPLATES);
+        merc.equipment.helmet = resolveItemFromPool(eq.helmet, HELMET_TEMPLATES);
+      }
       return merc;
     });
 
