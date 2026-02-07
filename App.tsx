@@ -432,6 +432,26 @@ const generateBattleResult = (
       });
     });
 
+    // 保底机制：如果没有掉落任何装备，从死亡敌人中强制掉落一件
+    if (lootItems.length === 0) {
+      const deadEnemies = enemyUnits.filter(u => u.isDead);
+      for (const enemy of deadEnemies) {
+        const droppable = [enemy.equipment.mainHand, enemy.equipment.armor, enemy.equipment.helmet, enemy.equipment.offHand]
+          .filter((item): item is Item => item !== null && item !== undefined && item.value > 0);
+        if (droppable.length > 0) {
+          const item = droppable[Math.floor(Math.random() * droppable.length)];
+          const damageFraction = 0.5 + Math.random() * 0.3;
+          const newDurability = Math.max(1, Math.floor(item.durability * damageFraction));
+          lootItems.push({
+            ...item,
+            id: `loot-${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            durability: newDurability,
+          });
+          break; // 只保底掉落一件
+        }
+      }
+    }
+
     // 15% 概率额外掉落消耗品
     if (Math.random() < 0.15 && CONSUMABLE_TEMPLATES.length > 0) {
       const consumable = CONSUMABLE_TEMPLATES[Math.floor(Math.random() * CONSUMABLE_TEMPLATES.length)];
@@ -449,7 +469,7 @@ const generateBattleResult = (
       const aiType = enemy.aiType || 'BANDIT';
       switch (aiType) {
         case 'ARMY': goldReward += 40 + Math.floor(Math.random() * 40); break;
-        case 'BEAST': goldReward += 10 + Math.floor(Math.random() * 20); break;
+        case 'BEAST': goldReward += 15 + Math.floor(Math.random() * 25); break; // 野兽：兽皮/牙等略增金币补偿
         case 'ARCHER': goldReward += 25 + Math.floor(Math.random() * 30); break;
         case 'BERSERKER': goldReward += 35 + Math.floor(Math.random() * 45); break;
         default: goldReward += 20 + Math.floor(Math.random() * 30); break; // BANDIT
@@ -1637,13 +1657,13 @@ export const App: React.FC = () => {
                             if (d < bestDist) { bestDist = d; bestId = ent.id; }
                         }
                         
-                        const MAX_QUEST_DIST = 15; // 任务目标最大距离
+                        const MAX_QUEST_DIST = 10; // 任务目标最大距离（缩小搜索范围确保目标在附近）
                         if (bestId && bestDist <= MAX_QUEST_DIST) {
                             // 附近有匹配的敌人，直接绑定
                             linkedQuest.targetEntityId = bestId;
                         } else {
                             // 附近没有匹配的敌人，在城市附近生成一个任务专属目标
-                            const spawnDist = 5 + Math.random() * 6; // 距城市5-11格
+                            const spawnDist = 3 + Math.random() * 5; // 距城市3-8格（确保任务目标在附近）
                             const spawnAngle = Math.random() * Math.PI * 2;
                             const spawnX = Math.max(1, Math.min(MAP_SIZE - 2, cx + Math.cos(spawnAngle) * spawnDist));
                             const spawnY = Math.max(1, Math.min(MAP_SIZE - 2, cy + Math.sin(spawnAngle) * spawnDist));

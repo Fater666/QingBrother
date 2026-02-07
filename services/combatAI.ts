@@ -304,6 +304,7 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
 /**
  * BEAST（野兽）行为树
  * 特点：凶猛进攻，优先攻击最近目标或逃跑的猎物，永不逃跑
+ * ZoC感知：野兽在控制区内不会冒险移动，优先撕咬邻近目标
  */
 const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
   const enemies = getEnemies(unit, state);
@@ -347,7 +348,30 @@ const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction =>
     }
   }
   
-  // 无法攻击则全力冲向目标
+  // ==================== ZoC感知：野兽在控制区内不冒险移动 ====================
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  if (inZoC) {
+    // 尝试撕咬邻近的任何敌人
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => {
+        // 优先攻击逃跑的猎物
+        const aFlee = a.morale === MoraleStatus.FLEEING ? 50 : 0;
+        const bFlee = b.morale === MoraleStatus.FLEEING ? 50 : 0;
+        return (bFlee + calculateThreat(b, unit, state)) - (aFlee + calculateThreat(a, unit, state));
+      });
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
+        }
+      }
+    }
+    // 在ZoC内无法攻击，等待而非冒险移动
+    return { type: 'WAIT' };
+  }
+  
+  // 不在ZoC中，全力冲向目标
   const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
@@ -550,6 +574,7 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
 /**
  * BERSERKER（狂战士）行为树
  * 特点：血量越低攻击越高，永不后退，无视士气惩罚
+ * ZoC感知：狂战士在控制区内优先攻击邻近敌人，不冒险移动
  */
 const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
   const enemies = getEnemies(unit, state);
@@ -590,7 +615,25 @@ const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIActio
     }
   }
   
-  // 无法攻击则冲向目标
+  // ==================== ZoC感知：狂战士在控制区内不冒险移动 ====================
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  if (inZoC) {
+    // 尝试攻击邻近的任何敌人
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
+        }
+      }
+    }
+    // 在ZoC内无法攻击，等待而非冒险移动
+    return { type: 'WAIT' };
+  }
+  
+  // 不在ZoC中，冲向目标
   const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
