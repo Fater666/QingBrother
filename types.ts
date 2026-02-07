@@ -51,6 +51,22 @@ export interface Perk {
   description: string;
 }
 
+export interface Trait {
+  id: string;
+  name: string;
+  icon: string;
+  type: 'positive' | 'negative';
+  description: string;
+  hpMod: number;
+  fatigueMod: number;
+  resolveMod: number;
+  meleeSkillMod: number;
+  rangedSkillMod: number;
+  meleeDefMod: number;
+  rangedDefMod: number;
+  initMod: number;
+}
+
 export interface BackgroundTemplate {
   id: string;
   name: string;

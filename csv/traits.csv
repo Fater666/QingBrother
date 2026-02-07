@@ -1,0 +1,15 @@
+id|name|icon|type|description|hpMod|fatigueMod|resolveMod|meleeSkillMod|rangedSkillMod|meleeDefMod|rangedDefMod|initMod
+brave|勇猛|🦁|positive|天生胆大，临阵不怯。胆识 +10。|0|0|10|0|0|0|0|0
+strong|强壮|💪|positive|体格健壮，力大无穷。最大体力 +10，近战命中 +5。|0|10|0|5|0|0|0|0
+quick|敏捷|⚡|positive|身手矫健，反应迅捷。先手 +10，近战防御 +5。|0|0|0|0|0|5|0|10
+eagle_eyes|鹰眼|🦅|positive|目力过人，百步穿杨。远程命中 +5，远程防御 +3。|0|0|0|0|5|0|3|0
+tough|皮糙肉厚|🐂|positive|天生皮肉坚韧，耐打抗揍。生命上限 +10。|10|0|0|0|0|0|0|0
+iron_jaw|铁骨|🪨|positive|筋骨如铁，难以击倒。近战防御 +5，远程防御 +5。|0|0|0|0|0|5|5|0
+natural_fighter|天生武者|⚔️|positive|仿佛生来就是为战斗而生。近战命中 +5，近战防御 +3。|0|0|0|5|0|3|0|0
+asthmatic|气虚|😮‍💨|negative|先天气息不足，容易疲惫。最大体力 -15。|0|-15|0|0|0|0|0|0
+craven|怯懦|😰|negative|天性胆小，容易被吓破胆。胆识 -10。|0|0|-10|0|0|0|0|0
+clumsy|笨拙|🦶|negative|手脚不协调，闪避困难。近战防御 -5，远程防御 -5。|0|0|0|0|0|-5|-5|0
+fragile|体弱|🤒|negative|身体孱弱，不堪一击。生命上限 -10。|-10|0|0|0|0|0|0|0
+hesitant|迟钝|🐢|negative|反应迟缓，总是慢人一步。先手 -15。|0|0|0|0|0|0|0|-15
+short_sighted|近视|👓|negative|视力不佳，远处模糊。远程命中 -5。|0|0|0|0|-5|0|0|0
+tiny|矮小|🐁|negative|身材矮小，力不从心但不易被射中。生命上限 -5，远程防御 +5。|-5|0|0|0|0|0|5|0

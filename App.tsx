@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -39,14 +39,18 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
   const roll = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
   const rollMod = (range: [number, number]) => roll(range[0], range[1]);
 
-  const baseHp = roll(50, 70) + rollMod(bg.hpMod);
-  const baseFat = roll(90, 110) + rollMod(bg.fatigueMod);
-  const baseRes = roll(30, 50) + rollMod(bg.resolveMod);
-  const baseInit = roll(100, 110) + rollMod(bg.initMod);
-  const baseMSkill = roll(47, 57) + rollMod(bg.meleeSkillMod);
-  const baseRSkill = roll(32, 42) + rollMod(bg.rangedSkillMod);
-  const baseMDef = roll(0, 5) + rollMod(bg.defMod);
-  const baseRDef = roll(0, 5) + rollMod(bg.defMod);
+  // 分配特质并计算属性修正
+  const traits = assignTraits(bgKey!);
+  const traitMods = getTraitStatMods(traits);
+
+  const baseHp = roll(50, 70) + rollMod(bg.hpMod) + traitMods.hpMod;
+  const baseFat = roll(90, 110) + rollMod(bg.fatigueMod) + traitMods.fatigueMod;
+  const baseRes = roll(30, 50) + rollMod(bg.resolveMod) + traitMods.resolveMod;
+  const baseInit = roll(100, 110) + rollMod(bg.initMod) + traitMods.initMod;
+  const baseMSkill = roll(47, 57) + rollMod(bg.meleeSkillMod) + traitMods.meleeSkillMod;
+  const baseRSkill = roll(32, 42) + rollMod(bg.rangedSkillMod) + traitMods.rangedSkillMod;
+  const baseMDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.meleeDefMod;
+  const baseRDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.rangedDefMod;
 
   const genStars = (mod: [number, number]) => {
       const r = Math.random() * 100;
@@ -77,7 +81,7 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
     maxFatigue: baseFat, morale: MoraleStatus.STEADY,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
-    traits: [], perks: [], perkPoints: 0,
+    traits, perks: [], perkPoints: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet, ammo: null, accessory: null },
     bag: [null, null, null, null], salary: Math.floor(10 * bg.salaryMult), formationIndex
   };

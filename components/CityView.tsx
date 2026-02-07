@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Party, City, Item, Character, CityFacility, Quest } from '../types.ts';
-import { BACKGROUNDS } from '../constants';
+import { BACKGROUNDS, TRAIT_TEMPLATES } from '../constants';
 import { getReputationRewardMultiplier } from '../services/ambitionService.ts';
 
 interface CityViewProps {
@@ -977,6 +977,35 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* 特质标签 */}
+                                            {merc.traits && merc.traits.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mb-4 shrink-0">
+                                                    {merc.traits.map(tid => {
+                                                        const trait = TRAIT_TEMPLATES[tid];
+                                                        if (!trait) return null;
+                                                        const isPositive = trait.type === 'positive';
+                                                        return (
+                                                            <div
+                                                                key={tid}
+                                                                className={`group relative inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border cursor-default ${
+                                                                    isPositive
+                                                                        ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
+                                                                        : 'text-red-300 bg-red-950/40 border-red-800/50'
+                                                                }`}
+                                                            >
+                                                                <span>{trait.icon}</span>
+                                                                <span>{trait.name}</span>
+                                                                {/* Tooltip */}
+                                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-black/95 border border-amber-900/60 rounded text-[11px] text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl">
+                                                                    <div className="font-bold text-amber-400 mb-1">{trait.icon} {trait.name}</div>
+                                                                    <div>{trait.description}</div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
 
                                             {/* 属性面板 - 可滚动区域 */}
                                             <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">

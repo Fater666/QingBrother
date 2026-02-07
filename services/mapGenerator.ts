@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -339,14 +339,18 @@ const createMercenary = (id: string): Character => {
   const roll = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
   const rollMod = (range: [number, number]) => roll(range[0], range[1]);
 
-  const baseHp = roll(50, 70) + rollMod(bg.hpMod);
-  const baseFat = roll(90, 110) + rollMod(bg.fatigueMod);
-  const baseRes = roll(30, 50) + rollMod(bg.resolveMod);
-  const baseInit = roll(100, 110) + rollMod(bg.initMod);
-  const baseMSkill = roll(47, 57) + rollMod(bg.meleeSkillMod);
-  const baseRSkill = roll(32, 42) + rollMod(bg.rangedSkillMod);
-  const baseMDef = roll(0, 5) + rollMod(bg.defMod);
-  const baseRDef = roll(0, 5) + rollMod(bg.defMod);
+  // 分配特质并计算属性修正
+  const traits = assignTraits(bgKey);
+  const traitMods = getTraitStatMods(traits);
+
+  const baseHp = roll(50, 70) + rollMod(bg.hpMod) + traitMods.hpMod;
+  const baseFat = roll(90, 110) + rollMod(bg.fatigueMod) + traitMods.fatigueMod;
+  const baseRes = roll(30, 50) + rollMod(bg.resolveMod) + traitMods.resolveMod;
+  const baseInit = roll(100, 110) + rollMod(bg.initMod) + traitMods.initMod;
+  const baseMSkill = roll(47, 57) + rollMod(bg.meleeSkillMod) + traitMods.meleeSkillMod;
+  const baseRSkill = roll(32, 42) + rollMod(bg.rangedSkillMod) + traitMods.rangedSkillMod;
+  const baseMDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.meleeDefMod;
+  const baseRDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.rangedDefMod;
 
   const genStars = () => {
     const r = Math.random() * 100;
@@ -377,7 +381,7 @@ const createMercenary = (id: string): Character => {
     morale: 'STEADY' as any,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
-    traits: [], perks: [], perkPoints: 0,
+    traits, perks: [], perkPoints: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet: null, ammo: null, accessory: null },
     bag: [null, null, null, null], salary: Math.floor(10 * bg.salaryMult), formationIndex: null
   };

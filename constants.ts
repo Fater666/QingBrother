@@ -1,5 +1,5 @@
 
-import { Item, Ability, Character, Perk, BackgroundTemplate } from './types.ts';
+import { Item, Ability, Character, Perk, BackgroundTemplate, Trait } from './types.ts';
 export type { BackgroundTemplate };
 
 // --- CSV DATA (loaded from csv/ folder) ---
@@ -11,6 +11,7 @@ import PERKS_CSV from './csv/perks.csv?raw';
 import TERRAIN_CSV from './csv/terrain.csv?raw';
 import EVENTS_CSV from './csv/events.csv?raw';
 import BACKGROUNDS_CSV from './csv/backgrounds.csv?raw';
+import TRAITS_CSV from './csv/traits.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -91,6 +92,121 @@ export const BACKGROUNDS: Record<string, BackgroundTemplate> = {};
 parseCSV(BACKGROUNDS_CSV).forEach(bg => {
     BACKGROUNDS[bg.id] = { ...bg, stories: STORIES[bg.id] || [] };
 });
+
+// --- TRAIT SYSTEM ---
+export const TRAIT_TEMPLATES: Record<string, Trait> = {};
+parseCSV(TRAITS_CSV).forEach(t => {
+    TRAIT_TEMPLATES[t.id] = t;
+});
+
+/** 正面特质列表 */
+export const POSITIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type === 'positive');
+/** 负面特质列表 */
+export const NEGATIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type === 'negative');
+
+/**
+ * 背景偏好特质映射：每个背景有更高概率获得的特质ID
+ * 偏好特质的权重为普通特质的 3 倍
+ */
+export const BG_TRAIT_WEIGHTS: Record<string, string[]> = {
+    'FARMER':     ['strong', 'tough'],
+    'DESERTER':   ['craven', 'quick'],
+    'HUNTER':     ['eagle_eyes', 'quick'],
+    'NOMAD':      ['quick', 'brave'],
+    'NOBLE':      ['brave', 'fragile'],
+    'MONK':       ['brave', 'iron_jaw'],
+    'BANDIT':     ['brave', 'clumsy'],
+    'BLACKSMITH': ['strong', 'tough'],
+    'PHYSICIAN':  ['eagle_eyes', 'fragile'],
+    'BEGGAR':     ['tiny', 'asthmatic'],
+    'MERCHANT':   ['short_sighted', 'craven'],
+    'ASSASSIN':   ['quick', 'natural_fighter'],
+    'LABORER':    ['strong', 'tough'],
+    'FISHERMAN':  ['tough', 'hesitant'],
+    'MINER':      ['strong', 'iron_jaw'],
+    'PERFORMER':  ['quick', 'fragile'],
+    'MOHIST':     ['brave', 'iron_jaw'],
+};
+
+/**
+ * 基于背景加权随机分配特质
+ * 规则：0-2 个正面 + 0-1 个负面，保证至少 1 个特质
+ * 偏好特质权重 ×3
+ * 
+ * @param bgKey 背景ID（如 'FARMER'）
+ * @returns 特质ID数组
+ */
+export const assignTraits = (bgKey: string): string[] => {
+    const preferred = BG_TRAIT_WEIGHTS[bgKey] || [];
+    const traits: string[] = [];
+    
+    // 加权随机选择函数
+    const weightedPick = (pool: Trait[], exclude: string[]): Trait | null => {
+        const available = pool.filter(t => !exclude.includes(t.id));
+        if (available.length === 0) return null;
+        
+        const weights = available.map(t => preferred.includes(t.id) ? 3 : 1);
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+        let roll = Math.random() * totalWeight;
+        for (let i = 0; i < available.length; i++) {
+            roll -= weights[i];
+            if (roll <= 0) return available[i];
+        }
+        return available[available.length - 1];
+    };
+    
+    // 正面特质：0-2 个（50% 概率获得第一个，30% 概率获得第二个）
+    if (Math.random() < 0.50) {
+        const t = weightedPick(POSITIVE_TRAITS, traits);
+        if (t) traits.push(t.id);
+    }
+    if (Math.random() < 0.30) {
+        const t = weightedPick(POSITIVE_TRAITS, traits);
+        if (t) traits.push(t.id);
+    }
+    
+    // 负面特质：0-1 个（40% 概率获得）
+    if (Math.random() < 0.40) {
+        const t = weightedPick(NEGATIVE_TRAITS, traits);
+        if (t) traits.push(t.id);
+    }
+    
+    // 保证至少 1 个特质
+    if (traits.length === 0) {
+        // 随机从所有特质中取一个（偏好加权）
+        const allTraits = [...POSITIVE_TRAITS, ...NEGATIVE_TRAITS];
+        const t = weightedPick(allTraits, []);
+        if (t) traits.push(t.id);
+    }
+    
+    return traits;
+};
+
+/**
+ * 计算特质的总属性修正
+ * @param traitIds 特质ID数组
+ * @returns 各属性修正值的汇总
+ */
+export const getTraitStatMods = (traitIds: string[]): {
+    hpMod: number; fatigueMod: number; resolveMod: number;
+    meleeSkillMod: number; rangedSkillMod: number;
+    meleeDefMod: number; rangedDefMod: number; initMod: number;
+} => {
+    const mods = { hpMod: 0, fatigueMod: 0, resolveMod: 0, meleeSkillMod: 0, rangedSkillMod: 0, meleeDefMod: 0, rangedDefMod: 0, initMod: 0 };
+    for (const id of traitIds) {
+        const t = TRAIT_TEMPLATES[id];
+        if (!t) continue;
+        mods.hpMod += t.hpMod;
+        mods.fatigueMod += t.fatigueMod;
+        mods.resolveMod += t.resolveMod;
+        mods.meleeSkillMod += t.meleeSkillMod;
+        mods.rangedSkillMod += t.rangedSkillMod;
+        mods.meleeDefMod += t.meleeDefMod;
+        mods.rangedDefMod += t.rangedDefMod;
+        mods.initMod += t.initMod;
+    }
+    return mods;
+};
 
 // --- REMAINING CONSTANTS ---
 export const ABILITIES: Record<string, Ability> = {
