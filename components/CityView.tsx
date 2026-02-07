@@ -29,8 +29,13 @@ const getItemTypeName = (type: Item['type']): string => {
 
 // 获取物品的简短属性描述
 const getItemBrief = (item: Item): string => {
+    if (item.type === 'CONSUMABLE' && item.subType) {
+        if (item.subType === 'FOOD') return `粮食 +${item.effectValue}`;
+        if (item.subType === 'MEDICINE') return `恢复 ${item.effectValue}HP`;
+        if (item.subType === 'REPAIR_KIT') return item.effectValue! >= 9999 ? '完全修复' : `修复 +${item.effectValue}`;
+    }
     if (item.damage) return `伤害 ${item.damage[0]}-${item.damage[1]}`;
-    if (item.durability !== undefined) return `耐久 ${item.durability}`;
+    if (item.durability !== undefined && item.maxDurability > 1) return `耐久 ${item.durability}`;
     if (item.defenseBonus !== undefined) return `防御 +${item.defenseBonus}`;
     return '';
 };

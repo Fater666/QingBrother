@@ -35,8 +35,13 @@ const getItemTypeName = (type: Item['type']): string => {
 
 // 获取物品的简短属性描述
 const getItemBrief = (item: Item): string => {
+    if (item.type === 'CONSUMABLE' && item.subType) {
+        if (item.subType === 'FOOD') return `粮食 +${item.effectValue}`;
+        if (item.subType === 'MEDICINE') return `恢复 ${item.effectValue}HP`;
+        if (item.subType === 'REPAIR_KIT') return item.effectValue! >= 9999 ? '完全修复' : `修复 +${item.effectValue}`;
+    }
     if (item.damage) return `伤害 ${item.damage[0]}-${item.damage[1]}`;
-    if (item.durability !== undefined) return `耐久 ${item.durability}`;
+    if (item.durability !== undefined && item.maxDurability > 1) return `耐久 ${item.durability}`;
     if (item.defenseBonus !== undefined) return `防御 +${item.defenseBonus}`;
     return '';
 };
@@ -164,45 +169,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       onUpdateParty({ ...party, mercenaries: newMercs });
   };
 
-  // ===== 营地使用医药品 =====
-  const handleUseMedicine = (medItem: Item, medIndex: number) => {
-      if (!selectedMerc || !medItem.effectValue) return;
-      if (selectedMerc.hp >= selectedMerc.maxHp) return;
-      
-      const healAmount = medItem.effectValue;
-      const newMercs = party.mercenaries.map(m => {
-          if (m.id !== selectedMerc.id) return m;
-          return { ...m, hp: Math.min(m.maxHp, m.hp + healAmount) };
-      });
-      const newInv = [...party.inventory];
-      newInv.splice(medIndex, 1);
-      const updatedParty = { ...party, mercenaries: newMercs, inventory: newInv };
-      onUpdateParty(updatedParty);
-      const updatedMerc = newMercs.find(m => m.id === selectedMerc.id)!;
-      setSelectedMerc(updatedMerc);
-  };
-
-  // ===== 营地使用修甲工具 =====
-  const handleUseRepairKit = (repairItem: Item, repairIndex: number, mercIndex: number, slot: keyof Character['equipment']) => {
-      const merc = party.mercenaries[mercIndex];
-      const equip = merc.equipment[slot];
-      if (!equip || !repairItem.effectValue) return;
-      if (equip.durability >= equip.maxDurability) return;
-      
-      const repairAmount = repairItem.effectValue;
-      const newDur = Math.min(equip.maxDurability, equip.durability + repairAmount);
-      const newMercs = party.mercenaries.map((m, i) => {
-          if (i !== mercIndex) return m;
-          return { ...m, equipment: { ...m.equipment, [slot]: { ...equip, durability: newDur } } };
-      });
-      const newInv = [...party.inventory];
-      newInv.splice(repairIndex, 1);
-      const updatedParty = { ...party, mercenaries: newMercs, inventory: newInv };
-      onUpdateParty(updatedParty);
-      if (selectedMerc && selectedMerc.id === merc.id) {
-          setSelectedMerc(newMercs.find(m => m.id === merc.id)!);
-      }
-  };
+  // 医药和修甲工具现在都是被动效果（行军时自动生效），不再手动使用
 
   // 获取库存中的医药品和修甲工具
   const medicineItems = useMemo(() => party.inventory
@@ -385,60 +352,62 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                         </div>
                     </div>
 
-                    {/* === 营地操作面板：使用医药 / 修甲工具 === */}
+                    {/* === 行军被动效果状态面板 === */}
                     <div className="px-4 pb-2 space-y-2">
-                        {/* 使用医药 */}
-                        {selectedMerc.hp < selectedMerc.maxHp && medicineItems.length > 0 && (
+                        {/* 生命恢复状态（被动） */}
+                        {selectedMerc.hp < selectedMerc.maxHp && (
                             <div className="border border-red-900/30 bg-red-950/10 p-3">
-                                <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
-                                    使用医药 <span className="text-red-800 normal-case">（{selectedMerc.name} 生命 {selectedMerc.hp}/{selectedMerc.maxHp}）</span>
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {medicineItems.map(({ item, index }) => (
-                                        <button
-                                            key={`med-${index}`}
-                                            onClick={() => handleUseMedicine(item, index)}
-                                            className="px-3 py-1.5 text-xs border border-red-800/50 bg-red-950/20 text-red-400 hover:bg-red-800 hover:text-white transition-all"
-                                        >
-                                            {item.name} (+{item.effectValue}HP)
-                                        </button>
-                                    ))}
-                                </div>
+                                {(() => {
+                                    const baseHeal = '1~2';
+                                    const medicineBonusHeal = medicineItems.reduce((sum: number, { item }: { item: Item }) => sum + Math.ceil((item.effectValue || 0) / 5), 0);
+                                    const totalHealStr = medicineBonusHeal > 0 ? `${1 + medicineBonusHeal}~${2 + medicineBonusHeal}` : baseHeal;
+                                    return (
+                                        <>
+                                            <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
+                                                生命恢复中 <span className="text-red-800 normal-case">
+                                                    （{selectedMerc.name} {selectedMerc.hp}/{selectedMerc.maxHp} HP，每天 +{totalHealStr}{medicineItems.length > 0 ? `，含 ${medicineItems.length} 份医药加成` : ''}）
+                                                </span>
+                                            </h4>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 h-2 bg-black/60 border border-white/5 overflow-hidden">
+                                                    <div className="h-full bg-red-700" style={{ width: `${(selectedMerc.hp / selectedMerc.maxHp) * 100}%` }} />
+                                                </div>
+                                                <span className="text-[10px] text-red-500 font-mono whitespace-nowrap">{selectedMerc.hp}/{selectedMerc.maxHp}</span>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         )}
 
-                        {/* 使用修甲工具 */}
-                        {repairKitItems.length > 0 && (() => {
-                            const mercIdx = party.mercenaries.findIndex(m => m.id === selectedMerc.id);
-                            const damagedSlots: { slot: keyof Character['equipment']; item: Item }[] = [];
+                        {/* 装备修复状态提示（被动） */}
+                        {(() => {
+                            const damagedSlots: { item: Item }[] = [];
                             (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[]).forEach(slot => {
                                 const eq = selectedMerc.equipment[slot];
                                 if (eq && eq.maxDurability > 0 && eq.durability < eq.maxDurability) {
-                                    damagedSlots.push({ slot, item: eq });
+                                    damagedSlots.push({ item: eq });
                                 }
                             });
                             if (damagedSlots.length === 0) return null;
+                            const repairRate = 5 + repairKitItems.length * 15;
                             return (
                                 <div className="border border-amber-900/30 bg-amber-950/10 p-3">
-                                    <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">使用修甲工具</h4>
-                                    {damagedSlots.map(({ slot, item: eq }) => (
-                                        <div key={slot} className="flex items-center justify-between mb-1.5 last:mb-0">
-                                            <span className="text-xs text-slate-400">
-                                                {eq.name} <span className="text-slate-600 font-mono">{eq.durability}/{eq.maxDurability}</span>
-                                            </span>
-                                            <div className="flex gap-1">
-                                                {repairKitItems.map(({ item: kit, index: kitIdx }) => (
-                                                    <button
-                                                        key={`rep-${kitIdx}-${slot}`}
-                                                        onClick={() => handleUseRepairKit(kit, kitIdx, mercIdx, slot)}
-                                                        className="px-2 py-1 text-[10px] border border-amber-800/50 bg-amber-950/20 text-amber-400 hover:bg-amber-700 hover:text-white transition-all"
-                                                    >
-                                                        {kit.name}
-                                                    </button>
-                                                ))}
+                                    <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">
+                                        装备修复中 <span className="text-amber-800 normal-case">（每天 +{repairRate} 耐久{repairKitItems.length > 0 ? `，含 ${repairKitItems.length} 套修甲工具加成` : ''}）</span>
+                                    </h4>
+                                    {damagedSlots.map(({ item: eq }, idx) => {
+                                        const durPct = (eq.durability / eq.maxDurability) * 100;
+                                        return (
+                                            <div key={idx} className="flex items-center gap-2 mb-1.5 last:mb-0">
+                                                <span className="text-xs text-slate-400 w-24 truncate">{eq.name}</span>
+                                                <div className="flex-1 h-1.5 bg-black/60 border border-white/5 overflow-hidden">
+                                                    <div className={`h-full ${durPct > 50 ? 'bg-slate-600' : durPct > 25 ? 'bg-amber-700' : 'bg-red-700'}`} style={{ width: `${durPct}%` }} />
+                                                </div>
+                                                <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{eq.durability}/{eq.maxDurability}</span>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             );
                         })()}

@@ -1666,6 +1666,50 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         </div>
       )}
       
+      {/* ===== 左上角资源面板 (Resource HUD) ===== */}
+      <div className="absolute top-4 left-4 z-50 pointer-events-none">
+        <div className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl">
+          <div className="px-4 py-2.5 flex items-center gap-5">
+            {/* 金币 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-amber-600 text-sm">💰</span>
+              <span className="text-amber-400 font-bold font-mono text-sm">{party.gold}</span>
+            </div>
+            {/* 粮食 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm">🌾</span>
+              <span className={`font-bold font-mono text-sm ${party.food <= party.mercenaries.length * 2 ? 'text-red-400' : 'text-emerald-400'}`}>{party.food}</span>
+              <span className="text-[9px] text-slate-600">(-{party.mercenaries.length}/天)</span>
+            </div>
+            {/* 医药（被动加速HP恢复） */}
+            {(() => {
+              const medItems = party.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
+              const medCount = medItems.length;
+              const bonusHeal = medItems.reduce((sum, med) => sum + Math.ceil((med.effectValue || 0) / 5), 0);
+              return medCount > 0 ? (
+                <div className="flex items-center gap-1.5" title={`医药 ×${medCount}，每天额外恢复 +${bonusHeal} HP`}>
+                  <span className="text-sm">💊</span>
+                  <span className="text-sky-400 font-bold font-mono text-sm">{medCount}</span>
+                  <span className="text-[9px] text-sky-700">(+{bonusHeal}HP/天)</span>
+                </div>
+              ) : null;
+            })()}
+            {/* 修甲工具（被动加速装备修复） */}
+            {(() => {
+              const repairCount = party.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT').length;
+              const repairRate = 5 + repairCount * 15;
+              return repairCount > 0 ? (
+                <div className="flex items-center gap-1.5" title={`修甲工具 ×${repairCount}，每天修复 +${repairRate} 耐久`}>
+                  <span className="text-sm">🔧</span>
+                  <span className="text-orange-400 font-bold font-mono text-sm">{repairCount}</span>
+                  <span className="text-[9px] text-orange-700">(+{repairRate}/天)</span>
+                </div>
+              ) : null;
+            })()}
+          </div>
+        </div>
+      </div>
+
       {/* ===== 当前任务面板 (Quest HUD) ===== */}
       {party.activeQuest && (
         <div className="absolute top-4 right-4 z-50 pointer-events-none">
@@ -1791,11 +1835,27 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               </div>
             </div>
             
-            {/* 中间：天数 */}
-            <div className="flex flex-col items-center">
+            {/* 中间：天数 + 资源 */}
+            <div className="flex flex-col items-center gap-1">
               <div className="text-3xl font-bold text-amber-600 font-serif tracking-widest"
                    style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
                 第 {Math.floor(party.day)} 天
+              </div>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="font-mono">
+                  <span className="text-amber-500 font-bold">{party.gold}</span>
+                  <span className="text-amber-800 ml-0.5">金</span>
+                </span>
+                <span className="text-slate-700">|</span>
+                <span className="font-mono">
+                  <span className={`font-bold ${party.food <= party.mercenaries.length * 2 ? 'text-red-500' : 'text-emerald-500'}`}>{party.food}</span>
+                  <span className={`ml-0.5 ${party.food <= party.mercenaries.length * 2 ? 'text-red-800' : 'text-emerald-800'}`}>粮</span>
+                </span>
+                <span className="text-slate-700">|</span>
+                <span className="font-mono">
+                  <span className="text-slate-400">{party.mercenaries.length}</span>
+                  <span className="text-slate-600 ml-0.5">人</span>
+                </span>
               </div>
             </div>
             

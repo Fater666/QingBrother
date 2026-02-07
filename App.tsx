@@ -824,6 +824,7 @@ export const App: React.FC = () => {
       inventory: [], day: 1.0, activeQuest: null,
       reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
     });
+    lastProcessedDayRef.current = 1; // 新游戏从第1天开始
     setGameInitialized(true);
     setTimeScale(0);
   }, []);
@@ -867,7 +868,31 @@ export const App: React.FC = () => {
     try {
         const data = JSON.parse(raw);
         setTiles(data.tiles);
-        setCities(data.cities);
+
+        // 旧存档兼容：为城市市场补充消耗品/盾牌/头盔
+        const loadedCities: City[] = (data.cities || []).map((city: City) => {
+            const hasConsumables = city.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
+            const hasHelmets = city.market.some((item: Item) => item.type === 'HELMET');
+            const hasShields = city.market.some((item: Item) => item.type === 'SHIELD');
+            if (!hasConsumables || !hasHelmets || !hasShields) {
+                const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
+                const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
+                const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
+                const newItems: Item[] = [
+                    ...(!hasHelmets ? HELMET_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
+                    ...(!hasShields ? SHIELD_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
+                    ...(!hasConsumables ? [
+                        ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
+                        ...medItems.sort(() => 0.5 - Math.random()).slice(0, 1 + Math.floor(Math.random() * 2)),
+                        ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
+                    ] : []),
+                ];
+                return { ...city, market: [...city.market, ...newItems] };
+            }
+            return city;
+        });
+        setCities(loadedCities);
+
         setEntities(data.entities);
         // 旧存档兼容：巢穴系统
         setCamps(data.camps || []);
@@ -879,6 +904,8 @@ export const App: React.FC = () => {
           moraleModifier: data.party.moraleModifier ?? 0,
         };
         setParty(loadedParty);
+        // 同步每日消耗追踪，避免读档瞬间触发大量天数消耗
+        lastProcessedDayRef.current = Math.floor(loadedParty.day);
         setGameInitialized(true);
         setView(data.view || 'WORLD_MAP');
         setTimeScale(0);
@@ -1096,7 +1123,7 @@ export const App: React.FC = () => {
             }
         }
         
-        // === 每日粮食消耗 + 自然恢复 HP ===
+        // === 每日粮食消耗 + 自然恢复 HP + 自动修复装备 ===
         const currentDay = Math.floor(party.day);
         if (currentDay > lastProcessedDayRef.current) {
           lastProcessedDayRef.current = currentDay;
@@ -1105,24 +1132,56 @@ export const App: React.FC = () => {
             const foodCost = headcount; // 每人每天消耗1份粮食
             const newFood = Math.max(0, p.food - foodCost);
             const isStarving = newFood <= 0;
-            // 自然恢复：每天恢复1-2 HP（断粮时不恢复，且每人掉2-4 HP）
+
+            // 自动修复装备：每天修复基础 5 点耐久，库存中每个修甲工具额外 +15
+            const repairKitsCount = p.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT').length;
+            const dailyRepair = 5 + repairKitsCount * 15;
+
+            // 自动治疗：每天基础恢复 1~2 HP，库存中每个医药品额外 +effectValue/5（向上取整）
+            const medicineItems = p.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
+            const medicineBonusHeal = medicineItems.reduce((sum, med) => sum + Math.ceil((med.effectValue || 0) / 5), 0);
+
+            // 自然恢复 + 自动修复装备
             const updatedMercs = p.mercenaries.map(m => {
+              let updated = m;
+              // HP恢复/断粮惩罚
               if (isStarving) {
-                // 断粮惩罚：每天掉 2-4 HP
                 const hpLoss = 2 + Math.floor(Math.random() * 3);
-                return { ...m, hp: Math.max(1, m.hp - hpLoss) };
-              } else if (m.hp < m.maxHp) {
-                // 有粮食时自然恢复
-                const heal = 1 + Math.floor(Math.random() * 2); // 1-2 HP
-                return { ...m, hp: Math.min(m.maxHp, m.hp + heal) };
+                updated = { ...updated, hp: Math.max(1, updated.hp - hpLoss) };
+              } else if (updated.hp < updated.maxHp) {
+                const baseHeal = 1 + Math.floor(Math.random() * 2); // 基础 1~2
+                const heal = baseHeal + medicineBonusHeal; // 医药被动加速
+                updated = { ...updated, hp: Math.min(updated.maxHp, updated.hp + heal) };
               }
-              return m;
+              // 自动修复装备耐久
+              let newEquip = { ...updated.equipment };
+              let changed = false;
+              (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof typeof newEquip)[]).forEach(slot => {
+                const item = newEquip[slot];
+                if (item && item.maxDurability > 0 && item.durability < item.maxDurability) {
+                  const newDur = Math.min(item.maxDurability, item.durability + dailyRepair);
+                  newEquip = { ...newEquip, [slot]: { ...item, durability: newDur } };
+                  changed = true;
+                }
+              });
+              if (changed) updated = { ...updated, equipment: newEquip };
+              return updated;
             });
+
+            // 同时自动修复库存中的装备
+            const updatedInv = p.inventory.map(item => {
+              if (item.type !== 'CONSUMABLE' && item.maxDurability > 0 && item.durability < item.maxDurability) {
+                return { ...item, durability: Math.min(item.maxDurability, item.durability + dailyRepair) };
+              }
+              return item;
+            });
+
             return {
               ...p,
               food: newFood,
               mercenaries: updatedMercs,
-              moraleModifier: isStarving ? -1 : p.moraleModifier, // 断粮士气惩罚
+              inventory: updatedInv,
+              moraleModifier: isStarving ? -1 : p.moraleModifier,
             };
           });
         }
