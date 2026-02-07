@@ -90,7 +90,7 @@ const calculateThreat = (target: CombatUnit): number => {
 
 /**
  * 寻找移动到目标附近的最佳位置
- * 现在考虑控制区因素
+ * 强化控制区感知（仿战场兄弟：ZoC内移动风险极大）
  */
 const findBestMovePosition = (
   unit: CombatUnit,
@@ -138,25 +138,25 @@ const findBestMovePosition = (
       // 移动消耗越少越好
       score -= moveDistance * 2;
       
-      // ==================== 控制区惩罚 ====================
-      // 如果当前在敌方控制区内，移动会触发截击
+      // ==================== 强化控制区惩罚 ====================
+      // 如果当前在敌方控制区内，移动会触发截击（仿战场兄弟高风险）
       if (currentlyInZoC && threateningEnemiesCount > 0) {
-        // 根据截击数量惩罚（每个截击者扣分）
-        const zocPenalty = threateningEnemiesCount * 25;
+        // 大幅惩罚：每个截击者严重扣分
+        const zocPenalty = threateningEnemiesCount * 40;
         score -= zocPenalty;
         
-        // 血量低时更不愿意触发截击
+        // 血量低时极度不愿意触发截击
         const hpPercent = unit.hp / unit.maxHp;
         if (hpPercent < 0.5) {
-          score -= 30;
-        }
-        if (hpPercent < 0.25) {
           score -= 50;
         }
+        if (hpPercent < 0.25) {
+          score -= 80;
+        }
         
-        // 但如果移动后能攻击到目标，仍然考虑移动
+        // 但如果移动后能攻击到目标，仍然考虑移动（小幅回调）
         if (distToTarget <= preferredRange) {
-          score += 40; // 能攻击到目标加回一些分数
+          score += 30;
         }
       }
       
@@ -165,7 +165,7 @@ const findBestMovePosition = (
       if (willBeInZoC) {
         // 进入敌方控制区有风险，但如果是为了攻击则可以接受
         if (distToTarget > preferredRange) {
-          score -= 15; // 进入ZoC但不能攻击，扣分
+          score -= 25; // 进入ZoC但不能攻击，显著扣分
         }
       }
       
@@ -205,6 +205,7 @@ const canAttackTarget = (
 /**
  * BANDIT（匪徒）行为树
  * 特点：优先攻击落单/低血量目标，血量低或士气低时会逃跑
+ * ZoC感知：在控制区内优先攻击邻近敌人，不冒险移动
  */
 const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
   const enemies = getEnemies(unit, state);
@@ -253,7 +254,7 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击（士气会影响伤害）
+  // 尝试攻击首选目标（士气会影响伤害）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
@@ -269,7 +270,28 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     }
   }
   
-  // 无法攻击则移动靠近
+  // ==================== ZoC感知：在控制区内不冒险移动 ====================
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  if (inZoC) {
+    // 尝试攻击任何邻近敌人（而非冒险移动去找更远的目标）
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => calculateThreat(b) - calculateThreat(a));
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          const moraleEffects = getMoraleEffects(unit.morale);
+          const baseDamage = Math.floor(Math.random() * 20) + 10;
+          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+        }
+      }
+    }
+    // 在ZoC内无法攻击任何人，等待而非冒险移动
+    return { type: 'WAIT' };
+  }
+  
+  // 不在ZoC中，安全地移动靠近
   const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
@@ -339,6 +361,7 @@ const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction =>
 /**
  * ARMY（军队）行为树
  * 特点：有序推进，保持阵型，优先集火同一目标，士气较稳定
+ * ZoC感知：军队纪律严明，在控制区内绝不轻举妄动
  */
 const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
   const enemies = getEnemies(unit, state);
@@ -386,7 +409,7 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
   
   if (!bestTarget) return { type: 'WAIT' };
   
-  // 尝试攻击（应用士气伤害修正）
+  // 尝试攻击首选目标（应用士气伤害修正）
   const attackAbilities = getAttackAbilities(unit);
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
@@ -402,7 +425,28 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
     }
   }
   
-  // 有序推进：与友军保持距离移动
+  // ==================== ZoC感知：军队在控制区内坚守阵地 ====================
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  if (inZoC) {
+    // 军队纪律严明，在ZoC内绝不移动，改为攻击邻近任何敌人
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => calculateThreat(b) - calculateThreat(a));
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          const moraleEffects = getMoraleEffects(unit.morale);
+          const baseDamage = Math.floor(Math.random() * 18) + 12;
+          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+        }
+      }
+    }
+    // 在ZoC内无法攻击，坚守等待
+    return { type: 'WAIT' };
+  }
+  
+  // 不在ZoC中，有序推进
   const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
@@ -414,21 +458,28 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
 /**
  * ARCHER（弓手）行为树
  * 特点：保持距离，优先攻击无盾目标，士气低落时更容易逃跑
+ * ZoC感知：在控制区内不轻易后撤（会被截击），除非极度危险
  */
 const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
   const enemies = getEnemies(unit, state);
   const moraleIndex = getMoraleIndex(unit.morale);
+  const hpPercent = unit.hp / unit.maxHp;
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
   
   // 检查是否有敌人太近
   const tooCloseEnemies = enemies.filter(e => 
     getHexDistance(unit.combatPos, e.combatPos) <= 2
   );
   
-  // 如果敌人太近，或士气动摇，尝试拉开距离
-  if (tooCloseEnemies.length > 0 || (moraleIndex >= 2 && tooCloseEnemies.length > 0)) {
-    const fleePos = findFleePosition(unit, tooCloseEnemies.length > 0 ? tooCloseEnemies : enemies, state);
-    if (fleePos && getHexDistance(unit.combatPos, fleePos) >= 1) {
-      return { type: 'MOVE', targetPos: fleePos };
+  // 如果敌人太近，尝试拉开距离
+  // ZoC感知：在控制区内后撤会被截击，只有极端情况才冒险
+  if (tooCloseEnemies.length > 0) {
+    const desperateSituation = hpPercent < 0.25 || moraleIndex >= 3; // 血量极低或崩溃
+    if (!inZoC || desperateSituation) {
+      const fleePos = findFleePosition(unit, tooCloseEnemies, state);
+      if (fleePos && getHexDistance(unit.combatPos, fleePos) >= 1) {
+        return { type: 'MOVE', targetPos: fleePos };
+      }
     }
   }
   
@@ -474,7 +525,7 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     };
   }
   
-  // 如果没有远程技能或射程不够，尝试近战
+  // 如果没有远程技能或射程不够，尝试近战（对邻近目标）
   for (const ability of attackAbilities) {
     if (canAttackTarget(unit, bestTarget, ability)) {
       const baseDamage = Math.floor(Math.random() * 15) + 8;
@@ -488,7 +539,24 @@ const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction =
     }
   }
   
-  // 移动到合适的射击位置
+  // ==================== ZoC感知：在控制区内不移动 ====================
+  if (inZoC) {
+    // 尝试近战攻击邻近的任何敌人
+    const adjacentEnemies = enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1);
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          const baseDamage = Math.floor(Math.random() * 15) + 8;
+          const damage = Math.floor(baseDamage * (1 + moraleEffects.damageMod / 100));
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability, damage };
+        }
+      }
+    }
+    // 在ZoC内无法攻击，等待
+    return { type: 'WAIT' };
+  }
+  
+  // 不在ZoC中，移动到合适的射击位置
   const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 4);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };

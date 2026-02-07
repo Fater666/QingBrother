@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -425,6 +425,251 @@ const generateBattleResult = (
   };
 };
 
+// --- 难度曲线与装备系统（仿战场兄弟） ---
+
+/** 根据天数获取难度阶段 */
+const getDifficultyTier = (day: number) => {
+  if (day <= 15) return { tier: 0, valueLimit: 400, statMult: 1.0 };
+  if (day <= 40) return { tier: 1, valueLimit: 900, statMult: 1.08 };
+  if (day <= 70) return { tier: 2, valueLimit: 1800, statMult: 1.18 };
+  return { tier: 3, valueLimit: 5000, statMult: 1.3 };
+};
+
+/** 根据AI类型和价值上限为敌人分配合适装备 */
+const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
+  mainHand: Item | null; offHand: Item | null; armor: Item | null; helmet: Item | null;
+} => {
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  const uid = () => Math.random().toString(36).slice(2, 6);
+  const cloneItem = (item: Item) => ({ ...item, id: `e-${item.id}-${uid()}` });
+
+  switch (aiType) {
+    case 'ARCHER': {
+      // 弓手必须拿远程武器
+      const rangedWeapons = WEAPON_TEMPLATES.filter(w =>
+        (w.name.includes('弓') || w.name.includes('弩')) && w.value <= valueLimit
+      );
+      const weapon = rangedWeapons.length > 0 ? pick(rangedWeapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_bow_3') || WEAPON_TEMPLATES.find(w => w.name.includes('弓'))!;
+      const lightArmors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit * 0.5, 300));
+      const lightHelmets = HELMET_TEMPLATES.filter(h => h.value <= Math.min(valueLimit * 0.3, 200));
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: null,
+        armor: lightArmors.length > 0 && Math.random() > 0.3 ? cloneItem(pick(lightArmors)) : null,
+        helmet: lightHelmets.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightHelmets)) : null,
+      };
+    }
+    case 'BANDIT': {
+      // 匪徒拿各类近战武器，可能有盾
+      const weapons = WEAPON_TEMPLATES.filter(w =>
+        !w.name.includes('弓') && !w.name.includes('弩') &&
+        !w.name.includes('飞石') && !w.name.includes('飞蝗') && !w.name.includes('标枪') && !w.name.includes('投矛') && !w.name.includes('飞斧') &&
+        !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
+        w.value <= valueLimit && w.value > 0
+      );
+      const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_sword_1')!;
+      const shields = SHIELD_TEMPLATES.filter(s => s.value <= valueLimit);
+      const armors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit, 600));
+      const helmets = HELMET_TEMPLATES.filter(h => h.value <= Math.min(valueLimit * 0.5, 400));
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: shields.length > 0 && Math.random() < 0.3 ? cloneItem(pick(shields)) : null,
+        armor: armors.length > 0 && Math.random() > 0.3 ? cloneItem(pick(armors)) : null,
+        helmet: helmets.length > 0 && Math.random() > 0.5 ? cloneItem(pick(helmets)) : null,
+      };
+    }
+    case 'ARMY': {
+      // 军队拿制式军事武器 + 高概率盾牌 + 中重甲
+      const armyKeywords = ['矛', '枪', '剑', '戈', '戟', '殳', '刀'];
+      const weapons = WEAPON_TEMPLATES.filter(w =>
+        armyKeywords.some(k => w.name.includes(k)) &&
+        !w.name.includes('飞') && !w.name.includes('投') && !w.name.includes('标枪') && !w.name.includes('匕') && !w.name.includes('厨') &&
+        !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
+        w.value <= valueLimit && w.value > 0
+      );
+      const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
+      const shields = SHIELD_TEMPLATES.filter(s => s.value <= valueLimit);
+      const armors = ARMOR_TEMPLATES.filter(a => a.value <= valueLimit && a.value >= 80);
+      const helmets = HELMET_TEMPLATES.filter(h => h.value <= valueLimit);
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: shields.length > 0 && Math.random() < 0.6 ? cloneItem(pick(shields)) : null,
+        armor: armors.length > 0 ? cloneItem(pick(armors)) : null,
+        helmet: helmets.length > 0 && Math.random() > 0.3 ? cloneItem(pick(helmets)) : null,
+      };
+    }
+    case 'BERSERKER': {
+      // 狂战士拿重型双手武器，轻甲或无甲，无盾
+      const heavyKeywords = ['斧', '锤', '殳', '棒', '鞭', '锏', '铁链', '刀'];
+      const weapons = WEAPON_TEMPLATES.filter(w =>
+        heavyKeywords.some(k => w.name.includes(k)) &&
+        !w.name.includes('飞') && !w.name.includes('投') && !w.name.includes('匕') && !w.name.includes('厨') &&
+        !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
+        w.value <= valueLimit && w.value >= 80
+      );
+      const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_axe_1')!;
+      const lightArmors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: null,
+        armor: lightArmors.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightArmors)) : null,
+        helmet: Math.random() > 0.7 && HELMET_TEMPLATES.length > 0 ? cloneItem(HELMET_TEMPLATES[0]) : null,
+      };
+    }
+    default: // BEAST 由单独逻辑处理
+      return { mainHand: null, offHand: null, armor: null, helmet: null };
+  }
+};
+
+/** 多阶段敌人编制表（仿战场兄弟难度递进） */
+interface EnemyComp { name: string; bg: string; aiType: AIType }
+
+const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
+  'BANDIT': [
+    // Tier 0: 早期 - 3人小队
+    [
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '山贼', bg: 'FARMER', aiType: 'BANDIT' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+    ],
+    // Tier 1: 中期 - 5人
+    [
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+    ],
+    // Tier 2: 后期 - 7人
+    [
+      { name: '山贼头目', bg: 'DESERTER', aiType: 'BERSERKER' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
+    ],
+    // Tier 3: 末期 - 9人
+    [
+      { name: '贼王', bg: 'NOBLE', aiType: 'BERSERKER' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
+      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+    ],
+  ],
+  'ARMY': [
+    // Tier 0
+    [
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'FARMER', aiType: 'ARMY' },
+    ],
+    // Tier 1
+    [
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '叛将', bg: 'NOBLE', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+    ],
+    // Tier 2
+    [
+      { name: '叛将', bg: 'NOBLE', aiType: 'BERSERKER' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
+    ],
+    // Tier 3
+    [
+      { name: '叛军主将', bg: 'NOBLE', aiType: 'BERSERKER' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '叛军精锐', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛军精锐', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
+      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+    ],
+  ],
+  'BEAST': [
+    // Tier 0
+    [
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+    ],
+    // Tier 1
+    [
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+    ],
+    // Tier 2
+    [
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+    ],
+    // Tier 3
+    [
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+    ],
+  ],
+  'NOMAD': [
+    // Tier 0
+    [
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+    ],
+    // Tier 1
+    [
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+    ],
+    // Tier 2
+    [
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+    ],
+    // Tier 3
+    [
+      { name: '胡骑大汗', bg: 'NOBLE', aiType: 'BERSERKER' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+    ],
+  ],
+};
+
 export const App: React.FC = () => {
   const [view, setView] = useState<GameView>('MAIN_MENU');
   const [gameInitialized, setGameInitialized] = useState(false);
@@ -583,61 +828,22 @@ export const App: React.FC = () => {
   const startCombat = useCallback((entity: WorldEntity) => {
     setTimeScale(0);
     
-    // 根据实体类型生成不同的敌人配置
-    type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER';
-    interface EnemyConfig {
-      count: number;
-      compositions: { name: string; bg: string; aiType: AIType }[];
-    }
+    // --- 难度曲线：根据天数决定敌人强度 ---
+    const day = party.day;
+    const { tier, valueLimit, statMult } = getDifficultyTier(day);
     
-    const enemyConfigs: Record<string, EnemyConfig> = {
-      'BANDIT': {
-        count: 4,
-        compositions: [
-          { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-          { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-          { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-          { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
-        ]
-      },
-      'ARMY': {
-        count: 5,
-        compositions: [
-          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-          { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-          { name: '叛将', bg: 'NOBLE', aiType: 'ARMY' },
-          { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-        ]
-      },
-      'BEAST': {
-        count: 3,
-        compositions: [
-          { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-          { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-          { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-        ]
-      },
-      'NOMAD': {
-        count: 4,
-        compositions: [
-          { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-          { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-          { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-          { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
-        ]
-      }
-    };
-
-    // 获取敌人配置，默认使用匪徒配置
-    const config = enemyConfigs[entity.type] || enemyConfigs['BANDIT'];
+    // 获取当前实体类型对应的阶段编制
+    const tierComps = TIERED_ENEMY_COMPOSITIONS[entity.type] || TIERED_ENEMY_COMPOSITIONS['BANDIT'];
+    const compositions = tierComps[Math.min(tier, tierComps.length - 1)];
     
-    const enemies: CombatUnit[] = config.compositions.slice(0, config.count).map((comp, i) => {
+    const enemies: CombatUnit[] = compositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
       // BEAST类型敌人：使用天然武器，不穿装备
       if (comp.aiType === 'BEAST') {
         const isAlpha = comp.name.includes('头狼');
+        // 野兽属性也随天数缩放
+        const beastStatMult = statMult;
         baseChar.equipment = {
           mainHand: {
             id: `beast-claw-${i}`,
@@ -648,7 +854,9 @@ export const App: React.FC = () => {
             durability: 999,
             maxDurability: 999,
             description: isAlpha ? '头狼锋利的獠牙，撕咬力惊人。' : '野狼锋利的爪子。',
-            damage: isAlpha ? [30, 50] as [number, number] : [20, 35] as [number, number],
+            damage: isAlpha
+              ? [Math.floor(30 * beastStatMult), Math.floor(50 * beastStatMult)] as [number, number]
+              : [Math.floor(20 * beastStatMult), Math.floor(35 * beastStatMult)] as [number, number],
             armorPen: isAlpha ? 0.3 : 0.15,
             armorDmg: 0.5,
             fatigueCost: 8,
@@ -661,12 +869,34 @@ export const App: React.FC = () => {
           ammo: null,
           accessory: null,
         };
+      } else {
+        // 非野兽敌人：根据AI类型和天数分配合适装备
+        const equip = getEquipmentForAIType(comp.aiType, valueLimit);
+        baseChar.equipment = {
+          mainHand: equip.mainHand,
+          offHand: equip.offHand,
+          armor: equip.armor,
+          helmet: equip.helmet,
+          ammo: null,
+          accessory: null,
+        };
+      }
+      
+      // --- 属性缩放：天数越高敌人基础属性越强 ---
+      if (statMult > 1.0) {
+        baseChar.maxHp = Math.floor(baseChar.maxHp * statMult);
+        baseChar.hp = baseChar.maxHp;
+        baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * statMult);
+        baseChar.stats.rangedSkill = Math.floor(baseChar.stats.rangedSkill * statMult);
+        baseChar.stats.meleeDefense = Math.floor(baseChar.stats.meleeDefense * statMult);
+        baseChar.stats.rangedDefense = Math.floor(baseChar.stats.rangedDefense * statMult);
+        baseChar.stats.resolve = Math.floor(baseChar.stats.resolve * statMult);
       }
       
       return {
         ...baseChar,
         team: 'ENEMY' as const,
-        combatPos: { q: 2, r: i - Math.floor(config.count / 2) },
+        combatPos: { q: 2, r: i - Math.floor(compositions.length / 2) },
         currentAP: 9,
         isDead: false,
         isShieldWall: false,
@@ -705,12 +935,12 @@ export const App: React.FC = () => {
       turnOrder: sortedTurnOrder,
       currentUnitIndex: 0, 
       round: 1, 
-      combatLog: [`与 ${entity.name} 激战开始！`], 
+      combatLog: [`与 ${entity.name} 激战开始！（第${Math.floor(day)}天，${['初期', '中期', '后期', '末期'][tier]}难度）`], 
       terrainType: worldTerrain
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, tiles]);
+  }, [party.mercenaries, party.x, party.y, party.day, tiles]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -1073,6 +1303,7 @@ export const App: React.FC = () => {
                 onUpdateCity={(newCity) => { setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c)); setCurrentCity(newCity); }}
                 onAcceptQuest={(q) => {
                     // 寻找地图上名称匹配的最近敌人实体，绑定targetEntityId
+                    // 如果附近没有匹配实体（距离>15格），在城市附近生成一个任务专属目标
                     let linkedQuest = { ...q };
                     if (q.type === 'HUNT' && q.targetEntityName) {
                         const sourceCity = cities.find(c => c.id === q.sourceCityId);
@@ -1086,7 +1317,48 @@ export const App: React.FC = () => {
                             const d = Math.hypot(ent.x - cx, ent.y - cy);
                             if (d < bestDist) { bestDist = d; bestId = ent.id; }
                         }
-                        if (bestId) linkedQuest.targetEntityId = bestId;
+                        
+                        const MAX_QUEST_DIST = 15; // 任务目标最大距离
+                        if (bestId && bestDist <= MAX_QUEST_DIST) {
+                            // 附近有匹配的敌人，直接绑定
+                            linkedQuest.targetEntityId = bestId;
+                        } else {
+                            // 附近没有匹配的敌人，在城市附近生成一个任务专属目标
+                            const spawnDist = 5 + Math.random() * 6; // 距城市5-11格
+                            const spawnAngle = Math.random() * Math.PI * 2;
+                            const spawnX = Math.max(1, Math.min(MAP_SIZE - 2, cx + Math.cos(spawnAngle) * spawnDist));
+                            const spawnY = Math.max(1, Math.min(MAP_SIZE - 2, cy + Math.sin(spawnAngle) * spawnDist));
+                            const questEntId = `quest-target-${q.id}-${Date.now()}`;
+                            
+                            // 根据目标名称推断实体类型
+                            const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
+                            const isBeast = beastNames.includes(q.targetEntityName);
+                            const entityType = isBeast ? 'BEAST' : 'BANDIT';
+                            const worldAIType = isBeast ? 'BEAST' : 'BANDIT';
+                            
+                            const newEntity: WorldEntity = {
+                                id: questEntId,
+                                name: q.targetEntityName,
+                                type: entityType as any,
+                                faction: 'HOSTILE',
+                                x: spawnX,
+                                y: spawnY,
+                                targetX: null,
+                                targetY: null,
+                                speed: 0.6 + Math.random() * 0.3,
+                                aiState: 'WANDER',
+                                homeX: spawnX,
+                                homeY: spawnY,
+                                worldAIType: worldAIType as any,
+                                alertRadius: 4,
+                                chaseRadius: 8,
+                                isQuestTarget: true,
+                                wanderCooldown: Math.random() * 5,
+                                territoryRadius: 4 + Math.random() * 3,
+                            };
+                            setEntities(prev => [...prev, newEntity]);
+                            linkedQuest.targetEntityId = questEntId;
+                        }
                     }
                     setParty(p => ({ ...p, activeQuest: linkedQuest }));
                 }}

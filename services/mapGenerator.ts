@@ -450,19 +450,24 @@ export const generateCities = (
       ];
       const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
       
-      // 根据区域生成不同风格的任务描述
+      // 根据区域生成不同风格的任务描述，难度随机1-3星
       const questDesc = getQuestDescription(biome);
+      const difficultyRoll = Math.random();
+      const questDifficulty: 1 | 2 | 3 = difficultyRoll < 0.4 ? 1 : difficultyRoll < 0.75 ? 2 : 3;
+      const questReward = questDifficulty === 1 ? 200 + Math.floor(Math.random() * 100)
+                        : questDifficulty === 2 ? 400 + Math.floor(Math.random() * 200)
+                        : 700 + Math.floor(Math.random() * 300);
       const quests: Quest[] = [{
         id: `q-${nameIndex}-1`, 
         type: 'HUNT', 
         title: questDesc.title, 
         description: questDesc.desc,
-        difficulty: 1, 
-        rewardGold: 300, 
+        difficulty: questDifficulty, 
+        rewardGold: questReward, 
         sourceCityId: `city-${nameIndex}`, 
         targetEntityName: questDesc.targetEntityName,
         isCompleted: false, 
-        daysLeft: 7
+        daysLeft: 7 + questDifficulty * 2
       }];
       
       // 城市类型：第一个城市是王都，其他根据区域定
