@@ -161,8 +161,16 @@ export const getUnitAbilities = (char: Character): Ability[] => {
 };
 
 export const CONSUMABLE_TEMPLATES: Item[] = [
-    { id: 'c1', name: '金创药', type: 'CONSUMABLE', value: 50, weight: 1, durability: 1, maxDurability: 1, description: '用于治疗伤口。', fatigueCost: 0 },
-    { id: 'c2', name: '干粮', type: 'CONSUMABLE', value: 10, weight: 2, durability: 1, maxDurability: 1, description: '行军必备的口粮。', fatigueCost: 0 },
+    // 粮食类
+    { id: 'c_food1', name: '干粮', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 10, value: 10, weight: 2, durability: 1, maxDurability: 1, description: '简单的行军口粮，可供数人食用。购买后直接补充粮食储备。' },
+    { id: 'c_food2', name: '腌肉', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 30, value: 25, weight: 4, durability: 1, maxDurability: 1, description: '盐渍风干的肉脯，耐储存且饱腹感强。购买后直接补充粮食储备。' },
+    { id: 'c_food3', name: '上等口粮', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 60, value: 50, weight: 6, durability: 1, maxDurability: 1, description: '精心准备的行军粮秣，含肉干、谷饼与蜜饯。购买后直接补充粮食储备。' },
+    // 医药类
+    { id: 'c_med1', name: '金创药', type: 'CONSUMABLE', subType: 'MEDICINE', effectValue: 20, value: 50, weight: 1, durability: 1, maxDurability: 1, description: '用草药制成的外敷药膏，可治疗刀伤箭创。在营地中使用，恢复20点生命。' },
+    { id: 'c_med2', name: '续命膏', type: 'CONSUMABLE', subType: 'MEDICINE', effectValue: 50, value: 120, weight: 1, durability: 1, maxDurability: 1, description: '名医秘制的珍贵药膏，药效卓著。在营地中使用，恢复50点生命。' },
+    // 修甲工具类
+    { id: 'c_rep1', name: '修甲工具', type: 'CONSUMABLE', subType: 'REPAIR_KIT', effectValue: 50, value: 80, weight: 3, durability: 1, maxDurability: 1, description: '简易的铁锤与铆钉，可用于修补甲胄。在营地中使用，恢复50点装备耐久。' },
+    { id: 'c_rep2', name: '精铁修甲具', type: 'CONSUMABLE', subType: 'REPAIR_KIT', effectValue: 9999, value: 200, weight: 5, durability: 1, maxDurability: 1, description: '铁匠级别的精良工具套装，可将甲胄完全修复如新。在营地中使用，完全恢复装备耐久。' },
 ];
 
 export const CITY_NAMES = ['咸阳', '邯郸', '大梁', '临淄', '郢都', '新郑', '蓟城', '洛阳', '寿春', '琅琊'];

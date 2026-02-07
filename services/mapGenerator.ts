@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -444,9 +444,20 @@ export const generateCities = (
       placedCities.push({ x: cx, y: cy, biome });
       
       // 生成城市数据
-      const market = [
+      const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
+      const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
+      const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
+      const market: Item[] = [
         ...WEAPON_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 4),
-        ...ARMOR_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 3)
+        ...ARMOR_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 3),
+        ...HELMET_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2),
+        ...SHIELD_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2),
+        // 粮食类：2-4份
+        ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
+        // 医药类：1-2份
+        ...medItems.sort(() => 0.5 - Math.random()).slice(0, 1 + Math.floor(Math.random() * 2)),
+        // 修甲工具：0-1份
+        ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
       ];
       const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
       

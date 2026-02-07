@@ -697,6 +697,9 @@ export const App: React.FC = () => {
   const [hasSave, setHasSave] = useState<boolean>(hasAnySaveData());
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
 
+  // 每日消耗/恢复追踪
+  const lastProcessedDayRef = useRef<number>(1);
+
   // 野心目标系统状态
   const [showAmbitionPopup, setShowAmbitionPopup] = useState(false);
   const [ambitionNotification, setAmbitionNotification] = useState<string | null>(null);
@@ -1016,6 +1019,37 @@ export const App: React.FC = () => {
             }
         }
         
+        // === 每日粮食消耗 + 自然恢复 HP ===
+        const currentDay = Math.floor(party.day);
+        if (currentDay > lastProcessedDayRef.current) {
+          lastProcessedDayRef.current = currentDay;
+          setParty(p => {
+            const headcount = p.mercenaries.length;
+            const foodCost = headcount; // 每人每天消耗1份粮食
+            const newFood = Math.max(0, p.food - foodCost);
+            const isStarving = newFood <= 0;
+            // 自然恢复：每天恢复1-2 HP（断粮时不恢复，且每人掉2-4 HP）
+            const updatedMercs = p.mercenaries.map(m => {
+              if (isStarving) {
+                // 断粮惩罚：每天掉 2-4 HP
+                const hpLoss = 2 + Math.floor(Math.random() * 3);
+                return { ...m, hp: Math.max(1, m.hp - hpLoss) };
+              } else if (m.hp < m.maxHp) {
+                // 有粮食时自然恢复
+                const heal = 1 + Math.floor(Math.random() * 2); // 1-2 HP
+                return { ...m, hp: Math.min(m.maxHp, m.hp + heal) };
+              }
+              return m;
+            });
+            return {
+              ...p,
+              food: newFood,
+              mercenaries: updatedMercs,
+              moraleModifier: isStarving ? -1 : p.moraleModifier, // 断粮士气惩罚
+            };
+          });
+        }
+
         // 使用行为树系统更新实体 AI
         setEntities(prev => {
             let combatTriggered = false;

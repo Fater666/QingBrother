@@ -164,6 +164,57 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       onUpdateParty({ ...party, mercenaries: newMercs });
   };
 
+  // ===== 营地使用医药品 =====
+  const handleUseMedicine = (medItem: Item, medIndex: number) => {
+      if (!selectedMerc || !medItem.effectValue) return;
+      if (selectedMerc.hp >= selectedMerc.maxHp) return;
+      
+      const healAmount = medItem.effectValue;
+      const newMercs = party.mercenaries.map(m => {
+          if (m.id !== selectedMerc.id) return m;
+          return { ...m, hp: Math.min(m.maxHp, m.hp + healAmount) };
+      });
+      const newInv = [...party.inventory];
+      newInv.splice(medIndex, 1);
+      const updatedParty = { ...party, mercenaries: newMercs, inventory: newInv };
+      onUpdateParty(updatedParty);
+      const updatedMerc = newMercs.find(m => m.id === selectedMerc.id)!;
+      setSelectedMerc(updatedMerc);
+  };
+
+  // ===== 营地使用修甲工具 =====
+  const handleUseRepairKit = (repairItem: Item, repairIndex: number, mercIndex: number, slot: keyof Character['equipment']) => {
+      const merc = party.mercenaries[mercIndex];
+      const equip = merc.equipment[slot];
+      if (!equip || !repairItem.effectValue) return;
+      if (equip.durability >= equip.maxDurability) return;
+      
+      const repairAmount = repairItem.effectValue;
+      const newDur = Math.min(equip.maxDurability, equip.durability + repairAmount);
+      const newMercs = party.mercenaries.map((m, i) => {
+          if (i !== mercIndex) return m;
+          return { ...m, equipment: { ...m.equipment, [slot]: { ...equip, durability: newDur } } };
+      });
+      const newInv = [...party.inventory];
+      newInv.splice(repairIndex, 1);
+      const updatedParty = { ...party, mercenaries: newMercs, inventory: newInv };
+      onUpdateParty(updatedParty);
+      if (selectedMerc && selectedMerc.id === merc.id) {
+          setSelectedMerc(newMercs.find(m => m.id === merc.id)!);
+      }
+  };
+
+  // 获取库存中的医药品和修甲工具
+  const medicineItems = useMemo(() => party.inventory
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.type === 'CONSUMABLE' && item.subType === 'MEDICINE'),
+  [party.inventory]);
+
+  const repairKitItems = useMemo(() => party.inventory
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.type === 'CONSUMABLE' && item.subType === 'REPAIR_KIT'),
+  [party.inventory]);
+
   const perkTreeTiers = useMemo(() => {
       const tiers: Perk[][] = Array.from({ length: 7 }, () => []);
       Object.values(PERK_TREE).forEach(perk => {
@@ -303,6 +354,65 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory')}
                             />
                         </div>
+                    </div>
+
+                    {/* === 营地操作面板：使用医药 / 修甲工具 === */}
+                    <div className="px-4 pb-2 space-y-2">
+                        {/* 使用医药 */}
+                        {selectedMerc.hp < selectedMerc.maxHp && medicineItems.length > 0 && (
+                            <div className="border border-red-900/30 bg-red-950/10 p-3">
+                                <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
+                                    使用医药 <span className="text-red-800 normal-case">（{selectedMerc.name} 生命 {selectedMerc.hp}/{selectedMerc.maxHp}）</span>
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {medicineItems.map(({ item, index }) => (
+                                        <button
+                                            key={`med-${index}`}
+                                            onClick={() => handleUseMedicine(item, index)}
+                                            className="px-3 py-1.5 text-xs border border-red-800/50 bg-red-950/20 text-red-400 hover:bg-red-800 hover:text-white transition-all"
+                                        >
+                                            {item.name} (+{item.effectValue}HP)
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 使用修甲工具 */}
+                        {repairKitItems.length > 0 && (() => {
+                            const mercIdx = party.mercenaries.findIndex(m => m.id === selectedMerc.id);
+                            const damagedSlots: { slot: keyof Character['equipment']; item: Item }[] = [];
+                            (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[]).forEach(slot => {
+                                const eq = selectedMerc.equipment[slot];
+                                if (eq && eq.maxDurability > 0 && eq.durability < eq.maxDurability) {
+                                    damagedSlots.push({ slot, item: eq });
+                                }
+                            });
+                            if (damagedSlots.length === 0) return null;
+                            return (
+                                <div className="border border-amber-900/30 bg-amber-950/10 p-3">
+                                    <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">使用修甲工具</h4>
+                                    {damagedSlots.map(({ slot, item: eq }) => (
+                                        <div key={slot} className="flex items-center justify-between mb-1.5 last:mb-0">
+                                            <span className="text-xs text-slate-400">
+                                                {eq.name} <span className="text-slate-600 font-mono">{eq.durability}/{eq.maxDurability}</span>
+                                            </span>
+                                            <div className="flex gap-1">
+                                                {repairKitItems.map(({ item: kit, index: kitIdx }) => (
+                                                    <button
+                                                        key={`rep-${kitIdx}-${slot}`}
+                                                        onClick={() => handleUseRepairKit(kit, kitIdx, mercIdx, slot)}
+                                                        className="px-2 py-1 text-[10px] border border-amber-800/50 bg-amber-950/20 text-amber-400 hover:bg-amber-700 hover:text-white transition-all"
+                                                    >
+                                                        {kit.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     {/* Attributes Panel - BELOW, Two columns, Battle Brothers order */}

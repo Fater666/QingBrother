@@ -219,7 +219,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   
   // Interaction State (for market)
   const [selectedItem, setSelectedItem] = useState<{ item: Item, from: 'MARKET' | 'INVENTORY', index: number } | null>(null);
-  const [marketTab, setMarketTab] = useState<'BUY' | 'SELL'>('BUY');
+  const [marketTab, setMarketTab] = useState<'BUY' | 'SELL' | 'REPAIR'>('BUY');
   const [itemFilter, setItemFilter] = useState<Item['type'] | 'ALL'>('ALL');
   // Interaction State (for recruit)
   const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
@@ -232,16 +232,30 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5);
       if (party.gold >= price) {
-          onUpdateParty({
-              ...party,
-              gold: party.gold - price,
-              inventory: [...party.inventory, { ...item, id: `${item.id}-${Date.now()}` }]
-          });
-          const newMarket = [...city.market];
-          newMarket.splice(index, 1);
-          onUpdateCity({ ...city, market: newMarket });
-          setSelectedItem(null);
-          showNotification(`购买了 ${item.name}`);
+          // 粮食类消耗品直接转化为 party.food
+          if (item.type === 'CONSUMABLE' && item.subType === 'FOOD' && item.effectValue) {
+              onUpdateParty({
+                  ...party,
+                  gold: party.gold - price,
+                  food: party.food + item.effectValue,
+              });
+              const newMarket = [...city.market];
+              newMarket.splice(index, 1);
+              onUpdateCity({ ...city, market: newMarket });
+              setSelectedItem(null);
+              showNotification(`购买了 ${item.name}（粮食 +${item.effectValue}）`);
+          } else {
+              onUpdateParty({
+                  ...party,
+                  gold: party.gold - price,
+                  inventory: [...party.inventory, { ...item, id: `${item.id}-${Date.now()}` }]
+              });
+              const newMarket = [...city.market];
+              newMarket.splice(index, 1);
+              onUpdateCity({ ...city, market: newMarket });
+              setSelectedItem(null);
+              showNotification(`购买了 ${item.name}`);
+          }
       } else {
           showNotification("金币不足！");
       }
@@ -277,6 +291,35 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
           const newMercs = party.mercenaries.map((m, i) => i === index ? { ...m, hp: m.maxHp } : m);
           onUpdateParty({ ...party, gold: party.gold - cost, mercenaries: newMercs });
           showNotification(`${merc.name} 伤势已痊愈`);
+      } else { showNotification("金币不足！"); }
+  };
+
+  // 城市修缮：金币修复装备耐久
+  const handleRepairEquipped = (mercIndex: number, slot: keyof Character['equipment']) => {
+      const merc = party.mercenaries[mercIndex];
+      const item = merc.equipment[slot];
+      if (!item || item.durability >= item.maxDurability) return;
+      const missingDur = item.maxDurability - item.durability;
+      const cost = Math.max(1, Math.floor(missingDur * 0.5));
+      if (party.gold >= cost) {
+          const newMercs = party.mercenaries.map((m, i) => {
+              if (i !== mercIndex) return m;
+              return { ...m, equipment: { ...m.equipment, [slot]: { ...item, durability: item.maxDurability } } };
+          });
+          onUpdateParty({ ...party, gold: party.gold - cost, mercenaries: newMercs });
+          showNotification(`修复了 ${merc.name} 的 ${item.name}（-${cost} 金）`);
+      } else { showNotification("金币不足！"); }
+  };
+
+  const handleRepairInventory = (invIndex: number) => {
+      const item = party.inventory[invIndex];
+      if (!item || item.durability >= item.maxDurability) return;
+      const missingDur = item.maxDurability - item.durability;
+      const cost = Math.max(1, Math.floor(missingDur * 0.5));
+      if (party.gold >= cost) {
+          const newInv = party.inventory.map((it, i) => i === invIndex ? { ...it, durability: it.maxDurability } : it);
+          onUpdateParty({ ...party, gold: party.gold - cost, inventory: newInv });
+          showNotification(`修复了 ${item.name}（-${cost} 金）`);
       } else { showNotification("金币不足！"); }
   };
 
@@ -512,11 +555,34 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         const filteredItems = itemFilter === 'ALL' ? sourceItems : sourceItems.filter(it => it.type === itemFilter);
                         const getPrice = (item: Item) => marketTab === 'BUY' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
                         const fromTag = marketTab === 'BUY' ? 'MARKET' as const : 'INVENTORY' as const;
+
+                        // 修缮模式：收集所有需要修复的装备
+                        const repairableItems: { label: string; item: Item; mercIndex: number; slot: keyof Character['equipment']; cost: number }[] = [];
+                        const repairableInvItems: { item: Item; invIndex: number; cost: number }[] = [];
+                        if (marketTab === 'REPAIR') {
+                            party.mercenaries.forEach((merc, mi) => {
+                                const slots: (keyof Character['equipment'])[] = ['armor', 'helmet', 'offHand', 'mainHand'];
+                                slots.forEach(slot => {
+                                    const item = merc.equipment[slot];
+                                    if (item && item.maxDurability > 0 && item.durability < item.maxDurability) {
+                                        const missing = item.maxDurability - item.durability;
+                                        repairableItems.push({ label: `${merc.name}`, item, mercIndex: mi, slot, cost: Math.max(1, Math.floor(missing * 0.5)) });
+                                    }
+                                });
+                            });
+                            party.inventory.forEach((item, idx) => {
+                                if (item && item.maxDurability > 0 && item.durability < item.maxDurability) {
+                                    const missing = item.maxDurability - item.durability;
+                                    repairableInvItems.push({ item, invIndex: idx, cost: Math.max(1, Math.floor(missing * 0.5)) });
+                                }
+                            });
+                        }
+
                         return (
                         <div className="flex-1 flex gap-4 overflow-hidden h-full">
                             {/* 左侧: 物品名录 */}
                             <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
-                                {/* 购入/出售 标签切换 */}
+                                {/* 购入/出售/修缮 标签切换 */}
                                 <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
                                     <div className="flex gap-1">
                                         <button
@@ -535,12 +601,100 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
                                             }`}
                                         >出售物资</button>
+                                        <button
+                                            onClick={() => { setMarketTab('REPAIR'); setSelectedItem(null); }}
+                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                                marketTab === 'REPAIR'
+                                                    ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
+                                                    : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
+                                            }`}
+                                        >修缮装备</button>
                                     </div>
                                     <span className="text-[10px] text-slate-600">
-                                        {marketTab === 'BUY' ? `${city.market.length} 件货物` : `背包 ${party.inventory.length} 件`}
+                                        {marketTab === 'BUY' ? `${city.market.length} 件货物` : marketTab === 'SELL' ? `背包 ${party.inventory.length} 件` : '修复损坏的装备'}
                                     </span>
                                 </div>
 
+                                {/* === 修缮模式面板 === */}
+                                {marketTab === 'REPAIR' ? (
+                                    <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                        {repairableItems.length === 0 && repairableInvItems.length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center text-slate-700">
+                                                <p className="text-lg tracking-widest">装备完好无损</p>
+                                                <p className="text-xs mt-1 text-slate-800">所有装备的耐久都是满的</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {repairableItems.length > 0 && (
+                                                    <>
+                                                        <h3 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-1">已装备</h3>
+                                                        {repairableItems.map((ri, idx) => {
+                                                            const durPct = (ri.item.durability / ri.item.maxDurability) * 100;
+                                                            const canAffordRepair = party.gold >= ri.cost;
+                                                            return (
+                                                                <div key={`eq-${idx}`} className="flex items-center gap-3 p-3 border border-amber-900/20 bg-black/30 hover:bg-black/50 transition-all">
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-baseline gap-2">
+                                                                            <span className="text-sm font-bold text-amber-100 truncate">{ri.item.name}</span>
+                                                                            <span className="text-[10px] text-slate-600">({ri.label})</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                            <div className="flex-1 h-2 bg-black/60 border border-white/5 overflow-hidden">
+                                                                                <div className={`h-full ${durPct > 50 ? 'bg-slate-600' : durPct > 25 ? 'bg-amber-700' : 'bg-red-700'}`} style={{ width: `${durPct}%` }} />
+                                                                            </div>
+                                                                            <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{ri.item.durability}/{ri.item.maxDurability}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleRepairEquipped(ri.mercIndex, ri.slot)}
+                                                                        disabled={!canAffordRepair}
+                                                                        className={`px-3 py-1.5 text-xs font-bold tracking-wider border transition-all whitespace-nowrap ${
+                                                                            canAffordRepair
+                                                                                ? 'bg-amber-900/20 border-amber-700/50 text-amber-400 hover:bg-amber-700 hover:text-white'
+                                                                                : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                                        }`}
+                                                                    >修复 -{ri.cost}金</button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
+                                                {repairableInvItems.length > 0 && (
+                                                    <>
+                                                        <h3 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-1 mt-3">库存物品</h3>
+                                                        {repairableInvItems.map((ri, idx) => {
+                                                            const durPct = (ri.item.durability / ri.item.maxDurability) * 100;
+                                                            const canAffordRepair = party.gold >= ri.cost;
+                                                            return (
+                                                                <div key={`inv-${idx}`} className="flex items-center gap-3 p-3 border border-amber-900/20 bg-black/30 hover:bg-black/50 transition-all">
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="text-sm font-bold text-amber-100 truncate">{ri.item.name}</div>
+                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                            <div className="flex-1 h-2 bg-black/60 border border-white/5 overflow-hidden">
+                                                                                <div className={`h-full ${durPct > 50 ? 'bg-slate-600' : durPct > 25 ? 'bg-amber-700' : 'bg-red-700'}`} style={{ width: `${durPct}%` }} />
+                                                                            </div>
+                                                                            <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{ri.item.durability}/{ri.item.maxDurability}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleRepairInventory(ri.invIndex)}
+                                                                        disabled={!canAffordRepair}
+                                                                        className={`px-3 py-1.5 text-xs font-bold tracking-wider border transition-all whitespace-nowrap ${
+                                                                            canAffordRepair
+                                                                                ? 'bg-amber-900/20 border-amber-700/50 text-amber-400 hover:bg-amber-700 hover:text-white'
+                                                                                : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                                        }`}
+                                                                    >修复 -{ri.cost}金</button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                <>
                                 {/* 类型筛选栏 */}
                                 <div className="flex gap-1 mb-2 shrink-0 flex-wrap">
                                     {ITEM_FILTER_TABS.map(tab => (
@@ -592,9 +746,12 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         </div>
                                     )}
                                 </div>
+                                </>
+                                )}
                             </div>
 
-                            {/* 右侧: 物品详情面板 */}
+                            {/* 右侧: 物品详情面板 (修缮模式下隐藏) */}
+                            {marketTab !== 'REPAIR' && (
                             <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
@@ -718,6 +875,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     </div>
                                 )}
                             </div>
+                            )}
                         </div>
                         );
                     })()}

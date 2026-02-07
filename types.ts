@@ -72,6 +72,8 @@ export interface Item {
   id: string;
   name: string;
   type: 'WEAPON' | 'ARMOR' | 'HELMET' | 'SHIELD' | 'CONSUMABLE' | 'AMMO' | 'ACCESSORY';
+  subType?: 'FOOD' | 'MEDICINE' | 'REPAIR_KIT';  // 消耗品子类型
+  effectValue?: number;                            // 效果值（恢复量/修复量等）
   value: number;
   weight: number;
   durability: number;     
