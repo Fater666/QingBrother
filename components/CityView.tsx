@@ -34,6 +34,104 @@ const getItemBrief = (item: Item): string => {
     return '';
 };
 
+// ==================== 品质分级系统 ====================
+type ItemTier = 'COMMON' | 'FINE' | 'RARE' | 'EPIC' | 'LEGENDARY';
+
+interface TierConfig {
+    tier: ItemTier;
+    label: string;
+    borderClass: string;       // 卡片边框色
+    borderSelectedClass: string; // 选中边框色
+    nameColor: string;         // 物品名颜色
+    labelColor: string;        // 品质标签颜色
+    bgClass: string;           // 卡片背景
+    bgSelectedClass: string;   // 选中背景
+    glowClass: string;         // 光效动画 CSS class
+    detailBorderColor: string; // 详情面板顶部品质色
+    priceLabelColor: string;   // 价格数字颜色
+}
+
+const TIER_CONFIGS: Record<ItemTier, TierConfig> = {
+    COMMON: {
+        tier: 'COMMON', label: '',
+        borderClass: 'border-slate-700/60',
+        borderSelectedClass: 'border-slate-500',
+        nameColor: 'text-slate-300',
+        labelColor: '',
+        bgClass: 'bg-black/30',
+        bgSelectedClass: 'bg-slate-800/40',
+        glowClass: '',
+        detailBorderColor: 'border-slate-700',
+        priceLabelColor: 'text-slate-400',
+    },
+    FINE: {
+        tier: 'FINE', label: '',
+        borderClass: 'border-amber-900/50',
+        borderSelectedClass: 'border-amber-600',
+        nameColor: 'text-amber-200',
+        labelColor: '',
+        bgClass: 'bg-black/30',
+        bgSelectedClass: 'bg-amber-900/20',
+        glowClass: '',
+        detailBorderColor: 'border-amber-800',
+        priceLabelColor: 'text-amber-400',
+    },
+    RARE: {
+        tier: 'RARE', label: '精品',
+        borderClass: 'border-sky-700/50',
+        borderSelectedClass: 'border-sky-500',
+        nameColor: 'text-sky-300',
+        labelColor: 'text-sky-400',
+        bgClass: 'bg-sky-950/10',
+        bgSelectedClass: 'bg-sky-900/20',
+        glowClass: '',
+        detailBorderColor: 'border-sky-600',
+        priceLabelColor: 'text-sky-400',
+    },
+    EPIC: {
+        tier: 'EPIC', label: '珍品',
+        borderClass: 'border-purple-600/50',
+        borderSelectedClass: 'border-purple-400',
+        nameColor: 'text-purple-300',
+        labelColor: 'text-purple-400',
+        bgClass: 'bg-purple-950/10',
+        bgSelectedClass: 'bg-purple-900/20',
+        glowClass: 'anim-epic-glow',
+        detailBorderColor: 'border-purple-500',
+        priceLabelColor: 'text-purple-400',
+    },
+    LEGENDARY: {
+        tier: 'LEGENDARY', label: '传世',
+        borderClass: 'border-amber-500/60',
+        borderSelectedClass: 'border-amber-300',
+        nameColor: 'text-amber-300',
+        labelColor: 'text-amber-400',
+        bgClass: 'bg-amber-950/15',
+        bgSelectedClass: 'bg-amber-900/25',
+        glowClass: 'anim-legendary-pulse',
+        detailBorderColor: 'border-amber-400',
+        priceLabelColor: 'text-amber-300',
+    },
+};
+
+const getItemTier = (value: number): TierConfig => {
+    if (value >= 2500) return TIER_CONFIGS.LEGENDARY;
+    if (value >= 1200) return TIER_CONFIGS.EPIC;
+    if (value >= 500) return TIER_CONFIGS.RARE;
+    if (value >= 100) return TIER_CONFIGS.FINE;
+    return TIER_CONFIGS.COMMON;
+};
+
+// 物品类型筛选配置
+const ITEM_FILTER_TABS: { key: Item['type'] | 'ALL'; label: string }[] = [
+    { key: 'ALL', label: '全部' },
+    { key: 'WEAPON', label: '兵器' },
+    { key: 'ARMOR', label: '甲胄' },
+    { key: 'HELMET', label: '头盔' },
+    { key: 'SHIELD', label: '盾牌' },
+    { key: 'CONSUMABLE', label: '消耗' },
+];
+
 // 获取任务类型的中文名称
 const getQuestTypeName = (type: Quest['type']): string => {
     const typeNames: Record<Quest['type'], string> = {
@@ -120,6 +218,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   
   // Interaction State (for market)
   const [selectedItem, setSelectedItem] = useState<{ item: Item, from: 'MARKET' | 'INVENTORY', index: number } | null>(null);
+  const [marketTab, setMarketTab] = useState<'BUY' | 'SELL'>('BUY');
+  const [itemFilter, setItemFilter] = useState<Item['type'] | 'ALL'>('ALL');
+  // Interaction State (for recruit)
+  const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
 
   const showNotification = (msg: string) => {
       setNotification(msg);
@@ -195,7 +297,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       return "后备兵";
   };
 
-  const goBack = () => { setSubView('MAP'); setSelectedItem(null); };
+  const goBack = () => { setSubView('MAP'); setSelectedItem(null); setSelectedRecruit(null); };
 
   const wallStyle = WALL_STYLE[city.type];
   const buildingPositions = getBuildingPositions(city.facilities);
@@ -400,162 +502,367 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                 {/* 面板内容区 */}
                 <div className="flex-1 overflow-hidden p-4 flex flex-col min-h-0">
-                    {/* ===== 市集 ===== */}
-                    {subView === 'MARKET' && (
+                    {/* ===== 市集 (仿募兵面板: 左侧名录 + 右侧详情) ===== */}
+                    {subView === 'MARKET' && (() => {
+                        const sourceItems = marketTab === 'BUY' ? city.market : party.inventory;
+                        const filteredItems = itemFilter === 'ALL' ? sourceItems : sourceItems.filter(it => it.type === itemFilter);
+                        const getPrice = (item: Item) => marketTab === 'BUY' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
+                        const fromTag = marketTab === 'BUY' ? 'MARKET' as const : 'INVENTORY' as const;
+                        return (
                         <div className="flex-1 flex gap-4 overflow-hidden h-full">
-                            <div className="flex-[2] grid grid-rows-2 gap-4 h-full min-h-0">
-                                <div className="bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
-                                    <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-2 pb-1 border-b border-amber-900/20 shrink-0">货物供应</h2>
-                                    <div className="overflow-y-auto flex-1 custom-scrollbar">
-                                        <div className="grid grid-cols-5 gap-2">
-                                            {city.market.map((item, i) => (
-                                                <ItemGridCell 
-                                                    key={`${item.id}-${i}`} item={item} price={Math.floor(item.value * 1.5)} 
-                                                    isSelected={selectedItem?.from === 'MARKET' && selectedItem?.index === i}
-                                                    onClick={() => setSelectedItem({ item, from: 'MARKET', index: i })}
-                                                    onDoubleClick={() => handleBuy(item, i)}
-                                                />
-                                            ))}
-                                        </div>
-                                        {city.market.length === 0 && <div className="text-center text-slate-600 italic mt-10">已被抢购一空</div>}
+                            {/* 左侧: 物品名录 */}
+                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
+                                {/* 购入/出售 标签切换 */}
+                                <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
+                                    <div className="flex gap-1">
+                                        <button
+                                            onClick={() => { setMarketTab('BUY'); setSelectedItem(null); }}
+                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                                marketTab === 'BUY'
+                                                    ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
+                                                    : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
+                                            }`}
+                                        >货物供应</button>
+                                        <button
+                                            onClick={() => { setMarketTab('SELL'); setSelectedItem(null); }}
+                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                                marketTab === 'SELL'
+                                                    ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
+                                                    : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
+                                            }`}
+                                        >出售物资</button>
                                     </div>
+                                    <span className="text-[10px] text-slate-600">
+                                        {marketTab === 'BUY' ? `${city.market.length} 件货物` : `背包 ${party.inventory.length} 件`}
+                                    </span>
                                 </div>
-                                <div className="bg-black/40 border border-slate-800/50 p-3 flex flex-col min-h-0">
-                                    <h2 className="text-[10px] text-slate-600 uppercase tracking-[0.2em] mb-2 pb-1 border-b border-slate-800/30 shrink-0">出售物资</h2>
-                                    <div className="overflow-y-auto flex-1 custom-scrollbar">
-                                        <div className="grid grid-cols-5 gap-2">
-                                            {party.inventory.map((item, i) => (
-                                                <ItemGridCell 
-                                                    key={`${item.id}-${i}`} item={item} price={Math.floor(item.value * 0.5)} 
-                                                    isSelected={selectedItem?.from === 'INVENTORY' && selectedItem?.index === i}
-                                                    onClick={() => setSelectedItem({ item, from: 'INVENTORY', index: i })}
-                                                    onDoubleClick={() => handleSell(item, i)}
-                                                />
-                                            ))}
+
+                                {/* 类型筛选栏 */}
+                                <div className="flex gap-1 mb-2 shrink-0 flex-wrap">
+                                    {ITEM_FILTER_TABS.map(tab => (
+                                        <button
+                                            key={tab.key}
+                                            onClick={() => { setItemFilter(tab.key); setSelectedItem(null); }}
+                                            className={`px-2.5 py-1 text-[10px] tracking-wider transition-all border ${
+                                                itemFilter === tab.key
+                                                    ? 'bg-amber-900/20 border-amber-700/50 text-amber-500'
+                                                    : 'bg-transparent border-slate-800/30 text-slate-600 hover:text-slate-400 hover:border-slate-700'
+                                            }`}
+                                        >{tab.label}</button>
+                                    ))}
+                                </div>
+
+                                {/* 物品卡片网格 */}
+                                <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                    {filteredItems.length > 0 ? (
+                                        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
+                                            {filteredItems.map((item, filteredIdx) => {
+                                                // 找到在原始数组中的真实index
+                                                const realIndex = sourceItems.indexOf(item);
+                                                const price = getPrice(item);
+                                                const tier = getItemTier(item.value);
+                                                const isSelected = selectedItem?.from === fromTag && selectedItem?.index === realIndex;
+                                                const canAfford = marketTab === 'BUY' ? party.gold >= price : true;
+                                                return (
+                                                    <MarketItemCard
+                                                        key={`${item.id}-${realIndex}`}
+                                                        item={item}
+                                                        price={price}
+                                                        tier={tier}
+                                                        isSelected={isSelected}
+                                                        canAfford={canAfford}
+                                                        onClick={() => setSelectedItem({ item, from: fromTag, index: realIndex })}
+                                                        onDoubleClick={() => marketTab === 'BUY' ? handleBuy(item, realIndex) : handleSell(item, realIndex)}
+                                                    />
+                                                );
+                                            })}
                                         </div>
-                                        {party.inventory.length === 0 && <div className="text-center text-slate-600 italic mt-10">行囊空空如也</div>}
-                                    </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-700">
+                                            <p className="text-lg tracking-widest">
+                                                {marketTab === 'BUY' ? '已被抢购一空' : '行囊空空如也'}
+                                            </p>
+                                            <p className="text-xs mt-1 text-slate-800">
+                                                {marketTab === 'BUY' ? '下次来或许会有新货' : '先去买些装备吧'}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex-1 bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[280px] h-full">
-                                {selectedItem ? (
-                                    <>
-                                        <div className="mb-4 shrink-0 border-b border-amber-900/40 pb-4">
-                                            <div className="flex items-baseline justify-between mb-2">
-                                                <h2 className="text-xl font-bold text-amber-500">{selectedItem.item.name}</h2>
-                                                <span className="text-[10px] text-slate-600 uppercase tracking-widest">{getItemTypeName(selectedItem.item.type)}</span>
+
+                            {/* 右侧: 物品详情面板 */}
+                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
+                                {selectedItem ? (() => {
+                                    const item = selectedItem.item;
+                                    const tier = getItemTier(item.value);
+                                    const price = selectedItem.from === 'MARKET' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
+                                    const canAfford = selectedItem.from === 'MARKET' ? party.gold >= price : true;
+                                    return (
+                                        <>
+                                            {/* 头部: 物品名 + 品质 + 类型 */}
+                                            <div className={`mb-4 shrink-0 border-b ${tier.detailBorderColor} pb-4`}>
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-baseline gap-2">
+                                                            <h2 className={`text-xl font-bold ${tier.nameColor}`}>{item.name}</h2>
+                                                            {tier.label && (
+                                                                <span className={`text-[10px] px-1.5 py-0.5 border ${tier.labelColor} ${
+                                                                    tier.tier === 'LEGENDARY' ? 'border-amber-500/50 bg-amber-950/30' :
+                                                                    tier.tier === 'EPIC' ? 'border-purple-500/50 bg-purple-950/30' :
+                                                                    'border-sky-500/50 bg-sky-950/30'
+                                                                } tracking-wider font-bold`}>
+                                                                    {tier.label}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-600 uppercase tracking-widest">{getItemTypeName(item.type)}</span>
+                                                    </div>
+                                                </div>
+                                                {/* 价格区块 (仿募兵费用排版) */}
+                                                <div className="flex items-center justify-between mt-2 bg-black/30 p-2 border border-white/5">
+                                                    <div className="flex gap-4">
+                                                        <div>
+                                                            <span className="text-[9px] text-slate-600 block">{selectedItem.from === 'MARKET' ? '购入价' : '售出价'}</span>
+                                                            <span className={`text-lg font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>
+                                                                {price} <span className="text-xs text-amber-700">金</span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="border-l border-white/5 pl-4">
+                                                            <span className="text-[9px] text-slate-600 block">基础价值</span>
+                                                            <span className="text-sm font-mono text-slate-300">{item.value} <span className="text-xs text-slate-600">金</span></span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[9px] text-slate-600 block">重量</span>
+                                                        <span className="text-sm text-slate-400 font-mono">{item.weight}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <span className="text-2xl font-mono text-amber-100 font-bold">
-                                                    {selectedItem.from === 'MARKET' ? Math.floor(selectedItem.item.value * 1.5) : Math.floor(selectedItem.item.value * 0.5)} 
-                                                </span>
-                                                <span className="text-sm text-amber-700 ml-1">金</span>
-                                                <span className="text-xs text-slate-600 ml-2">({selectedItem.from === 'MARKET' ? '购入' : '售出'})</span>
+
+                                            {/* 属性面板 - 可滚动区域 */}
+                                            <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">
+                                                {/* 属性条可视化 */}
+                                                <div className="bg-black/20 p-3 border border-white/5 mb-4 space-y-2">
+                                                    {item.damage && (
+                                                        <ItemStatBar label="杀伤力" value={`${item.damage[0]}-${item.damage[1]}`} pct={Math.min(100, ((item.damage[0] + item.damage[1]) / 2 / 90) * 100)} colorBar="bg-red-700" colorText="text-red-400" />
+                                                    )}
+                                                    {item.armorPen !== undefined && item.armorPen > 0 && (
+                                                        <ItemStatBar label="穿甲能力" value={`${Math.round(item.armorPen * 100)}%`} pct={item.armorPen * 100} colorBar="bg-sky-700" colorText="text-sky-400" />
+                                                    )}
+                                                    {item.armorDmg !== undefined && item.armorDmg > 0 && (
+                                                        <ItemStatBar label="破甲效率" value={`${Math.round(item.armorDmg * 100)}%`} pct={Math.min(100, item.armorDmg * 50)} colorBar="bg-amber-700" colorText="text-amber-400" />
+                                                    )}
+                                                    {item.durability !== undefined && item.durability > 0 && (
+                                                        <ItemStatBar label="护甲耐久" value={`${item.durability} / ${item.maxDurability}`} pct={(item.durability / Math.max(1, item.maxDurability)) * 100} colorBar="bg-slate-600" colorText="text-slate-300" />
+                                                    )}
+                                                    {item.defenseBonus !== undefined && item.defenseBonus > 0 && (
+                                                        <ItemStatBar label="近战防御" value={`+${item.defenseBonus}`} pct={Math.min(100, (item.defenseBonus / 30) * 100)} colorBar="bg-emerald-700" colorText="text-emerald-400" />
+                                                    )}
+                                                    {item.rangedBonus !== undefined && item.rangedBonus > 0 && (
+                                                        <ItemStatBar label="远程防御" value={`+${item.rangedBonus}`} pct={Math.min(100, (item.rangedBonus / 35) * 100)} colorBar="bg-emerald-700" colorText="text-emerald-400" />
+                                                    )}
+                                                    {item.fatigueCost !== undefined && item.fatigueCost > 0 && (
+                                                        <ItemStatBar label="体力消耗" value={`-${item.fatigueCost}`} pct={Math.min(100, (item.fatigueCost / 22) * 100)} colorBar="bg-purple-700" colorText="text-purple-400" />
+                                                    )}
+                                                    {item.maxFatiguePenalty !== undefined && item.maxFatiguePenalty > 0 && (
+                                                        <ItemStatBar label="负重惩罚" value={`-${item.maxFatiguePenalty}`} pct={Math.min(100, (item.maxFatiguePenalty / 34) * 100)} colorBar="bg-red-800" colorText="text-red-400" />
+                                                    )}
+                                                    {item.hitChanceMod !== undefined && item.hitChanceMod !== 0 && (
+                                                        <ItemStatBar label="命中修正" value={`${item.hitChanceMod > 0 ? '+' : ''}${item.hitChanceMod}%`} pct={Math.min(100, Math.abs(item.hitChanceMod) / 20 * 100)} colorBar={item.hitChanceMod > 0 ? 'bg-emerald-700' : 'bg-red-800'} colorText={item.hitChanceMod > 0 ? 'text-emerald-400' : 'text-red-400'} />
+                                                    )}
+                                                    {item.range !== undefined && item.range > 1 && (
+                                                        <ItemStatBar label="攻击距离" value={`${item.range} 格`} pct={Math.min(100, (item.range / 6) * 100)} colorBar="bg-slate-600" colorText="text-slate-300" />
+                                                    )}
+                                                </div>
+
+                                                {/* 物品描述 */}
+                                                <div className="mb-3">
+                                                    <h4 className="text-[9px] text-slate-600 uppercase tracking-[0.15em] mb-1.5">描述</h4>
+                                                    <p className={`text-xs italic leading-relaxed pl-3 border-l-2 ${
+                                                        tier.tier === 'LEGENDARY' ? 'text-amber-400/80 border-amber-600/50' :
+                                                        tier.tier === 'EPIC' ? 'text-purple-400/70 border-purple-600/40' :
+                                                        'text-slate-500 border-amber-900/30'
+                                                    }`}>
+                                                        "{item.description}"
+                                                    </p>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">
-                                            <p className="text-sm text-slate-500 italic mb-4 leading-relaxed pl-3 border-l-2 border-amber-900/30">
-                                                "{selectedItem.item.description}"
-                                            </p>
-                                            <div className="space-y-2 text-sm">
-                                                {selectedItem.item.damage && (
-                                                    <StatRow label="杀伤力" value={`${selectedItem.item.damage[0]} - ${selectedItem.item.damage[1]}`} color="text-red-400" bold />
-                                                )}
-                                                {selectedItem.item.armorPen !== undefined && (
-                                                    <StatRow label="穿甲能力" value={`${Math.round(selectedItem.item.armorPen * 100)}%`} color="text-sky-400" />
-                                                )}
-                                                {selectedItem.item.armorDmg !== undefined && (
-                                                    <StatRow label="破甲效率" value={`${Math.round(selectedItem.item.armorDmg * 100)}%`} color="text-amber-400" />
-                                                )}
-                                                {selectedItem.item.durability !== undefined && (
-                                                    <StatRow label="护甲耐久" value={`${selectedItem.item.durability} / ${selectedItem.item.maxDurability}`} color="text-slate-300" />
-                                                )}
-                                                {selectedItem.item.fatigueCost !== undefined && (
-                                                    <StatRow label="体力消耗" value={`-${selectedItem.item.fatigueCost}`} color="text-purple-400" />
-                                                )}
-                                                {selectedItem.item.maxFatiguePenalty !== undefined && (
-                                                    <StatRow label="负重惩罚" value={`-${selectedItem.item.maxFatiguePenalty}`} color="text-red-400" />
-                                                )}
-                                                {selectedItem.item.defenseBonus !== undefined && (
-                                                    <StatRow label="近战防御" value={`+${selectedItem.item.defenseBonus}`} color="text-emerald-400" />
-                                                )}
-                                                {selectedItem.item.rangedBonus !== undefined && (
-                                                    <StatRow label="远程防御" value={`+${selectedItem.item.rangedBonus}`} color="text-emerald-400" />
-                                                )}
-                                                {selectedItem.item.range !== undefined && (
-                                                    <StatRow label="攻击距离" value={`${selectedItem.item.range} 格`} color="text-slate-300" />
-                                                )}
-                                            </div>
-                                        </div>
-                                        <button 
-                                            onClick={() => selectedItem.from === 'MARKET' ? handleBuy(selectedItem.item, selectedItem.index) : handleSell(selectedItem.item, selectedItem.index)}
-                                            className="w-full py-3 bg-amber-900/30 hover:bg-amber-700 border border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white font-bold tracking-widest shadow-lg shrink-0 transition-all uppercase"
-                                        >
-                                            {selectedItem.from === 'MARKET' ? '购 买' : '出 售'}
-                                        </button>
-                                    </>
-                                ) : (
+
+                                            {/* 操作按钮 */}
+                                            <button
+                                                onClick={() => selectedItem.from === 'MARKET' ? handleBuy(item, selectedItem.index) : handleSell(item, selectedItem.index)}
+                                                disabled={selectedItem.from === 'MARKET' && !canAfford}
+                                                className={`w-full py-3 border font-bold tracking-widest shadow-lg shrink-0 transition-all uppercase ${
+                                                    canAfford
+                                                        ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
+                                                        : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {selectedItem.from === 'MARKET'
+                                                    ? (canAfford ? `购 买 — ${price} 金` : `金币不足 (需 ${price})`)
+                                                    : `出 售 — ${price} 金`
+                                                }
+                                            </button>
+                                        </>
+                                    );
+                                })() : (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-700">
-                                        <p className="text-sm tracking-widest">请选择一件物品</p>
-                                        <p className="text-xs mt-1 text-slate-800">查看详情或进行交易</p>
+                                        <div className="text-4xl mb-4 text-slate-800">🏪</div>
+                                        <p className="text-sm tracking-widest">从左侧选择一件物品</p>
+                                        <p className="text-sm tracking-widest">查看详情或进行交易</p>
+                                        <p className="text-[10px] text-slate-800 mt-3">双击可直接交易</p>
                                     </div>
                                 )}
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
-                    {/* ===== 募兵 ===== */}
+                    {/* ===== 募兵 (Battle Brothers风格: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'RECRUIT' && (
-                        <div className="h-full overflow-y-auto custom-scrollbar">
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="flex-1 flex gap-4 overflow-hidden h-full">
+                            {/* 左侧: 候选人名录 */}
+                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
+                                <div className="flex justify-between items-center mb-2 pb-1 border-b border-amber-900/20 shrink-0">
+                                    <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
+                                    <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
+                                </div>
+                                <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                    {city.recruits.length > 0 ? (
+                                        <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                                 {city.recruits.map((merc, i) => {
+                                                const hireCost = Math.floor(merc.salary * 10);
+                                                const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
+                                                const bgIcon = bgEntry?.icon || '?';
+                                                const isSelected = selectedRecruit === i;
+                                                const canAfford = party.gold >= hireCost;
+                                                return (
+                                                    <div
+                                                        key={merc.id}
+                                                        onClick={() => setSelectedRecruit(isSelected ? null : i)}
+                                                        onDoubleClick={() => handleRecruit(merc, i)}
+                                                        className={`border p-3 cursor-pointer transition-all flex flex-col gap-1.5 relative group ${
+                                                            isSelected
+                                                                ? 'bg-amber-900/30 border-amber-500 shadow-[inset_0_0_15px_rgba(245,158,11,0.15)]'
+                                                                : 'bg-black/30 border-slate-800/50 hover:border-amber-700/60 hover:bg-black/50'
+                                                        }`}
+                                                    >
+                                                        {/* 图标 + 名字 */}
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xl leading-none">{bgIcon}</span>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : 'text-slate-200'}`}>{merc.name}</div>
+                                                                <div className="text-[10px] text-amber-700 truncate">{merc.background}</div>
+                                                            </div>
+                                                        </div>
+                                                        {/* 费用 */}
+                                                        <div className="flex justify-between items-center mt-0.5">
+                                                            <span className="text-[9px] text-slate-600">雇佣费</span>
+                                                            <span className={`text-xs font-mono font-bold ${canAfford ? 'text-amber-500' : 'text-red-500'}`}>{hireCost} 金</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-700">
+                                            <p className="text-lg tracking-widest">此处已无可用之才</p>
+                                            <p className="text-xs mt-1 text-slate-800">他日再来或许会有新面孔</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 右侧: 选中角色详情面板 */}
+                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
+                                {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
+                                    const merc = city.recruits[selectedRecruit];
                                     const hireCost = Math.floor(merc.salary * 10);
                                     const role = getRoleRecommendation(merc);
+                                    const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
+                                    const bgIcon = bgEntry?.icon || '?';
+                                    const canAfford = party.gold >= hireCost;
                                     return (
-                                        <div key={merc.id} className="bg-black/40 border border-amber-900/30 p-4 flex flex-col gap-3 hover:border-amber-600/50 transition-all relative">
-                                            <div className="flex justify-between items-start border-b border-amber-900/20 pb-3">
+                                        <>
+                                            {/* 头部: 姓名 + 背景 */}
+                                            <div className="mb-4 shrink-0 border-b border-amber-900/40 pb-4">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <span className="text-3xl">{bgIcon}</span>
                                                 <div>
-                                                    <div className="flex items-baseline gap-2">
-                                                        <h3 className="text-xl font-bold text-amber-100">{merc.name}</h3>
-                                                        <span className="text-xs text-slate-600 font-mono">LV.{merc.level}</span>
+                                                        <h2 className="text-xl font-bold text-amber-100">{merc.name}</h2>
+                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                            <span className="text-xs text-amber-700">{merc.background}</span>
+                                                            <span className="text-slate-700">·</span>
+                                                            <span className="text-xs text-slate-500 font-mono">Lv.{merc.level}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-2 text-xs mt-1">
-                                                        <span className="text-amber-700">{merc.background}</span>
-                                                        <span className="text-slate-700">·</span>
-                                                        <span className="text-slate-500">评级: <span className="text-amber-500 font-bold">{role}</span></span>
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-col items-end gap-2">
-                                                    <span className="text-lg font-mono text-amber-500 font-bold">{hireCost} <span className="text-xs text-amber-700">金</span></span>
-                                                    <button 
-                                                        onClick={() => handleRecruit(merc, i)}
-                                                        className="px-4 py-1.5 bg-amber-900/30 border border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white text-xs font-bold transition-all uppercase tracking-widest"
-                                                    >雇佣</button>
+                                                {/* 费用信息 + 角色评语 */}
+                                                <div className="flex items-center justify-between mt-2 bg-black/30 p-2 border border-white/5">
+                                                    <div className="flex gap-4">
+                                                        <div>
+                                                            <span className="text-[9px] text-slate-600 block">雇佣费</span>
+                                                            <span className={`text-lg font-mono font-bold ${canAfford ? 'text-amber-500' : 'text-red-500'}`}>{hireCost} <span className="text-xs text-amber-700">金</span></span>
+                                                        </div>
+                                                        <div className="border-l border-white/5 pl-4">
+                                                            <span className="text-[9px] text-slate-600 block">日薪</span>
+                                                            <span className="text-sm font-mono text-slate-300">{merc.salary} <span className="text-xs text-slate-600">金/日</span></span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[9px] text-slate-600 block">评估定位</span>
+                                                        <span className="text-sm text-amber-500 font-bold">{role}</span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="flex flex-col gap-3">
-                                                <div className="bg-black/30 p-2 border border-white/5 text-xs text-slate-500 italic leading-relaxed h-14 overflow-y-auto custom-scrollbar">
-                                                    "{merc.backgroundStory}"
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-black/20 p-3">
+
+                                            {/* 属性面板 - 可滚动区域 */}
+                                            <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">
+                                                {/* 属性条 */}
+                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-black/20 p-3 border border-white/5 mb-4">
                                                     <StatBarSmall label="生命" val={merc.maxHp} max={120} stars={merc.stars.hp} colorBar="bg-red-800" colorText="text-red-400" />
                                                     <StatBarSmall label="体力" val={merc.maxFatigue} max={140} stars={merc.stars.fatigue} colorBar="bg-sky-800" colorText="text-sky-400" />
                                                     <StatBarSmall label="胆识" val={merc.stats.resolve} max={80} stars={merc.stars.resolve} colorBar="bg-purple-800" colorText="text-purple-400" />
                                                     <StatBarSmall label="先手" val={merc.stats.initiative} max={160} stars={merc.stars.initiative} colorBar="bg-emerald-800" colorText="text-emerald-400" />
                                                     <div className="col-span-2 h-px bg-white/5 my-1" />
-                                                    <StatBarSmall label="近战" val={merc.stats.meleeSkill} max={100} stars={merc.stars.meleeSkill} colorBar="bg-amber-800" colorText="text-amber-400" />
-                                                    <StatBarSmall label="远程" val={merc.stats.rangedSkill} max={100} stars={merc.stars.rangedSkill} colorBar="bg-orange-800" colorText="text-orange-400" />
-                                                    <StatBarSmall label="近防" val={merc.stats.meleeDefense} max={50} stars={merc.stars.meleeDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
-                                                    <StatBarSmall label="远防" val={merc.stats.rangedDefense} max={50} stars={merc.stars.rangedDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
+                                                    <StatBarSmall label="近战命中" val={merc.stats.meleeSkill} max={100} stars={merc.stars.meleeSkill} colorBar="bg-amber-800" colorText="text-amber-400" />
+                                                    <StatBarSmall label="远程命中" val={merc.stats.rangedSkill} max={100} stars={merc.stars.rangedSkill} colorBar="bg-orange-800" colorText="text-orange-400" />
+                                                    <StatBarSmall label="近战防御" val={merc.stats.meleeDefense} max={50} stars={merc.stars.meleeDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
+                                                    <StatBarSmall label="远程防御" val={merc.stats.rangedDefense} max={50} stars={merc.stars.rangedDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
+                                                </div>
+
+                                                {/* 背景故事 */}
+                                                <div className="mb-3">
+                                                    <h4 className="text-[9px] text-slate-600 uppercase tracking-[0.15em] mb-1.5">身世</h4>
+                                                    <p className="text-xs text-slate-500 italic leading-relaxed pl-3 border-l-2 border-amber-900/30">
+                                                        "{merc.backgroundStory}"
+                                                    </p>
                                                 </div>
                                             </div>
-                                        </div>
+
+                                            {/* 雇佣按钮 */}
+                                            <button
+                                                onClick={() => {
+                                                    handleRecruit(merc, selectedRecruit);
+                                                    setSelectedRecruit(null);
+                                                }}
+                                                disabled={!canAfford || party.mercenaries.length >= 20}
+                                                className={`w-full py-3 border font-bold tracking-widest shadow-lg shrink-0 transition-all uppercase ${
+                                                    canAfford && party.mercenaries.length < 20
+                                                        ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
+                                                        : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {party.mercenaries.length >= 20 ? '战团已满' : !canAfford ? `金币不足 (需 ${hireCost})` : `雇 佣 — ${hireCost} 金`}
+                                            </button>
+                                        </>
                                     );
-                                })}
-                                {city.recruits.length === 0 && (
-                                    <div className="col-span-2 flex flex-col items-center justify-center text-slate-700 py-20">
-                                        <p className="text-lg tracking-widest">此处已无可用之才</p>
-                                        <p className="text-xs mt-1 text-slate-800">他日再来或许会有新面孔</p>
+                                })() : (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-700">
+                                        <div className="text-4xl mb-4 text-slate-800">⚔️</div>
+                                        <p className="text-sm tracking-widest">从左侧名录中选择</p>
+                                        <p className="text-sm tracking-widest">一名候选人以查看详情</p>
+                                        <p className="text-[10px] text-slate-800 mt-3">双击可直接雇佣</p>
                                     </div>
                                 )}
                             </div>
@@ -708,14 +1015,6 @@ const TowerMarker: React.FC<{ position: 'top-left' | 'top-right' | 'bottom-left'
     );
 };
 
-// 物品属性行
-const StatRow: React.FC<{ label: string; value: string; color: string; bold?: boolean }> = ({ label, value, color, bold }) => (
-    <div className="flex justify-between py-1 border-b border-white/5">
-        <span className="text-slate-500">{label}</span>
-        <span className={`font-mono ${color} ${bold ? 'font-bold' : ''}`}>{value}</span>
-    </div>
-);
-
 // 属性条
 interface StatBarSmallProps {
     label: string;
@@ -744,35 +1043,72 @@ const StatBarSmall: React.FC<StatBarSmallProps> = ({ label, val, max, stars, col
     );
 };
 
-// 物品格子
-interface ItemGridCellProps {
+// 物品属性条（用于详情面板）
+interface ItemStatBarProps {
+    label: string;
+    value: string;
+    pct: number;
+    colorBar: string;
+    colorText: string;
+}
+
+const ItemStatBar: React.FC<ItemStatBarProps> = ({ label, value, pct, colorBar, colorText }) => (
+    <div className="space-y-1">
+        <div className="flex justify-between items-center text-[10px]">
+            <span className="text-slate-500">{label}</span>
+            <span className={`font-mono font-bold ${colorText}`}>{value}</span>
+        </div>
+        <div className="h-2 bg-black/60 w-full overflow-hidden border border-white/10 relative">
+            <div className={`h-full ${colorBar} transition-all duration-300`} style={{ width: `${Math.min(100, pct)}%` }} />
+        </div>
+    </div>
+);
+
+// 市集物品卡片（仿募兵候选人卡片风格 + 品质分级）
+interface MarketItemCardProps {
     item: Item;
     price: number;
+    tier: TierConfig;
     isSelected: boolean;
+    canAfford: boolean;
     onClick: () => void;
     onDoubleClick: () => void;
 }
 
-const ItemGridCell: React.FC<ItemGridCellProps> = ({ item, price, isSelected, onClick, onDoubleClick }) => (
-    <div 
+const MarketItemCard: React.FC<MarketItemCardProps> = ({ item, price, tier, isSelected, canAfford, onClick, onDoubleClick }) => (
+    <div
         onClick={onClick}
         onDoubleClick={onDoubleClick}
-        className={`aspect-square border transition-all p-2 flex flex-col justify-between cursor-pointer
-            ${isSelected 
-                ? 'bg-amber-900/30 border-amber-500 shadow-[inset_0_0_10px_rgba(245,158,11,0.2)]' 
-                : 'bg-black/30 border-slate-800/50 hover:border-amber-700'
-            }
-        `}
+        className={`border p-3 cursor-pointer transition-all flex flex-col gap-1.5 relative group ${
+            isSelected
+                ? `${tier.bgSelectedClass} ${tier.borderSelectedClass} shadow-[inset_0_0_15px_rgba(245,158,11,0.15)]`
+                : `${tier.bgClass} ${tier.borderClass} hover:border-amber-700/60 hover:bg-black/50`
+        } ${tier.glowClass}`}
     >
-        <div className="text-[9px] text-slate-600 uppercase tracking-wider">
-            {getItemTypeName(item.type)}
+        {/* 顶行: 类型标签 + 品质标记 */}
+        <div className="flex justify-between items-center">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider">{getItemTypeName(item.type)}</span>
+            {tier.label && (
+                <span className={`text-[9px] font-bold tracking-wider ${tier.labelColor}`}>
+                    ★{tier.label}
+                </span>
+            )}
         </div>
-        <div className={`text-center text-sm font-bold truncate ${isSelected ? 'text-amber-100' : 'text-slate-300'}`}>
+
+        {/* 物品名称 */}
+        <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : tier.nameColor}`}>
             {item.name}
         </div>
-        <div className="text-center">
-            <div className="text-[9px] text-slate-600 truncate">{getItemBrief(item)}</div>
-            <div className="text-[10px] text-amber-600 font-mono font-bold">{price} 金</div>
+
+        {/* 关键属性简览 */}
+        <div className="flex justify-between items-center text-[10px]">
+            <span className="text-slate-500 truncate">{getItemBrief(item)}</span>
+        </div>
+
+        {/* 价格 */}
+        <div className="flex justify-between items-center mt-0.5">
+            <span className="text-[9px] text-slate-600">{canAfford ? '' : '金币不足'}</span>
+            <span className={`text-xs font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>{price} 金</span>
         </div>
     </div>
 );

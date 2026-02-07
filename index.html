@@ -141,6 +141,24 @@
         .anim-death-burst {
             animation: deathBurst 0.8s ease-out forwards;
         }
+
+        /* 传世品质脉动光效 */
+        @keyframes legendaryPulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.3), inset 0 0 8px rgba(251,191,36,0.05); }
+            50% { box-shadow: 0 0 20px rgba(251,191,36,0.6), inset 0 0 15px rgba(251,191,36,0.1); }
+        }
+        .anim-legendary-pulse {
+            animation: legendaryPulse 2s ease-in-out infinite;
+        }
+
+        /* 珍品品质微光 */
+        @keyframes epicGlow {
+            0%, 100% { box-shadow: 0 0 6px rgba(168,85,247,0.25); }
+            50% { box-shadow: 0 0 14px rgba(168,85,247,0.45); }
+        }
+        .anim-epic-glow {
+            animation: epicGlow 2.5s ease-in-out infinite;
+        }
     </style>
 </head>
 <body>
