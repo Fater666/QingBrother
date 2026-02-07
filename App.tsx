@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -13,6 +13,8 @@ import { BattleResultView } from './components/BattleResultView.tsx';
 import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
+import { AmbitionSelect } from './components/AmbitionSelect.tsx';
+import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -685,7 +687,8 @@ export const App: React.FC = () => {
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
-    mercenaries: [], inventory: [], day: 1.0, activeQuest: null
+    mercenaries: [], inventory: [], day: 1.0, activeQuest: null,
+    reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
   });
 
   const [combatState, setCombatState] = useState<CombatState | null>(null);
@@ -693,6 +696,11 @@ export const App: React.FC = () => {
   const lastUpdateRef = useRef<number>(performance.now());
   const [hasSave, setHasSave] = useState<boolean>(hasAnySaveData());
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
+
+  // 野心目标系统状态
+  const [showAmbitionPopup, setShowAmbitionPopup] = useState(false);
+  const [ambitionNotification, setAmbitionNotification] = useState<string | null>(null);
+  const ambitionNotifTimerRef = useRef<number | null>(null);
 
   // 叙事流程状态
   const [selectedOrigin, setSelectedOrigin] = useState<OriginConfig | null>(null);
@@ -724,7 +732,8 @@ export const App: React.FC = () => {
       targetX: null, targetY: null,
       gold: origin.gold, food: origin.food,
       mercenaries: mercs,
-      inventory: [], day: 1.0, activeQuest: null
+      inventory: [], day: 1.0, activeQuest: null,
+      reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
     });
     setGameInitialized(true);
     setTimeScale(0);
@@ -770,7 +779,14 @@ export const App: React.FC = () => {
         setTiles(data.tiles);
         setCities(data.cities);
         setEntities(data.entities);
-        setParty(data.party);
+        // 旧存档兼容：补充缺失的野心/声望字段
+        const loadedParty: Party = {
+          ...data.party,
+          reputation: data.party.reputation ?? 0,
+          ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
+          moraleModifier: data.party.moraleModifier ?? 0,
+        };
+        setParty(loadedParty);
         setGameInitialized(true);
         setView(data.view || 'WORLD_MAP');
         setTimeScale(0);
@@ -909,13 +925,18 @@ export const App: React.FC = () => {
       };
     });
     
+    // 根据士气修正决定开场士气状态
+    const startMorale = party.moraleModifier > 0 ? MoraleStatus.CONFIDENT
+      : party.moraleModifier < 0 ? MoraleStatus.WAVERING
+      : MoraleStatus.STEADY;
+    
     const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map((m, idx) => {
         // 调整玩家位置：前排 q=-2，后排 q=-3
         const row = m.formationIndex! >= 9 ? 1 : 0; // 0=前排, 1=后排
         const col = m.formationIndex! % 9;
         const q = -2 - row;
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
-        return { ...m, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        return { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
     });
     const allUnits = [...playerUnits, ...enemies];
     
@@ -939,8 +960,12 @@ export const App: React.FC = () => {
       terrainType: worldTerrain
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
+    // 士气修正已应用到开场士气，重置为0
+    if (party.moraleModifier !== 0) {
+      setParty(p => ({ ...p, moraleModifier: 0 }));
+    }
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, party.day, tiles]);
+  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -959,7 +984,19 @@ export const App: React.FC = () => {
             } else {
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
-                if (city) { setCurrentCity(city); setView('CITY'); setTimeScale(0); }
+                if (city) {
+                  setCurrentCity(city);
+                  setView('CITY');
+                  setTimeScale(0);
+                  // 记录访问过的城市（野心目标追踪）
+                  setParty(p => {
+                    const visited = p.ambitionState.citiesVisited;
+                    if (!visited.includes(city.id)) {
+                      return { ...p, ambitionState: { ...p.ambitionState, citiesVisited: [...visited, city.id] } };
+                    }
+                    return p;
+                  });
+                }
             }
         }
         
@@ -1049,6 +1086,69 @@ export const App: React.FC = () => {
     }
   }, [view, introFade]);
 
+  // --- 野心目标：完成检测 ---
+  useEffect(() => {
+    if (!gameInitialized) return;
+    if (!party.ambitionState.currentAmbition) return;
+    
+    if (checkAmbitionComplete(party)) {
+      const completedName = party.ambitionState.currentAmbition.name;
+      const reward = party.ambitionState.currentAmbition.reputationReward;
+      setParty(p => ({
+        ...p,
+        reputation: p.reputation + reward,
+        ambitionState: completeAmbition(p),
+        moraleModifier: 1, // 下次战斗全员自信开场
+      }));
+      // 显示通知
+      setAmbitionNotification(`目标达成「${completedName}」！声望 +${reward}`);
+      if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
+      ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
+    }
+  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, gameInitialized]);
+
+  // --- 野心目标：弹出选择界面 ---
+  useEffect(() => {
+    if (!gameInitialized) return;
+    if (view !== 'WORLD_MAP') return;
+    if (showAmbitionPopup) return;
+    if (preCombatEntity) return;
+    if (saveLoadMode) return;
+    
+    if (shouldShowAmbitionSelect(party)) {
+      // 小延迟后弹出，避免页面切换时立即弹出
+      const t = setTimeout(() => setShowAmbitionPopup(true), 800);
+      return () => clearTimeout(t);
+    }
+  }, [view, party.ambitionState.currentAmbition, party.day, gameInitialized, showAmbitionPopup, preCombatEntity, saveLoadMode]);
+
+  // --- 野心目标：选择/取消处理 ---
+  const handleAmbitionSelect = useCallback((ambitionId: string) => {
+    setParty(p => ({ ...p, ambitionState: selectAmbition(p, ambitionId) }));
+    setShowAmbitionPopup(false);
+    setTimeScale(0);
+  }, []);
+
+  const handleAmbitionNoAmbition = useCallback(() => {
+    setParty(p => ({ ...p, ambitionState: selectNoAmbition(p) }));
+    setShowAmbitionPopup(false);
+    setTimeScale(0);
+  }, []);
+
+  const handleAmbitionCancel = useCallback(() => {
+    const cancelledName = party.ambitionState.currentAmbition?.name;
+    setParty(p => ({
+      ...p,
+      ambitionState: cancelAmbition(p),
+      moraleModifier: -1, // 下次战斗全员动摇开场
+    }));
+    if (cancelledName) {
+      setAmbitionNotification(`放弃了「${cancelledName}」，全员士气低落……`);
+      if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
+      ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 3000);
+    }
+  }, [party.ambitionState.currentAmbition]);
+
   const handleIntroClick = useCallback(() => {
     if (!introComplete) {
       // 快速完成
@@ -1086,11 +1186,34 @@ export const App: React.FC = () => {
                 </div>
              </div>
 
+             {/* 当前野心（可点击取消） */}
+             {party.ambitionState.currentAmbition && (
+               <div className="flex items-center gap-2 ml-4">
+                 <div className="h-6 w-px bg-amber-900/40" />
+                 <span className="text-[9px] text-amber-700 uppercase tracking-widest">志向</span>
+                 <button
+                   onClick={handleAmbitionCancel}
+                   className="px-2.5 py-0.5 text-xs text-amber-400 border border-amber-900/40 hover:border-red-500/60 hover:text-red-400 transition-all group relative"
+                   title="点击取消当前志向（会降低全员士气）"
+                 >
+                   {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon} {party.ambitionState.currentAmbition.name}
+                   {(() => {
+                     const progress = getAmbitionProgress(party);
+                     return progress ? <span className="ml-1.5 text-[10px] text-amber-600">({progress})</span> : null;
+                   })()}
+                   <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                     点击放弃
+                   </span>
+                 </button>
+               </div>
+             )}
+
              <div className="flex gap-8 items-center">
                  <div className="flex gap-4 text-xs font-mono">
                      <span className="text-amber-500">金: {party.gold}</span>
                      <span className="text-emerald-500">粮: {party.food}</span>
                      <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
+                     <span className="text-yellow-600">望: {party.reputation}</span>
                  </div>
                  <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1">
                      {[0, 1, 2].map(s => (
@@ -1238,7 +1361,7 @@ export const App: React.FC = () => {
                       party.mercenaries
                     );
                     setBattleResult(result);
-                    // 先更新存活者的 HP（从战斗状态同步回来）
+                    // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数
                     if (victory) {
                       setParty(p => ({
                         ...p,
@@ -1246,7 +1369,11 @@ export const App: React.FC = () => {
                           const sur = survivors.find(s => s.id === m.id);
                           if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
                           return m; // 阵亡者暂时保留，在结算完成后移除
-                        })
+                        }),
+                        ambitionState: {
+                          ...p.ambitionState,
+                          battlesWon: p.ambitionState.battlesWon + 1,
+                        }
                       }));
                     }
                     setCombatState(null);
@@ -1374,6 +1501,26 @@ export const App: React.FC = () => {
             onLoad={(slot) => loadGame(slot)}
             onClose={() => setSaveLoadMode(null)}
           />
+        )}
+
+        {/* ===== 野心目标选择弹窗 ===== */}
+        {showAmbitionPopup && !preCombatEntity && !saveLoadMode && (
+          <AmbitionSelect
+            party={party}
+            onSelect={handleAmbitionSelect}
+            onSelectNoAmbition={handleAmbitionNoAmbition}
+          />
+        )}
+
+        {/* ===== 野心通知横幅 ===== */}
+        {ambitionNotification && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[200] animate-pulse">
+            <div className="bg-[#1a110a]/95 border border-amber-600/60 px-6 py-3 shadow-2xl backdrop-blur-sm">
+              <p className="text-amber-400 text-sm font-bold tracking-wider text-center">
+                {ambitionNotification}
+              </p>
+            </div>
+          </div>
         )}
 
         {preCombatEntity && (

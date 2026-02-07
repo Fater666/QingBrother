@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { WorldTile, Party, WorldEntity, City } from '../types.ts';
 import { MAP_SIZE, VIEWPORT_WIDTH, VISION_RADIUS } from '../constants';
 import { getBiome, BIOME_CONFIGS } from '../services/mapGenerator.ts';
+import { getAmbitionProgress, getAmbitionTypeInfo } from '../services/ambitionService.ts';
 
 // ============================================================================
 // 战场兄弟风格配色方案 - 区域特色化调色板
@@ -1511,6 +1512,40 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                 <span className="text-amber-600 font-mono">{party.activeQuest.rewardGold} 金</span>
                 <span className="text-slate-600">剩余 {party.activeQuest.daysLeft} 天</span>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 当前野心进度面板 (Ambition HUD) ===== */}
+      {party.ambitionState.currentAmbition && (
+        <div className={`absolute ${party.activeQuest ? 'top-[200px]' : 'top-4'} right-4 z-50 pointer-events-none`}>
+          <div className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl min-w-[200px] max-w-[250px]">
+            <div className="px-3 py-1 bg-amber-900/15 border-b border-amber-900/25 flex items-center gap-2">
+              <span className="text-[9px] text-amber-700/80 uppercase tracking-[0.2em]">志向</span>
+              {party.reputation > 0 && (
+                <span className="text-[9px] text-yellow-700 ml-auto font-mono">声望 {party.reputation}</span>
+              )}
+            </div>
+            <div className="px-3 py-2 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">{getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon}</span>
+                <span className="text-xs font-bold text-amber-300 tracking-wider">
+                  {party.ambitionState.currentAmbition.name}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                {party.ambitionState.currentAmbition.description}
+              </p>
+              {(() => {
+                const progress = getAmbitionProgress(party);
+                return progress ? (
+                  <div className="flex items-center gap-2 pt-1 border-t border-amber-900/15">
+                    <span className="text-[9px] text-amber-700/70">进度</span>
+                    <span className="text-[10px] text-amber-500 font-mono font-bold">{progress}</span>
+                  </div>
+                ) : null;
+              })()}
             </div>
           </div>
         </div>

@@ -199,6 +199,29 @@ export interface WorldEntity {
   destinationCityId?: string;                  // 目的地城市ID（商队）
 }
 
+// ==================== 野心目标系统 ====================
+
+export type AmbitionType = 'COMBAT' | 'ECONOMY' | 'TEAM' | 'EQUIPMENT' | 'EXPLORATION';
+
+export interface Ambition {
+  id: string;
+  name: string;
+  description: string;
+  type: AmbitionType;
+  reputationReward: number; // 完成后获得的声望（默认100）
+}
+
+export interface AmbitionState {
+  currentAmbition: Ambition | null;       // 当前选定的野心目标
+  completedIds: string[];                 // 已完成的目标ID列表
+  lastCancelledIds: string[];             // 上次取消的目标ID列表（下次候选排除）
+  nextSelectionDay: number;               // 下一次可以选择目标的天数
+  noAmbitionUntilDay: number;             // "无野心"冷却到期天数
+  totalCompleted: number;                 // 累计完成目标数
+  battlesWon: number;                     // 累计战斗胜利数（用于目标检测）
+  citiesVisited: string[];                // 已访问过的城市ID（用于目标检测）
+}
+
 export interface Party {
   x: number; 
   y: number; 
@@ -210,6 +233,9 @@ export interface Party {
   inventory: Item[];
   day: number; 
   activeQuest: Quest | null;
+  reputation: number;                     // 声望值（影响合同出价）
+  ambitionState: AmbitionState;           // 野心目标状态
+  moraleModifier: number;                 // 全员士气修正（+1=自信开场, -1=动摇开场, 0=正常）
 }
 
 // 敌人AI类型

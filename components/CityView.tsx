@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Party, City, Item, Character, CityFacility, Quest } from '../types.ts';
 import { BACKGROUNDS } from '../constants';
+import { getReputationRewardMultiplier } from '../services/ambitionService.ts';
 
 interface CityViewProps {
   city: City;
@@ -281,7 +282,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
   const handleQuestTake = (quest: Quest) => {
       if (party.activeQuest) { showNotification("已有在身契约！需先完成。"); return; }
-      onAcceptQuest(quest);
+      // 根据声望调整报酬
+      const mult = getReputationRewardMultiplier(party.reputation);
+      const boostedQuest = { ...quest, rewardGold: Math.floor(quest.rewardGold * mult) };
+      onAcceptQuest(boostedQuest);
       const newQuests = city.quests.filter(q => q.id !== quest.id);
       onUpdateCity({ ...city, quests: newQuests });
       showNotification("接受契约！");
@@ -900,8 +904,17 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
-                                                        <div className="text-xl font-mono text-amber-500 font-bold">{quest.rewardGold}</div>
-                                                        <div className="text-[10px] text-amber-700">金币报酬</div>
+                                                        {(() => {
+                                                          const mult = getReputationRewardMultiplier(party.reputation);
+                                                          const boosted = Math.floor(quest.rewardGold * mult);
+                                                          const hasBonus = mult > 1;
+                                                          return <>
+                                                            <div className="text-xl font-mono text-amber-500 font-bold">{boosted}</div>
+                                                            <div className="text-[10px] text-amber-700">
+                                                              金币报酬{hasBonus && <span className="text-emerald-600 ml-1">(声望+{Math.round((mult - 1) * 100)}%)</span>}
+                                                            </div>
+                                                          </>;
+                                                        })()}
                                                     </div>
                                                 </div>
                                                 <p className="text-sm text-slate-500 italic mb-4 border-l-2 border-amber-900/30 pl-3 leading-relaxed">
