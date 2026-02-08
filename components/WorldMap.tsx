@@ -597,6 +597,21 @@ const drawEntityIcon = (
       }
       break;
       
+    case 'CULT':
+      // 邪教标志：三角形（类似邪眼）
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - iconSize);
+      ctx.lineTo(centerX + iconSize * 0.9, centerY + iconSize * 0.7);
+      ctx.lineTo(centerX - iconSize * 0.9, centerY + iconSize * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      // 中心圆点（邪眼）
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY + iconSize * 0.1, iconSize * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+      
     default:
       ctx.font = `bold ${tileSize * 0.35}px sans-serif`;
       ctx.textAlign = 'center';

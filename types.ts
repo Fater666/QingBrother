@@ -200,12 +200,12 @@ export interface WorldTile {
 }
 
 // 大地图AI行为类型
-export type WorldAIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'TRADER' | 'NOMAD';
+export type WorldAIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'TRADER' | 'NOMAD' | 'CULT';
 
 export interface WorldEntity {
   id: string;
   name: string;
-  type: 'BANDIT' | 'ARMY' | 'TRADER' | 'NOMAD' | 'BEAST' | 'QUEST_TARGET';
+  type: 'BANDIT' | 'ARMY' | 'TRADER' | 'NOMAD' | 'BEAST' | 'CULT' | 'QUEST_TARGET';
   faction: 'HOSTILE' | 'NEUTRAL' | 'ALLY';
   x: number;
   y: number;
@@ -292,7 +292,7 @@ export interface Party {
 }
 
 // 敌人AI类型
-export type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER';
+export type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER' | 'TANK' | 'SKIRMISHER';
 
 export interface CombatUnit extends Character {
   combatPos: { q: number; r: number };

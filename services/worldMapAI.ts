@@ -706,6 +706,9 @@ export const updateWorldEntityAI = (
       return executeTraderBehavior(entity, party, allEntities, tiles, cities, dt);
     case 'NOMAD':
       return executeNomadBehavior(entity, party, allEntities, tiles, dt);
+    case 'CULT':
+      // 邪教使用土匪行为（游荡+追击）
+      return executeBanditBehavior(entity, party, allEntities, tiles, dt);
     default:
       // 默认使用土匪行为
       return executeBanditBehavior(entity, party, allEntities, tiles, dt);

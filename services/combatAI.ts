@@ -643,6 +643,237 @@ const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIActio
 };
 
 /**
+ * TANK（盾卫）行为树
+ * 特点：优先使用盾墙技能保护友军弓手，站在前线不主动追击远处敌人
+ * 在 ZoC 内坚守阵地，只有当邻近无敌人时才缓慢推进
+ */
+const executeTankBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
+  const enemies = getEnemies(unit, state);
+  const allies = getAllies(unit, state);
+  
+  // 盾卫士气较稳定，只有在崩溃且孤立无援时才考虑撤退
+  if (unit.morale === MoraleStatus.BREAKING && allies.length === 0) {
+    const fleePos = findFleePosition(unit, enemies, state);
+    if (fleePos && Math.random() < 0.2) {
+      return { type: 'MOVE', targetPos: fleePos };
+    }
+  }
+  
+  // 优先使用盾墙技能（如果有盾牌且未开启盾墙）
+  if (!unit.isShieldWall && unit.equipment.offHand?.type === 'SHIELD') {
+    const allAbilities = getUnitAbilities(unit);
+    const shieldWall = allAbilities.find(a => a.id === 'SHIELDWALL');
+    if (shieldWall && unit.currentAP >= shieldWall.apCost) {
+      // 检查是否有敌人在 3 格以内（需要防御时才开盾墙）
+      const nearbyEnemies = enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) <= 3);
+      if (nearbyEnemies.length > 0) {
+        return { type: 'SKILL', ability: shieldWall };
+      }
+    }
+  }
+  
+  // 选择目标：优先攻击最近的敌人，偏好已经与友军交战的目标
+  let bestTarget: CombatUnit | null = null;
+  let bestScore = -Infinity;
+  
+  for (const enemy of enemies) {
+    let score = 0;
+    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
+    
+    // 盾卫不追击远处目标，距离惩罚很重
+    score -= dist * 8;
+    
+    // 邻近敌人大幅加分（盾卫的主要职责是挡住眼前的敌人）
+    if (dist <= 1) score += 60;
+    else if (dist <= 2) score += 30;
+    
+    // 友军附近的敌人优先（协同防御）
+    const nearbyAllies = allies.filter(a => getHexDistance(a.combatPos, enemy.combatPos) <= 2);
+    score += nearbyAllies.length * 10;
+    
+    // 低血量目标适当加分
+    const hpPercent = enemy.hp / enemy.maxHp;
+    if (hpPercent < 0.5) score += 20;
+    
+    // 威胁评估
+    score += calculateThreat(enemy, unit, state) * 0.5;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestTarget = enemy;
+    }
+  }
+  
+  if (!bestTarget) return { type: 'WAIT' };
+  
+  // 尝试攻击首选目标
+  const attackAbilities = getAttackAbilities(unit);
+  for (const ability of attackAbilities) {
+    if (canAttackTarget(unit, bestTarget, ability)) {
+      return { type: 'ATTACK', targetUnitId: bestTarget.id, ability };
+    }
+  }
+  
+  // ZoC感知：盾卫在控制区内绝不移动
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  if (inZoC) {
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
+        }
+      }
+    }
+    return { type: 'WAIT' };
+  }
+  
+  // 不在 ZoC 中：优先移动到友方弓手前方保护他们
+  const allyArchers = allies.filter(a => {
+    const weapon = a.equipment.mainHand;
+    return weapon && (weapon.name.includes('弓') || weapon.name.includes('弩'));
+  });
+  
+  if (allyArchers.length > 0 && enemies.length > 0) {
+    // 找到弓手和最近敌人之间的位置
+    const closestEnemy = enemies.reduce((a, b) => {
+      const distA = Math.min(...allyArchers.map(ar => getHexDistance(ar.combatPos, a.combatPos)));
+      const distB = Math.min(...allyArchers.map(ar => getHexDistance(ar.combatPos, b.combatPos)));
+      return distA < distB ? a : b;
+    });
+    const movePos = findBestMovePosition(unit, closestEnemy.combatPos, state, 1);
+    if (movePos) {
+      return { type: 'MOVE', targetPos: movePos };
+    }
+  }
+  
+  // 缓慢推进向最近敌人
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  if (movePos) {
+    return { type: 'MOVE', targetPos: movePos };
+  }
+  
+  return { type: 'WAIT' };
+};
+
+/**
+ * SKIRMISHER（游击）行为树
+ * 特点：优先使用投掷武器攻击，保持 2-3 格距离，弹药耗尽后切近战
+ * 优先攻击侧翼/落单目标，在 ZoC 内尝试脱离而非死战
+ */
+const executeSkirmisherBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
+  const enemies = getEnemies(unit, state);
+  const allies = getAllies(unit, state);
+  const hpPercent = unit.hp / unit.maxHp;
+  const moraleIndex = getMoraleIndex(unit.morale);
+  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
+  
+  // 游击手血量低或士气低时容易逃跑（比匪徒更容易跑）
+  const shouldConsiderFleeing = hpPercent < 0.4 || moraleIndex >= 2;
+  if (shouldConsiderFleeing) {
+    const fleeChance = moraleIndex >= 3 ? 0.8 : (moraleIndex >= 2 ? 0.5 : 0.3);
+    if (Math.random() < fleeChance) {
+      const fleePos = findFleePosition(unit, enemies, state);
+      if (fleePos) {
+        return { type: 'MOVE', targetPos: fleePos };
+      }
+    }
+  }
+  
+  // 检查是否有投掷武器
+  const attackAbilities = getAttackAbilities(unit);
+  const throwAbility = attackAbilities.find(a => a.id === 'THROW');
+  const hasThrowWeapon = !!throwAbility;
+  
+  // 选择目标：优先落单、侧翼暴露的敌人
+  let bestTarget: CombatUnit | null = null;
+  let bestScore = -Infinity;
+  
+  for (const enemy of enemies) {
+    let score = calculateThreat(enemy, unit, state);
+    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
+    
+    // 落单目标大幅加分
+    const nearbyFriends = enemies.filter(e => 
+      e.id !== enemy.id && getHexDistance(e.combatPos, enemy.combatPos) <= 2
+    );
+    if (nearbyFriends.length === 0) {
+      score += 35;
+    }
+    
+    // 无盾目标加分（投掷武器对无盾目标更有效）
+    if (!enemy.equipment.offHand || enemy.equipment.offHand.type !== 'SHIELD') {
+      score += 25;
+    }
+    
+    // 游击手偏好适中距离的目标
+    if (hasThrowWeapon) {
+      if (dist >= 2 && dist <= 4) score += 20;
+      else if (dist > 4) score -= dist * 3;
+      else score -= 10; // 太近了不好
+    } else {
+      score -= dist * 3;
+    }
+    
+    // 士气低落的目标加分
+    if (enemy.morale === MoraleStatus.FLEEING) score += 20;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestTarget = enemy;
+    }
+  }
+  
+  if (!bestTarget) return { type: 'WAIT' };
+  
+  // 如果有投掷武器，优先远程攻击
+  if (hasThrowWeapon && throwAbility && canAttackTarget(unit, bestTarget, throwAbility)) {
+    return { type: 'ATTACK', targetUnitId: bestTarget.id, ability: throwAbility };
+  }
+  
+  // 尝试用其他可用攻击
+  for (const ability of attackAbilities) {
+    if (canAttackTarget(unit, bestTarget, ability)) {
+      return { type: 'ATTACK', targetUnitId: bestTarget.id, ability };
+    }
+  }
+  
+  // ZoC感知：游击手在 ZoC 内尝试脱离（冒险后撤）
+  if (inZoC) {
+    // 游击手会尝试逃离 ZoC，除非血量极低不敢冒险
+    if (hpPercent > 0.2) {
+      const fleePos = findFleePosition(unit, enemies, state);
+      if (fleePos) {
+        return { type: 'MOVE', targetPos: fleePos };
+      }
+    }
+    // 无法脱离，尝试攻击邻近敌人
+    const adjacentEnemies = enemies
+      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
+      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
+    for (const adjEnemy of adjacentEnemies) {
+      for (const ability of attackAbilities) {
+        if (canAttackTarget(unit, adjEnemy, ability)) {
+          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
+        }
+      }
+    }
+    return { type: 'WAIT' };
+  }
+  
+  // 不在 ZoC 中：移动到适合投掷的距离（2-3格）或靠近近战
+  const preferredRange = hasThrowWeapon ? 3 : 1;
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, preferredRange);
+  if (movePos) {
+    return { type: 'MOVE', targetPos: movePos };
+  }
+  
+  return { type: 'WAIT' };
+};
+
+/**
  * 寻找逃跑位置
  */
 const findFleePosition = (
@@ -745,6 +976,10 @@ export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction =>
       return executeArcherBehavior(unit, state);
     case 'BERSERKER':
       return executeBerserkerBehavior(unit, state);
+    case 'TANK':
+      return executeTankBehavior(unit, state);
+    case 'SKIRMISHER':
+      return executeSkirmisherBehavior(unit, state);
     default:
       return executeBanditBehavior(unit, state);
   }
@@ -759,7 +994,9 @@ export const getAITypeName = (aiType: AIType): string => {
     'BEAST': '野兽',
     'ARMY': '军士',
     'ARCHER': '弓手',
-    'BERSERKER': '狂战士'
+    'BERSERKER': '狂战士',
+    'TANK': '盾卫',
+    'SKIRMISHER': '游击'
   };
   return names[aiType] || '未知';
 };

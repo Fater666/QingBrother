@@ -174,6 +174,15 @@ const CAMP_TEMPLATES: CampTemplate[] = [
     maxAlive: 2, spawnCooldown: 3, namePool: ['胡人游骑', '沙漠商旅'],
     speed: [1.0, 1.2], alertRadius: [5, 6], chaseRadius: [8, 10], strength: [3, 5],
     aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.75, 1.0] },
+  // 邪教巢穴 - 中原和南方各1个
+  { region: 'CENTRAL', entityType: 'CULT', entitySubType: 'CULT', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3, namePool: ['太平道信徒', '邪教徒', '妖道门人'],
+    speed: [0.6, 0.9], alertRadius: [4, 6], chaseRadius: [8, 12], strength: [3, 5],
+    aiState: 'WANDER', preferredTerrain: ['FOREST', 'SWAMP', 'MOUNTAIN'], yRange: [0.25, 0.55] },
+  { region: 'SOUTH', entityType: 'CULT', entitySubType: 'CULT', faction: 'HOSTILE',
+    maxAlive: 2, spawnCooldown: 3.5, namePool: ['巫蛊邪教', '太平道信徒', '妖道门人'],
+    speed: [0.6, 0.8], alertRadius: [3, 5], chaseRadius: [7, 10], strength: [3, 6],
+    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.55, 0.8] },
 ];
 
 /**
@@ -467,7 +476,7 @@ const generateBattleResult = (
 
     // --- 传世红装特殊掉落 ---
     // 仅在击杀高难度敌人（ARMY / BERSERKER）时，有小概率额外掉落一件传世红装
-    const highTierKills = enemyUnits.filter(u => u.isDead && (u.aiType === 'ARMY' || u.aiType === 'BERSERKER')).length;
+    const highTierKills = enemyUnits.filter(u => u.isDead && (u.aiType === 'ARMY' || u.aiType === 'BERSERKER' || u.aiType === 'TANK')).length;
     if (highTierKills > 0) {
       // 每个高级敌人增加 2% 掉落率，最高 12%
       const uniqueDropChance = Math.min(0.12, highTierKills * 0.02);
@@ -499,6 +508,8 @@ const generateBattleResult = (
         case 'BEAST': goldReward += 15 + Math.floor(Math.random() * 25); break; // 野兽：兽皮/牙等略增金币补偿
         case 'ARCHER': goldReward += 25 + Math.floor(Math.random() * 30); break;
         case 'BERSERKER': goldReward += 35 + Math.floor(Math.random() * 45); break;
+        case 'TANK': goldReward += 35 + Math.floor(Math.random() * 35); break;
+        case 'SKIRMISHER': goldReward += 20 + Math.floor(Math.random() * 25); break;
         default: goldReward += 20 + Math.floor(Math.random() * 30); break; // BANDIT
       }
     });
@@ -610,6 +621,48 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
         helmet: Math.random() > 0.7 && HELMET_TEMPLATES.length > 0 ? cloneItem(HELMET_TEMPLATES[0]) : null,
       };
     }
+    case 'TANK': {
+      // 盾卫：必须有盾牌，拿单手矛/剑，中重甲+头盔
+      const tankKeywords = ['矛', '枪', '剑', '刀'];
+      const weapons = noUnique(WEAPON_TEMPLATES).filter(w =>
+        tankKeywords.some(k => w.name.includes(k)) &&
+        !w.twoHanded && // 盾卫必须单手武器
+        !w.name.includes('飞') && !w.name.includes('投') && !w.name.includes('标枪') && !w.name.includes('匕') && !w.name.includes('厨') &&
+        !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
+        w.value <= valueLimit && w.value > 0
+      );
+      const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
+      const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
+      const shield = shields.length > 0 ? pick(shields) : SHIELD_TEMPLATES[0];
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= valueLimit && a.value >= 80);
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= valueLimit);
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: shield ? cloneItem(shield) : null, // 盾卫必有盾
+        armor: armors.length > 0 ? cloneItem(pick(armors)) : null,
+        helmet: helmets.length > 0 ? cloneItem(pick(helmets)) : null,
+      };
+    }
+    case 'SKIRMISHER': {
+      // 游击手：优先投掷武器，轻甲或无甲，无盾
+      const throwWeapons = noUnique(WEAPON_TEMPLATES).filter(w =>
+        (w.name.includes('飞石') || w.name.includes('飞蝗') || w.name.includes('标枪') || w.name.includes('投矛') || w.name.includes('飞斧')) &&
+        w.value <= valueLimit
+      );
+      // 如果找不到投掷武器，退而使用匕首/短剑等轻武器
+      const lightMelee = noUnique(WEAPON_TEMPLATES).filter(w =>
+        (w.name.includes('匕') || w.name.includes('短剑') || w.name.includes('厨刀') || w.name.includes('环首刀')) &&
+        w.value <= valueLimit && w.value > 0
+      );
+      const weapon = throwWeapons.length > 0 ? pick(throwWeapons) : (lightMelee.length > 0 ? pick(lightMelee) : WEAPON_TEMPLATES.find(w => w.id === 'w_throw_1')!);
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
+      return {
+        mainHand: cloneItem(weapon),
+        offHand: null,
+        armor: lightArmors.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightArmors)) : null,
+        helmet: Math.random() > 0.7 && HELMET_TEMPLATES.length > 0 ? cloneItem(HELMET_TEMPLATES[0]) : null,
+      };
+    }
     default: // BEAST 由单独逻辑处理
       return { mainHand: null, offHand: null, armor: null, helmet: null };
   }
@@ -626,22 +679,22 @@ const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
       { name: '山贼', bg: 'FARMER', aiType: 'BANDIT' },
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
     ],
-    // Tier 1: 中期 - 5人
+    // Tier 1: 中期 - 5人，加入投石游击手
     [
       { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
       { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
     ],
-    // Tier 2: 后期 - 7人
+    // Tier 2: 后期 - 7人，加入游击手
     [
       { name: '山贼头目', bg: 'DESERTER', aiType: 'BERSERKER' },
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
       { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
+      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
       { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
     ],
     // Tier 3: 末期 - 9人
@@ -651,7 +704,7 @@ const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
       { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
       { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
       { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
       { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
@@ -664,67 +717,67 @@ const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
       { name: '叛卒', bg: 'FARMER', aiType: 'ARMY' },
     ],
-    // Tier 1
+    // Tier 1: 加入重装盾兵
     [
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '叛将', bg: 'NOBLE', aiType: 'ARMY' },
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
     ],
-    // Tier 2
+    // Tier 2: 阵型更有层次
     [
       { name: '叛将', bg: 'NOBLE', aiType: 'BERSERKER' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
+      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
       { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
     ],
-    // Tier 3
+    // Tier 3: 重装盾兵+弩手阵线
     [
       { name: '叛军主将', bg: 'NOBLE', aiType: 'BERSERKER' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
+      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
+      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
       { name: '叛军精锐', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛军精锐', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
       { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
       { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
       { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
     ],
   ],
   'BEAST': [
-    // Tier 0
+    // Tier 0: 纯狼群
     [
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
       { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
     ],
-    // Tier 1
+    // Tier 1: 狼群 + 野猪
     [
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
       { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
     ],
-    // Tier 2
+    // Tier 2: 混合兽群 + 虎/豹
     [
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
       { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+      { name: '猛虎', bg: 'BLACKSMITH', aiType: 'BERSERKER' },
     ],
-    // Tier 3
+    // Tier 3: 凶猛兽群
     [
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
       { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
+      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
+      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
       { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
+      { name: '猛虎', bg: 'BLACKSMITH', aiType: 'BERSERKER' },
     ],
   ],
   'NOMAD': [
@@ -734,32 +787,70 @@ const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
       { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
     ],
-    // Tier 1
+    // Tier 1: 加入游击标枪手
     [
       { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
     ],
-    // Tier 2
+    // Tier 2: 游牧风格——游击+骑兵
     [
       { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
+      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
       { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
     ],
-    // Tier 3
+    // Tier 3: 大规模游牧军
     [
       { name: '胡骑大汗', bg: 'NOBLE', aiType: 'BERSERKER' },
       { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
       { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
       { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
       { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
+      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
+      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
       { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
+    ],
+  ],
+  'CULT': [
+    // Tier 0: 小股邪教徒
+    [
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+    ],
+    // Tier 1: 中等规模
+    [
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
+      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
+    ],
+    // Tier 2: 大规模——信仰狂热
+    [
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
+      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+    ],
+    // Tier 3: 末期——邪教大军
+    [
+      { name: '邪教教主', bg: 'MONK', aiType: 'BERSERKER' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
+      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
+      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
+      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
+      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
     ],
   ],
 };
@@ -1006,29 +1097,60 @@ export const App: React.FC = () => {
     const enemies: CombatUnit[] = compositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
-      // BEAST类型敌人：使用天然武器，不穿装备
-      if (comp.aiType === 'BEAST') {
-        const isAlpha = comp.name.includes('头狼');
-        // 野兽属性也随天数缩放
+      // BEAST类型敌人及猛虎/野猪：使用天然武器，不穿装备
+      const isBeastCreature = comp.aiType === 'BEAST' || comp.name === '猛虎' || comp.name === '野猪';
+      if (isBeastCreature) {
         const beastStatMult = statMult;
+        // 根据不同野兽类型设置不同天然武器
+        let weaponName = '利爪';
+        let weaponDesc = '野兽锋利的爪子。';
+        let dmgMin = 20, dmgMax = 35;
+        let armorPen = 0.15, armorDmg = 0.5;
+        let fatCost = 8, hitMod = 10;
+        
+        if (comp.name === '猛虎') {
+          weaponName = '虎爪';
+          weaponDesc = '猛虎锋利的巨爪，一击可致命。';
+          dmgMin = 40; dmgMax = 65;
+          armorPen = 0.35; armorDmg = 0.8;
+          fatCost = 10; hitMod = 12;
+          // 猛虎额外加成HP和攻击
+          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.5);
+          baseChar.hp = baseChar.maxHp;
+          baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * 1.3);
+        } else if (comp.name === '野猪') {
+          weaponName = '獠牙';
+          weaponDesc = '野猪尖锐的獠牙，冲撞力十足。';
+          dmgMin = 25; dmgMax = 40;
+          armorPen = 0.2; armorDmg = 0.6;
+          fatCost = 8; hitMod = 8;
+          // 野猪额外HP加成（坦克型）
+          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.3);
+          baseChar.hp = baseChar.maxHp;
+        } else if (comp.name.includes('头狼')) {
+          weaponName = '狼牙';
+          weaponDesc = '头狼锋利的獠牙，撕咬力惊人。';
+          dmgMin = 30; dmgMax = 50;
+          armorPen = 0.3; armorDmg = 0.5;
+          fatCost = 8; hitMod = 15;
+        }
+        
         baseChar.equipment = {
           mainHand: {
             id: `beast-claw-${i}`,
-            name: isAlpha ? '狼牙' : '利爪',
+            name: weaponName,
             type: 'WEAPON' as const,
             value: 0,
             weight: 0,
             durability: 999,
             maxDurability: 999,
-            description: isAlpha ? '头狼锋利的獠牙，撕咬力惊人。' : '野狼锋利的爪子。',
-            damage: isAlpha
-              ? [Math.floor(30 * beastStatMult), Math.floor(50 * beastStatMult)] as [number, number]
-              : [Math.floor(20 * beastStatMult), Math.floor(35 * beastStatMult)] as [number, number],
-            armorPen: isAlpha ? 0.3 : 0.15,
-            armorDmg: 0.5,
-            fatigueCost: 8,
+            description: weaponDesc,
+            damage: [Math.floor(dmgMin * beastStatMult), Math.floor(dmgMax * beastStatMult)] as [number, number],
+            armorPen,
+            armorDmg,
+            fatigueCost: fatCost,
             range: 1,
-            hitChanceMod: isAlpha ? 15 : 10,
+            hitChanceMod: hitMod,
           },
           offHand: null,
           armor: null,
@@ -1264,8 +1386,8 @@ export const App: React.FC = () => {
                 if (distAPlayer < VISION_RADIUS || distBPlayer < VISION_RADIUS) continue;
                 
                 // 土匪/野兽/游牧(敌对) vs 商队 -> 商队被劫
-                const isHostileA = a.faction === 'HOSTILE' && (a.type === 'BANDIT' || a.type === 'BEAST' || a.type === 'NOMAD');
-                const isHostileB = b.faction === 'HOSTILE' && (b.type === 'BANDIT' || b.type === 'BEAST' || b.type === 'NOMAD');
+                const isHostileA = a.faction === 'HOSTILE' && (a.type === 'BANDIT' || a.type === 'BEAST' || a.type === 'NOMAD' || a.type === 'CULT');
+                const isHostileB = b.faction === 'HOSTILE' && (b.type === 'BANDIT' || b.type === 'BEAST' || b.type === 'NOMAD' || b.type === 'CULT');
                 
                 if (isHostileA && b.type === 'TRADER') {
                   toRemoveIds.add(b.id);
