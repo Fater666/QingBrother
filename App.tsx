@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -464,6 +464,29 @@ const generateBattleResult = (
         id: `loot-${consumable.id}-${Date.now()}`,
       });
     }
+
+    // --- 传世红装特殊掉落 ---
+    // 仅在击杀高难度敌人（ARMY / BERSERKER）时，有小概率额外掉落一件传世红装
+    const highTierKills = enemyUnits.filter(u => u.isDead && (u.aiType === 'ARMY' || u.aiType === 'BERSERKER')).length;
+    if (highTierKills > 0) {
+      // 每个高级敌人增加 2% 掉落率，最高 12%
+      const uniqueDropChance = Math.min(0.12, highTierKills * 0.02);
+      if (Math.random() < uniqueDropChance) {
+        const allUniqueItems: Item[] = [
+          ...UNIQUE_WEAPON_TEMPLATES,
+          ...UNIQUE_ARMOR_TEMPLATES,
+          ...UNIQUE_HELMET_TEMPLATES,
+          ...UNIQUE_SHIELD_TEMPLATES,
+        ];
+        if (allUniqueItems.length > 0) {
+          const uniqueItem = allUniqueItems[Math.floor(Math.random() * allUniqueItems.length)];
+          lootItems.push({
+            ...uniqueItem,
+            id: `loot-unique-${uniqueItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          });
+        }
+      }
+    }
   }
 
   // --- 金钱奖励 ---
@@ -504,23 +527,25 @@ const getDifficultyTier = (day: number) => {
   return { tier: 3, valueLimit: 5000, statMult: 1.3 };
 };
 
-/** 根据AI类型和价值上限为敌人分配合适装备 */
+/** 根据AI类型和价值上限为敌人分配合适装备（排除传世红装） */
 const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
   mainHand: Item | null; offHand: Item | null; armor: Item | null; helmet: Item | null;
 } => {
   const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
   const uid = () => Math.random().toString(36).slice(2, 6);
   const cloneItem = (item: Item) => ({ ...item, id: `e-${item.id}-${uid()}` });
+  // 排除 UNIQUE 品质物品（红装只通过特殊掉落获得）
+  const noUnique = (items: Item[]) => items.filter(i => i.rarity !== 'UNIQUE');
 
   switch (aiType) {
     case 'ARCHER': {
       // 弓手必须拿远程武器
-      const rangedWeapons = WEAPON_TEMPLATES.filter(w =>
-        (w.name.includes('弓') || w.name.includes('弩')) && w.value <= valueLimit
+      const rangedWeapons = noUnique(WEAPON_TEMPLATES).filter(w =>
+        (w.name.includes('弓') || w.name.includes('弩') || w.weaponClass === 'bow' || w.weaponClass === 'crossbow') && w.value <= valueLimit
       );
       const weapon = rangedWeapons.length > 0 ? pick(rangedWeapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_bow_3') || WEAPON_TEMPLATES.find(w => w.name.includes('弓'))!;
-      const lightArmors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit * 0.5, 300));
-      const lightHelmets = HELMET_TEMPLATES.filter(h => h.value <= Math.min(valueLimit * 0.3, 200));
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.5, 300));
+      const lightHelmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= Math.min(valueLimit * 0.3, 200));
       return {
         mainHand: cloneItem(weapon),
         offHand: null,
@@ -530,16 +555,16 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
     }
     case 'BANDIT': {
       // 匪徒拿各类近战武器，可能有盾
-      const weapons = WEAPON_TEMPLATES.filter(w =>
+      const weapons = noUnique(WEAPON_TEMPLATES).filter(w =>
         !w.name.includes('弓') && !w.name.includes('弩') &&
         !w.name.includes('飞石') && !w.name.includes('飞蝗') && !w.name.includes('标枪') && !w.name.includes('投矛') && !w.name.includes('飞斧') &&
         !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
         w.value <= valueLimit && w.value > 0
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_sword_1')!;
-      const shields = SHIELD_TEMPLATES.filter(s => s.value <= valueLimit);
-      const armors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit, 600));
-      const helmets = HELMET_TEMPLATES.filter(h => h.value <= Math.min(valueLimit * 0.5, 400));
+      const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit, 600));
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= Math.min(valueLimit * 0.5, 400));
       return {
         mainHand: cloneItem(weapon),
         offHand: shields.length > 0 && Math.random() < 0.3 ? cloneItem(pick(shields)) : null,
@@ -550,16 +575,16 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
     case 'ARMY': {
       // 军队拿制式军事武器 + 高概率盾牌 + 中重甲
       const armyKeywords = ['矛', '枪', '剑', '戈', '戟', '殳', '刀'];
-      const weapons = WEAPON_TEMPLATES.filter(w =>
+      const weapons = noUnique(WEAPON_TEMPLATES).filter(w =>
         armyKeywords.some(k => w.name.includes(k)) &&
         !w.name.includes('飞') && !w.name.includes('投') && !w.name.includes('标枪') && !w.name.includes('匕') && !w.name.includes('厨') &&
         !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
         w.value <= valueLimit && w.value > 0
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
-      const shields = SHIELD_TEMPLATES.filter(s => s.value <= valueLimit);
-      const armors = ARMOR_TEMPLATES.filter(a => a.value <= valueLimit && a.value >= 80);
-      const helmets = HELMET_TEMPLATES.filter(h => h.value <= valueLimit);
+      const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= valueLimit && a.value >= 80);
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= valueLimit);
       return {
         mainHand: cloneItem(weapon),
         offHand: shields.length > 0 && Math.random() < 0.6 ? cloneItem(pick(shields)) : null,
@@ -570,14 +595,14 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
     case 'BERSERKER': {
       // 狂战士拿重型双手武器，轻甲或无甲，无盾
       const heavyKeywords = ['斧', '锤', '殳', '棒', '鞭', '锏', '铁链', '刀'];
-      const weapons = WEAPON_TEMPLATES.filter(w =>
+      const weapons = noUnique(WEAPON_TEMPLATES).filter(w =>
         heavyKeywords.some(k => w.name.includes(k)) &&
         !w.name.includes('飞') && !w.name.includes('投') && !w.name.includes('匕') && !w.name.includes('厨') &&
         !(w.name.includes('爪') || w.name.includes('牙') || w.name.includes('獠')) &&
         w.value <= valueLimit && w.value >= 80
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_axe_1')!;
-      const lightArmors = ARMOR_TEMPLATES.filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
       return {
         mainHand: cloneItem(weapon),
         offHand: null,

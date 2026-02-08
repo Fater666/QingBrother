@@ -41,14 +41,35 @@ export const WEAPON_TEMPLATES: Item[] = parseCSV(WEAPONS_CSV).map(w => ({
   ...w,
   type: 'WEAPON',
   maxDurability: w.durability,
-  damage: [w.dmgMin, w.dmgMax]
+  damage: [w.dmgMin, w.dmgMax],
+  twoHanded: w.twoHanded === true || w.twoHanded === 'true',
+  weaponClass: w.weaponClass || undefined,
+  rarity: w.rarity || undefined,
 }));
 
-export const ARMOR_TEMPLATES: Item[] = parseCSV(ARMOR_CSV).map(a => ({ ...a, type: 'ARMOR', maxDurability: a.durability }));
+export const ARMOR_TEMPLATES: Item[] = parseCSV(ARMOR_CSV).map(a => ({
+  ...a, type: 'ARMOR', maxDurability: a.durability,
+  rarity: a.rarity || undefined,
+}));
 
-export const HELMET_TEMPLATES: Item[] = parseCSV(HELMETS_CSV).map(h => ({ ...h, type: 'HELMET', maxDurability: h.durability }));
+export const HELMET_TEMPLATES: Item[] = parseCSV(HELMETS_CSV).map(h => ({
+  ...h, type: 'HELMET', maxDurability: h.durability,
+  rarity: h.rarity || undefined,
+}));
 
-export const SHIELD_TEMPLATES: Item[] = parseCSV(SHIELDS_CSV).map(s => ({ ...s, type: 'SHIELD', maxDurability: s.durability }));
+export const SHIELD_TEMPLATES: Item[] = parseCSV(SHIELDS_CSV).map(s => ({
+  ...s, type: 'SHIELD', maxDurability: s.durability,
+  rarity: s.rarity || undefined,
+}));
+
+/** 所有传世红装武器模板（rarity === 'UNIQUE'） */
+export const UNIQUE_WEAPON_TEMPLATES: Item[] = WEAPON_TEMPLATES.filter(w => w.rarity === 'UNIQUE');
+/** 所有传世红装护甲模板 */
+export const UNIQUE_ARMOR_TEMPLATES: Item[] = ARMOR_TEMPLATES.filter(a => a.rarity === 'UNIQUE');
+/** 所有传世红装头盔模板 */
+export const UNIQUE_HELMET_TEMPLATES: Item[] = HELMET_TEMPLATES.filter(h => h.rarity === 'UNIQUE');
+/** 所有传世红装盾牌模板 */
+export const UNIQUE_SHIELD_TEMPLATES: Item[] = SHIELD_TEMPLATES.filter(s => s.rarity === 'UNIQUE');
 
 export const PERK_TREE: Record<string, Perk> = {};
 parseCSV(PERKS_CSV).forEach(p => {
@@ -234,34 +255,62 @@ export const getUnitAbilities = (char: Character): Ability[] => {
     const main = char.equipment.mainHand;
     const off = char.equipment.offHand;
     if (main) {
-        // 投掷类武器优先检查（名称可能包含 枪/矛/斧 等字，需优先匹配）
-        if (main.name.includes('飞石') || main.name.includes('飞蝗') || main.name.includes('标枪') || main.name.includes('投矛') || main.name.includes('飞斧')) {
+        const wc = main.weaponClass;  // 优先使用武器类别字段
+        const wn = main.name;         // 兼容名称匹配
+
+        // 投掷类优先检查（名称可能包含 枪/矛/斧 等字，需优先匹配）
+        if (wc === 'throw' || wn.includes('飞石') || wn.includes('飞蝗') || wn.includes('标枪') || wn.includes('投矛') || wn.includes('飞斧')) {
             skills.push(ABILITIES['THROW']);
         }
         // 匕首类
-        else if (main.name.includes('匕')) { skills.push(ABILITIES['PUNCTURE']); skills.push(ABILITIES['SLASH']); }
+        else if (wc === 'dagger' || wn.includes('匕')) {
+            skills.push(ABILITIES['PUNCTURE']); skills.push(ABILITIES['SLASH']);
+        }
         // 剑类
-        else if (main.name.includes('剑')) { skills.push(ABILITIES['SLASH']); if(main.value>200) skills.push(ABILITIES['RIPOSTE']); }
+        else if (wc === 'sword' || wn.includes('剑')) {
+            skills.push(ABILITIES['SLASH']);
+            if (main.value > 200) skills.push(ABILITIES['RIPOSTE']);
+        }
         // 斧类
-        else if (main.name.includes('斧')) { skills.push(ABILITIES['CHOP']); skills.push(ABILITIES['SPLIT_SHIELD']); }
-        // 刀类（厨刀、环首刀、斩马刀等）
-        else if (main.name.includes('刀')) { skills.push(ABILITIES['SLASH']); }
+        else if (wc === 'axe' || wn.includes('斧')) {
+            skills.push(ABILITIES['CHOP']); skills.push(ABILITIES['SPLIT_SHIELD']);
+        }
+        // 刀类（厨刀、环首刀、斩马刀、龙牙刀等）
+        else if (wc === 'cleaver' || wn.includes('刀')) {
+            skills.push(ABILITIES['SLASH']);
+        }
         // 矛/枪类
-        else if (main.name.includes('矛') || main.name.includes('枪')) { skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']); }
-        // 锤类（石锤、铁骨朵锤等）
-        else if (main.name.includes('锤') || main.name.includes('骨朵')) { skills.push(ABILITIES['BASH']); }
-        // 棒/殳类
-        else if (main.name.includes('棒') || main.name.includes('殳')) { skills.push(ABILITIES['BASH']); }
-        // 鞭/锏/铁链类（铁连鞭、精钢狼牙锏、木柄铁链等）
-        else if (main.name.includes('鞭') || main.name.includes('锏') || main.name.includes('铁链')) { skills.push(ABILITIES['BASH']); }
-        // 戈/戟类
-        else if (main.name.includes('戈') || main.name.includes('戟')) { skills.push(ABILITIES['IMPALE']); }
+        else if (wc === 'spear' || wn.includes('矛') || wn.includes('枪')) {
+            skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']);
+        }
+        // 锤类
+        else if (wc === 'hammer' || wn.includes('锤') || wn.includes('骨朵')) {
+            skills.push(ABILITIES['BASH']);
+        }
+        // 棒/殳/钝器类
+        else if (wc === 'mace' || wn.includes('棒') || wn.includes('殳')) {
+            skills.push(ABILITIES['BASH']);
+        }
+        // 连枷/鞭/锏/铁链类
+        else if (wc === 'flail' || wn.includes('鞭') || wn.includes('锏') || wn.includes('铁链')) {
+            skills.push(ABILITIES['BASH']);
+        }
+        // 戈/戟类（长柄武器）
+        else if (wc === 'polearm' || wn.includes('戈') || wn.includes('戟')) {
+            skills.push(ABILITIES['IMPALE']);
+        }
         // 野兽天然武器（爪/牙）
-        else if (main.name.includes('爪') || main.name.includes('牙') || main.name.includes('獠')) { skills.push(ABILITIES['BITE']); }
+        else if (wn.includes('爪') || wn.includes('牙') || wn.includes('獠')) {
+            skills.push(ABILITIES['BITE']);
+        }
         // 弓类
-        else if (main.name.includes('弓')) { skills.push(ABILITIES['SHOOT']); }
+        else if (wc === 'bow' || wn.includes('弓')) {
+            skills.push(ABILITIES['SHOOT']);
+        }
         // 弩类
-        else if (main.name.includes('弩')) { skills.push(ABILITIES['SHOOT']); skills.push(ABILITIES['RELOAD']); }
+        else if (wc === 'crossbow' || wn.includes('弩')) {
+            skills.push(ABILITIES['SHOOT']); skills.push(ABILITIES['RELOAD']);
+        }
         // 默认近战攻击
         else { skills.push(ABILITIES['SLASH']); }
     } else { skills.push({ ...ABILITIES['SLASH'], name: '拳击', icon: '✊' }); }

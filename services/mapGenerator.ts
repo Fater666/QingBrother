@@ -451,11 +451,16 @@ export const generateCities = (
       const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
       const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
       const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
+      // 市集不出售传世红装（rarity !== 'UNIQUE'）
+      const marketWeapons = WEAPON_TEMPLATES.filter(w => w.rarity !== 'UNIQUE');
+      const marketArmors = ARMOR_TEMPLATES.filter(a => a.rarity !== 'UNIQUE');
+      const marketHelmets = HELMET_TEMPLATES.filter(h => h.rarity !== 'UNIQUE');
+      const marketShields = SHIELD_TEMPLATES.filter(s => s.rarity !== 'UNIQUE');
       const market: Item[] = [
-        ...WEAPON_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 4),
-        ...ARMOR_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 3),
-        ...HELMET_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2),
-        ...SHIELD_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2),
+        ...marketWeapons.sort(() => 0.5 - Math.random()).slice(0, 4),
+        ...marketArmors.sort(() => 0.5 - Math.random()).slice(0, 3),
+        ...marketHelmets.sort(() => 0.5 - Math.random()).slice(0, 2),
+        ...marketShields.sort(() => 0.5 - Math.random()).slice(0, 2),
         // 粮食类：2-4份
         ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
         // 医药类：1-2份

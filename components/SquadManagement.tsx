@@ -46,8 +46,13 @@ const getItemBrief = (item: Item): string => {
     return '';
 };
 
-// 检查物品是否可以装备到指定槽位
-const canEquipToSlot = (item: Item, slot: keyof Character['equipment']): boolean => {
+// 检查物品是否可以装备到指定槽位（支持双手武器限制）
+const canEquipToSlot = (item: Item, slot: keyof Character['equipment'], char?: Character): boolean => {
+    // 双手武器不可放到副手
+    if (slot === 'offHand' && item.twoHanded) return false;
+    // 主手已装备双手武器时，副手不可装备
+    if (slot === 'offHand' && char?.equipment.mainHand?.twoHanded) return false;
+
     const slotTypeMap: Record<keyof Character['equipment'], Item['type'][]> = {
         mainHand: ['WEAPON'],
         offHand: ['WEAPON', 'SHIELD'], // 副手可以装备武器（双持）或盾牌
@@ -88,8 +93,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       const data: DragData = JSON.parse(dataStr);
       if (!data.item || !selectedMerc) return;
       
-      // 验证物品类型是否匹配槽位
-      if (!canEquipToSlot(data.item, slot)) return;
+      // 验证物品类型是否匹配槽位（含双手武器限制）
+      if (!canEquipToSlot(data.item, slot, selectedMerc)) return;
       
       const newMercs = party.mercenaries.map(m => {
           if (m.id !== selectedMerc.id) return m;
@@ -99,6 +104,11 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           if (data.type === 'INVENTORY') newInv.splice(data.index!, 1);
           if (old) newInv.push(old);
           newEquip[slot] = data.item!;
+          // 双手武器装备到主手时，自动卸下副手
+          if (slot === 'mainHand' && data.item!.twoHanded && newEquip.offHand) {
+              newInv.push(newEquip.offHand);
+              newEquip.offHand = null;
+          }
           onUpdateParty({ ...party, inventory: newInv });
           return { ...m, equipment: newEquip };
       });
@@ -111,8 +121,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const handleEquipFromStash = (slot: keyof Character['equipment']) => {
       if (!selectedStashItem || !selectedMerc) return;
       
-      // 验证物品类型是否匹配槽位
-      if (!canEquipToSlot(selectedStashItem.item, slot)) return;
+      // 验证物品类型是否匹配槽位（含双手武器限制）
+      if (!canEquipToSlot(selectedStashItem.item, slot, selectedMerc)) return;
       
       const newMercs = party.mercenaries.map(m => {
           if (m.id !== selectedMerc.id) return m;
@@ -122,6 +132,11 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           newInv.splice(selectedStashItem.index, 1);
           if (old) newInv.push(old);
           newEquip[slot] = selectedStashItem.item;
+          // 双手武器装备到主手时，自动卸下副手
+          if (slot === 'mainHand' && selectedStashItem.item.twoHanded && newEquip.offHand) {
+              newInv.push(newEquip.offHand);
+              newEquip.offHand = null;
+          }
           onUpdateParty({ ...party, inventory: newInv });
           return { ...m, equipment: newEquip };
       });
@@ -301,7 +316,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('helmet') : handleUnequip('helmet')}
                                 onDrop={(e) => handleDropOnEquip(e, 'helmet')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'helmet')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'helmet', selectedMerc)}
                             />
                             <div /> {/* 右空 */}
                             
@@ -312,7 +327,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('mainHand') : handleUnequip('mainHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'mainHand')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'mainHand')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'mainHand', selectedMerc)}
                             />
                             <EquipSlotText 
                                 label="身甲" 
@@ -320,7 +335,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('armor') : handleUnequip('armor')}
                                 onDrop={(e) => handleDropOnEquip(e, 'armor')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'armor')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'armor', selectedMerc)}
                             />
                             <EquipSlotText 
                                 label="副手" 
@@ -328,7 +343,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('offHand') : handleUnequip('offHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'offHand')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'offHand')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'offHand', selectedMerc)}
+                                locked={!!selectedMerc.equipment.mainHand?.twoHanded}
                             />
                             
                             {/* Row 3: 弹药 | 空 | 饰品 */}
@@ -338,7 +354,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('ammo') : handleUnequip('ammo')}
                                 onDrop={(e) => handleDropOnEquip(e, 'ammo')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'ammo')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'ammo', selectedMerc)}
                             />
                             <div /> {/* 中空 */}
                             <EquipSlotText 
@@ -347,7 +363,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onHover={setHoveredItem}
                                 onClick={() => selectedStashItem ? handleEquipFromStash('accessory') : handleUnequip('accessory')}
                                 onDrop={(e) => handleDropOnEquip(e, 'accessory')}
-                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory')}
+                                isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory', selectedMerc)}
                             />
                         </div>
                     </div>
@@ -834,26 +850,37 @@ interface EquipSlotTextProps {
     onClick: () => void;
     onDrop: (e: React.DragEvent) => void;
     isTarget?: boolean;
+    locked?: boolean; // 双手武器锁定副手
 }
 
-const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget }) => (
+const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget, locked }) => (
     <div 
-        onClick={onClick}
+        onClick={locked ? undefined : onClick}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={onDrop}
+        onDrop={locked ? undefined : onDrop}
         onMouseEnter={() => item && onHover(item)}
         onMouseLeave={() => onHover(null)}
-        className={`h-14 border p-2 flex flex-col justify-center transition-all cursor-pointer ${
-            isTarget 
-                ? 'border-amber-600 bg-amber-950/20 hover:bg-amber-900/30' 
-                : item 
-                    ? 'border-amber-900/40 bg-black/30 hover:border-amber-700' 
-                    : 'border-slate-800/50 bg-black/20 hover:border-slate-700'
+        className={`h-14 border p-2 flex flex-col justify-center transition-all ${
+            locked
+                ? 'border-slate-800/30 bg-slate-950/40 cursor-not-allowed opacity-50'
+                : isTarget 
+                    ? 'border-amber-600 bg-amber-950/20 hover:bg-amber-900/30 cursor-pointer' 
+                    : item 
+                        ? 'border-amber-900/40 bg-black/30 hover:border-amber-700 cursor-pointer' 
+                        : 'border-slate-800/50 bg-black/20 hover:border-slate-700 cursor-pointer'
         }`}
     >
-        {item ? (
+        {locked ? (
+            <span className="text-slate-700 text-xs text-center">🔒 双手武器</span>
+        ) : item ? (
             <>
-                <span className="text-amber-400 text-sm font-bold truncate">{item.name}</span>
+                <span className={`text-sm font-bold truncate ${
+                    item.rarity === 'UNIQUE' ? 'text-red-400' 
+                    : item.rarity === 'LEGENDARY' ? 'text-amber-300'
+                    : item.rarity === 'EPIC' ? 'text-purple-300'
+                    : item.rarity === 'RARE' ? 'text-sky-300'
+                    : 'text-amber-400'
+                }`}>{item.name}</span>
                 <span className="text-[10px] text-slate-600">{getItemBrief(item)}</span>
             </>
         ) : (

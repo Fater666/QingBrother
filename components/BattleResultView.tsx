@@ -22,15 +22,23 @@ const ITEM_TYPE_NAMES: Record<string, string> = {
   ACCESSORY: '饰品',
 };
 
-// 获取物品品质颜色（基于价值）
-const getItemQualityColor = (value: number): string => {
+// 获取物品品质颜色（优先使用 rarity，回退 value）
+const getItemQualityColor = (value: number, rarity?: string): string => {
+  if (rarity === 'UNIQUE') return 'text-red-400 border-red-500/70';
+  if (rarity === 'LEGENDARY') return 'text-amber-400 border-amber-500/60';
+  if (rarity === 'EPIC') return 'text-purple-400 border-purple-500/60';
+  if (rarity === 'RARE') return 'text-sky-400 border-sky-500/60';
   if (value >= 1500) return 'text-amber-400 border-amber-500/60';
   if (value >= 600) return 'text-blue-400 border-blue-500/60';
   if (value >= 200) return 'text-green-400 border-green-500/60';
   return 'text-slate-300 border-slate-600/60';
 };
 
-const getItemQualityBg = (value: number): string => {
+const getItemQualityBg = (value: number, rarity?: string): string => {
+  if (rarity === 'UNIQUE') return 'bg-red-950/40';
+  if (rarity === 'LEGENDARY') return 'bg-amber-950/40';
+  if (rarity === 'EPIC') return 'bg-purple-950/40';
+  if (rarity === 'RARE') return 'bg-sky-950/40';
   if (value >= 1500) return 'bg-amber-950/40';
   if (value >= 600) return 'bg-blue-950/40';
   if (value >= 200) return 'bg-emerald-950/30';
@@ -343,8 +351,8 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
           <div className="w-full grid grid-cols-5 gap-3 mb-8">
             {result.lootItems.map((item, i) => {
               const isSelected = selectedItems.has(i);
-              const qualityColor = getItemQualityColor(item.value);
-              const qualityBg = getItemQualityBg(item.value);
+              const qualityColor = getItemQualityColor(item.value, item.rarity);
+              const qualityBg = getItemQualityBg(item.value, item.rarity);
               const canSelect = isSelected || !isFull || (currentInventoryCount + selectedCount < MAX_INVENTORY_SIZE);
 
               return (

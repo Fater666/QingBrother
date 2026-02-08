@@ -84,6 +84,8 @@ export interface BackgroundTemplate {
   stories: string[];
 }
 
+export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'UNIQUE';
+
 export interface Item {
   id: string;
   name: string;
@@ -103,7 +105,10 @@ export interface Item {
   rangedBonus?: number;      
   fatigueCost?: number;      
   maxFatiguePenalty?: number;
-  range?: number;            
+  range?: number;
+  twoHanded?: boolean;        // 是否双手武器（装备后副手不可用）
+  weaponClass?: string;       // 武器类别：sword/axe/mace/flail/cleaver/spear/polearm/dagger/bow/crossbow/throw/hammer
+  rarity?: ItemRarity;        // 显式品质等级
 }
 
 export interface Character {

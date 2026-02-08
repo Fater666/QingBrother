@@ -41,7 +41,7 @@ const getItemBrief = (item: Item): string => {
 };
 
 // ==================== 品质分级系统 ====================
-type ItemTier = 'COMMON' | 'FINE' | 'RARE' | 'EPIC' | 'LEGENDARY';
+type ItemTier = 'COMMON' | 'FINE' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'UNIQUE';
 
 interface TierConfig {
     tier: ItemTier;
@@ -118,9 +118,30 @@ const TIER_CONFIGS: Record<ItemTier, TierConfig> = {
         detailBorderColor: 'border-amber-400',
         priceLabelColor: 'text-amber-300',
     },
+    UNIQUE: {
+        tier: 'UNIQUE', label: '传世红装',
+        borderClass: 'border-red-500/70',
+        borderSelectedClass: 'border-red-400',
+        nameColor: 'text-red-400',
+        labelColor: 'text-red-400',
+        bgClass: 'bg-red-950/20',
+        bgSelectedClass: 'bg-red-900/30',
+        glowClass: 'anim-unique-glow',
+        detailBorderColor: 'border-red-500',
+        priceLabelColor: 'text-red-400',
+    },
 };
 
-const getItemTier = (value: number): TierConfig => {
+/** 获取物品品质配置，优先使用 rarity 字段，缺失时按 value 推算 */
+const getItemTier = (value: number, rarity?: string): TierConfig => {
+    // 显式品质优先
+    if (rarity === 'UNIQUE') return TIER_CONFIGS.UNIQUE;
+    if (rarity === 'LEGENDARY') return TIER_CONFIGS.LEGENDARY;
+    if (rarity === 'EPIC') return TIER_CONFIGS.EPIC;
+    if (rarity === 'RARE') return TIER_CONFIGS.RARE;
+    if (rarity === 'UNCOMMON') return TIER_CONFIGS.FINE;
+    if (rarity === 'COMMON') return TIER_CONFIGS.COMMON;
+    // 回退到 value 推算
     if (value >= 2500) return TIER_CONFIGS.LEGENDARY;
     if (value >= 1200) return TIER_CONFIGS.EPIC;
     if (value >= 500) return TIER_CONFIGS.RARE;
@@ -725,7 +746,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 // 找到在原始数组中的真实index
                                                 const realIndex = sourceItems.indexOf(item);
                                                 const price = getPrice(item);
-                                                const tier = getItemTier(item.value);
+                                                const tier = getItemTier(item.value, item.rarity);
                                                 const isSelected = selectedItem?.from === fromTag && selectedItem?.index === realIndex;
                                                 const canAfford = marketTab === 'BUY' ? party.gold >= price : true;
                                                 return (
@@ -762,7 +783,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
-                                    const tier = getItemTier(item.value);
+                                    const tier = getItemTier(item.value, item.rarity);
                                     const price = selectedItem.from === 'MARKET' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
                                     const canAfford = selectedItem.from === 'MARKET' ? party.gold >= price : true;
                                     return (
