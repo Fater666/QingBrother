@@ -387,6 +387,140 @@ const createMercenary = (id: string): Character => {
   };
 };
 
+// ============================================================================
+// 商店系统 - 按类别+城市规模分层生成装备（仿战场兄弟）
+// ============================================================================
+
+/** 品质等级及其在各城市规模下的出现权重 */
+const RARITY_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const;
+
+/** 各城市规模允许的最高品质及品质权重 */
+const RARITY_WEIGHTS: Record<string, Record<string, number>> = {
+  VILLAGE:  { COMMON: 50, UNCOMMON: 40, RARE: 10, EPIC: 0, LEGENDARY: 0 },
+  TOWN:    { COMMON: 20, UNCOMMON: 35, RARE: 30, EPIC: 12, LEGENDARY: 3 },
+  CAPITAL: { COMMON: 10, UNCOMMON: 20, RARE: 30, EPIC: 25, LEGENDARY: 15 },
+};
+
+/** 各城市规模的库存数量范围 [min, max] */
+const MARKET_STOCK_CONFIG: Record<string, { weapons: [number, number]; armors: [number, number]; helmets: [number, number]; shields: [number, number]; food: [number, number]; med: [number, number]; repairChance: number }> = {
+  VILLAGE:  { weapons: [2, 3], armors: [1, 2], helmets: [0, 1], shields: [0, 1], food: [2, 3], med: [1, 1], repairChance: 0.3 },
+  TOWN:    { weapons: [3, 5], armors: [2, 3], helmets: [1, 2], shields: [1, 2], food: [2, 4], med: [1, 2], repairChance: 0.6 },
+  CAPITAL: { weapons: [5, 7], armors: [3, 4], helmets: [2, 3], shields: [2, 3], food: [3, 5], med: [2, 3], repairChance: 0.9 },
+};
+
+/** 按权重随机选择一个品质等级 */
+const rollRarity = (cityType: string): string => {
+  const weights = RARITY_WEIGHTS[cityType] || RARITY_WEIGHTS.TOWN;
+  const entries = RARITY_ORDER.map(r => ({ rarity: r, weight: weights[r] || 0 })).filter(e => e.weight > 0);
+  const total = entries.reduce((s, e) => s + e.weight, 0);
+  let roll = Math.random() * total;
+  for (const e of entries) {
+    roll -= e.weight;
+    if (roll <= 0) return e.rarity;
+  }
+  return entries[entries.length - 1].rarity;
+};
+
+/** 在 [min, max] 范围内随机整数 */
+const randRange = (min: number, max: number): number => min + Math.floor(Math.random() * (max - min + 1));
+
+/** 从数组中按品质筛选后随机选一个，如果没有匹配则从全池随机 */
+const pickByRarity = (pool: Item[], rarity: string): Item | null => {
+  const matched = pool.filter(it => it.rarity === rarity);
+  if (matched.length > 0) return { ...matched[Math.floor(Math.random() * matched.length)] };
+  // 降级：找最接近的低品质
+  const idx = RARITY_ORDER.indexOf(rarity as any);
+  for (let i = idx - 1; i >= 0; i--) {
+    const fallback = pool.filter(it => it.rarity === RARITY_ORDER[i]);
+    if (fallback.length > 0) return { ...fallback[Math.floor(Math.random() * fallback.length)] };
+  }
+  return pool.length > 0 ? { ...pool[Math.floor(Math.random() * pool.length)] } : null;
+};
+
+/**
+ * 生成城市商店库存（仿战场兄弟）
+ * - 武器按 weaponClass 分配，保证类别多样性
+ * - 城市规模影响品质上限和库存数量
+ * - 排除 UNIQUE 品质
+ */
+export const generateCityMarket = (cityType: 'CAPITAL' | 'TOWN' | 'VILLAGE'): Item[] => {
+  const config = MARKET_STOCK_CONFIG[cityType];
+  const market: Item[] = [];
+
+  // --- 武器：按 weaponClass 分类，每类最多抽 1 把，保证多样性 ---
+  const nonUniqueWeapons = WEAPON_TEMPLATES.filter(w => w.rarity !== 'UNIQUE');
+  const weaponClasses = [...new Set(nonUniqueWeapons.map(w => w.weaponClass).filter(Boolean))] as string[];
+  const weaponCount = randRange(config.weapons[0], config.weapons[1]);
+  // 打乱类别顺序，取前 N 个类别各出一把
+  const shuffledClasses = [...weaponClasses].sort(() => 0.5 - Math.random());
+  const classesToUse = shuffledClasses.slice(0, Math.min(weaponCount, shuffledClasses.length));
+  
+  for (const cls of classesToUse) {
+    const classPool = nonUniqueWeapons.filter(w => w.weaponClass === cls);
+    const rarity = rollRarity(cityType);
+    const weapon = pickByRarity(classPool, rarity);
+    if (weapon) market.push(weapon);
+  }
+  // 如果还需要更多武器（weaponCount > 类别数），再从全池随机补充
+  while (market.filter(it => it.type === 'WEAPON').length < weaponCount) {
+    const rarity = rollRarity(cityType);
+    const weapon = pickByRarity(nonUniqueWeapons, rarity);
+    if (weapon) market.push(weapon);
+    else break;
+  }
+
+  // --- 护甲 ---
+  const nonUniqueArmors = ARMOR_TEMPLATES.filter(a => a.rarity !== 'UNIQUE');
+  const armorCount = randRange(config.armors[0], config.armors[1]);
+  for (let i = 0; i < armorCount; i++) {
+    const rarity = rollRarity(cityType);
+    const armor = pickByRarity(nonUniqueArmors, rarity);
+    if (armor) market.push(armor);
+  }
+
+  // --- 头盔 ---
+  const nonUniqueHelmets = HELMET_TEMPLATES.filter(h => h.rarity !== 'UNIQUE');
+  const helmetCount = randRange(config.helmets[0], config.helmets[1]);
+  for (let i = 0; i < helmetCount; i++) {
+    const rarity = rollRarity(cityType);
+    const helmet = pickByRarity(nonUniqueHelmets, rarity);
+    if (helmet) market.push(helmet);
+  }
+
+  // --- 盾牌 ---
+  const nonUniqueShields = SHIELD_TEMPLATES.filter(s => s.rarity !== 'UNIQUE');
+  const shieldCount = randRange(config.shields[0], config.shields[1]);
+  for (let i = 0; i < shieldCount; i++) {
+    const rarity = rollRarity(cityType);
+    const shield = pickByRarity(nonUniqueShields, rarity);
+    if (shield) market.push(shield);
+  }
+
+  // --- 消耗品 ---
+  const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
+  const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
+  const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
+
+  const foodCount = randRange(config.food[0], config.food[1]);
+  market.push(...foodItems.sort(() => 0.5 - Math.random()).slice(0, foodCount));
+
+  const medCount = randRange(config.med[0], config.med[1]);
+  market.push(...medItems.sort(() => 0.5 - Math.random()).slice(0, medCount));
+
+  if (Math.random() < config.repairChance) {
+    market.push(repairItems[Math.floor(Math.random() * repairItems.length)]);
+  }
+
+  return market;
+};
+
+/**
+ * 生成城市价格浮动系数 (0.8 ~ 1.2)
+ */
+export const rollPriceModifier = (): number => {
+  return +(0.8 + Math.random() * 0.4).toFixed(2);
+};
+
 /**
  * 根据区域特点生成城市
  */
@@ -447,29 +581,6 @@ export const generateCities = (
       tiles[idx].type = 'CITY';
       placedCities.push({ x: cx, y: cy, biome });
       
-      // 生成城市数据
-      const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
-      const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
-      const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
-      // 市集不出售传世红装（rarity !== 'UNIQUE'）
-      const marketWeapons = WEAPON_TEMPLATES.filter(w => w.rarity !== 'UNIQUE');
-      const marketArmors = ARMOR_TEMPLATES.filter(a => a.rarity !== 'UNIQUE');
-      const marketHelmets = HELMET_TEMPLATES.filter(h => h.rarity !== 'UNIQUE');
-      const marketShields = SHIELD_TEMPLATES.filter(s => s.rarity !== 'UNIQUE');
-      const market: Item[] = [
-        ...marketWeapons.sort(() => 0.5 - Math.random()).slice(0, 4),
-        ...marketArmors.sort(() => 0.5 - Math.random()).slice(0, 3),
-        ...marketHelmets.sort(() => 0.5 - Math.random()).slice(0, 2),
-        ...marketShields.sort(() => 0.5 - Math.random()).slice(0, 2),
-        // 粮食类：2-4份
-        ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
-        // 医药类：1-2份
-        ...medItems.sort(() => 0.5 - Math.random()).slice(0, 1 + Math.floor(Math.random() * 2)),
-        // 修甲工具：0-1份
-        ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
-      ];
-      const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
-      
       // 城市类型：第一个城市是王都，其他根据区域定
       let cityType: 'CAPITAL' | 'TOWN' | 'VILLAGE' = 'TOWN';
       if (nameIndex === 0) {
@@ -477,6 +588,10 @@ export const generateCities = (
       } else if (biome === 'NORTHERN_TUNDRA' || biome === 'FAR_SOUTH_DESERT') {
         cityType = 'VILLAGE';
       }
+
+      // 使用新的分层市场生成系统
+      const market = generateCityMarket(cityType);
+      const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
       
       // 根据城市规模生成不同数量的任务（仿战场兄弟）
       const quests = generateCityQuests(biome, cityType, `city-${nameIndex}`, nameIndex);
@@ -491,7 +606,9 @@ export const generateCities = (
         facilities: ['MARKET', 'RECRUIT', 'TAVERN', 'TEMPLE'],
         market,
         recruits,
-        quests
+        quests,
+        lastMarketRefreshDay: 1,
+        priceModifier: rollPriceModifier(),
       });
       
       nameIndex++;

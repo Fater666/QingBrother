@@ -12,7 +12,7 @@ import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
 import { BattleResultView } from './components/BattleResultView.tsx';
 import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
-import { generateWorldMap, getBiome, BIOME_CONFIGS } from './services/mapGenerator.ts';
+import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier } from './services/mapGenerator.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 
@@ -992,11 +992,16 @@ export const App: React.FC = () => {
         const data = JSON.parse(raw);
         setTiles(data.tiles);
 
-        // 旧存档兼容：为城市市场补充消耗品/盾牌/头盔
+        // 旧存档兼容：为城市市场补充消耗品/盾牌/头盔 + 商店刷新字段
         const loadedCities: City[] = (data.cities || []).map((city: City) => {
-            const hasConsumables = city.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
-            const hasHelmets = city.market.some((item: Item) => item.type === 'HELMET');
-            const hasShields = city.market.some((item: Item) => item.type === 'SHIELD');
+            let updated = { ...city };
+            // 补充缺失的商店刷新字段
+            if (updated.lastMarketRefreshDay == null) updated.lastMarketRefreshDay = 1;
+            if (updated.priceModifier == null) updated.priceModifier = rollPriceModifier();
+
+            const hasConsumables = updated.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
+            const hasHelmets = updated.market.some((item: Item) => item.type === 'HELMET');
+            const hasShields = updated.market.some((item: Item) => item.type === 'SHIELD');
             if (!hasConsumables || !hasHelmets || !hasShields) {
                 const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
                 const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
@@ -1010,9 +1015,9 @@ export const App: React.FC = () => {
                         ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
                     ] : []),
                 ];
-                return { ...city, market: [...city.market, ...newItems] };
+                updated = { ...updated, market: [...updated.market, ...newItems] };
             }
-            return city;
+            return updated;
         });
         setCities(loadedCities);
 
@@ -1337,6 +1342,25 @@ export const App: React.FC = () => {
               inventory: updatedInv,
               moraleModifier: isStarving ? -1 : p.moraleModifier,
             };
+          });
+
+          // === 商店库存 & 佣兵招募池定期刷新（每 3 天） ===
+          setCities(prevCities => {
+            let changed = false;
+            const updated = prevCities.map(c => {
+              if (currentDay - (c.lastMarketRefreshDay || 1) >= 3) {
+                changed = true;
+                return {
+                  ...c,
+                  market: generateCityMarket(c.type),
+                  recruits: Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${c.id}-${currentDay}-${j}`)),
+                  lastMarketRefreshDay: currentDay,
+                  priceModifier: rollPriceModifier(),
+                };
+              }
+              return c;
+            });
+            return changed ? updated : prevCities;
           });
         }
 

@@ -256,7 +256,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   const handleBuy = (item: Item, index: number) => {
-      const price = Math.floor(item.value * 1.5);
+      const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
       if (party.gold >= price) {
           // 粮食类消耗品直接转化为 party.food
           if (item.type === 'CONSUMABLE' && item.subType === 'FOOD' && item.effectValue) {
@@ -288,7 +288,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   const handleSell = (item: Item, index: number) => {
-      const price = Math.floor(item.value * 0.5);
+      const price = Math.floor(item.value * 0.5 * (city.priceModifier || 1));
       const newInv = [...party.inventory];
       newInv.splice(index, 1);
       onUpdateParty({ ...party, gold: party.gold + price, inventory: newInv });
@@ -581,7 +581,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     {subView === 'MARKET' && (() => {
                         const sourceItems = marketTab === 'BUY' ? city.market : party.inventory;
                         const filteredItems = itemFilter === 'ALL' ? sourceItems : sourceItems.filter(it => it.type === itemFilter);
-                        const getPrice = (item: Item) => marketTab === 'BUY' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
+                        const pm = city.priceModifier || 1;
+                        const getPrice = (item: Item) => marketTab === 'BUY' ? Math.floor(item.value * 1.5 * pm) : Math.floor(item.value * 0.5 * pm);
                         const fromTag = marketTab === 'BUY' ? 'MARKET' as const : 'INVENTORY' as const;
 
                         // 修缮模式：收集所有需要修复的装备
@@ -784,7 +785,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
-                                    const price = selectedItem.from === 'MARKET' ? Math.floor(item.value * 1.5) : Math.floor(item.value * 0.5);
+                                    const pmDetail = city.priceModifier || 1;
+                                    const price = selectedItem.from === 'MARKET' ? Math.floor(item.value * 1.5 * pmDetail) : Math.floor(item.value * 0.5 * pmDetail);
                                     const canAfford = selectedItem.from === 'MARKET' ? party.gold >= price : true;
                                     return (
                                         <>

@@ -188,7 +188,9 @@ export interface City {
   facilities: CityFacility[]; 
   market: Item[];
   recruits: Character[];
-  quests: Quest[]; 
+  quests: Quest[];
+  lastMarketRefreshDay: number;  // 上次商店刷新的天数
+  priceModifier: number;         // 该城市的价格浮动系数 (0.8 ~ 1.2)
 }
 
 export interface WorldTile {
