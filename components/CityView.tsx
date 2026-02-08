@@ -388,8 +388,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="flex gap-4 text-xs font-mono">
-                            <span className="text-amber-500">金: {party.gold}</span>
-                            <span className="text-emerald-500">粮: {party.food}</span>
+                            <span className="text-amber-500">💰 {party.gold}</span>
+                            <span className="text-emerald-500">🌾 {party.food}</span>
+                            <span className={`${party.inventory.filter(it => it.subType === 'MEDICINE').length > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药 ×${party.inventory.filter(it => it.subType === 'MEDICINE').length}`}>💊 {party.inventory.filter(it => it.subType === 'MEDICINE').length}</span>
+                            <span className={`${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲工具 ×${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}`}>🔧 {party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}</span>
                             <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
                         </div>
                     </div>
@@ -1080,23 +1082,57 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             <div className="flex-1 overflow-y-auto custom-scrollbar">
                                 {city.quests && city.quests.length > 0 ? (
                                     <div className="space-y-4">
-                                        {city.quests.map(quest => (
-                                            <div key={quest.id} className="bg-black/40 border border-amber-900/30 p-4 relative hover:border-amber-600/50 transition-all">
+                                        {city.quests.map(quest => {
+                                            const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
+                                            const isDisabled = !!party.activeQuest || reputationLocked;
+                                            
+                                            return (
+                                            <div key={quest.id} className={`border p-4 relative transition-all ${
+                                                reputationLocked
+                                                    ? 'bg-slate-950/60 border-slate-800/40 opacity-70'
+                                                    : 'bg-black/40 border-amber-900/30 hover:border-amber-600/50'
+                                            }`}>
+                                                {/* 声望门槛标签 */}
+                                                {quest.requiredReputation && (
+                                                    <div className={`absolute top-2 right-2 text-[9px] px-2 py-0.5 border tracking-wider font-bold ${
+                                                        reputationLocked
+                                                            ? 'border-red-900/50 text-red-500/80 bg-red-950/30'
+                                                            : 'border-amber-600/50 text-amber-400 bg-amber-900/20'
+                                                    }`}>
+                                                        {reputationLocked ? '声望不足' : '高级委托'}
+                                                    </div>
+                                                )}
+                                                
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
                                                         <div className="flex items-center gap-3">
-                                                            <span className="text-[10px] px-2 py-0.5 border border-amber-900/40 text-amber-700 uppercase tracking-widest">
+                                                            <span className={`text-[10px] px-2 py-0.5 border uppercase tracking-widest ${
+                                                                reputationLocked ? 'border-slate-700 text-slate-600' : 'border-amber-900/40 text-amber-700'
+                                                            }`}>
                                                                 {getQuestTypeName(quest.type)}
                                                             </span>
-                                                            <h3 className="text-lg font-bold text-amber-100">{quest.title}</h3>
+                                                            <h3 className={`text-lg font-bold ${reputationLocked ? 'text-slate-500' : 'text-amber-100'}`}>{quest.title}</h3>
                                                         </div>
-                                                        <div className="flex text-amber-600 text-xs mt-2 tracking-widest">
-                                                            <span className="text-slate-500 mr-2">难度:</span>
-                                                            {'★'.repeat(quest.difficulty)}<span className="text-slate-700">{'★'.repeat(5 - quest.difficulty)}</span>
+                                                        <div className="flex items-center gap-4 mt-2">
+                                                            <div className={`flex text-xs tracking-widest ${reputationLocked ? 'text-slate-600' : 'text-amber-600'}`}>
+                                                                <span className="text-slate-500 mr-2">难度:</span>
+                                                                {'★'.repeat(quest.difficulty)}<span className="text-slate-700">{'★'.repeat(3 - quest.difficulty)}</span>
+                                                            </div>
+                                                            {quest.requiredReputation && (
+                                                                <div className={`text-[10px] ${reputationLocked ? 'text-red-500/70' : 'text-amber-600'}`}>
+                                                                    需要声望: {quest.requiredReputation}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
                                                         {(() => {
+                                                          if (reputationLocked) {
+                                                            return <>
+                                                              <div className="text-xl font-mono text-slate-600 font-bold">???</div>
+                                                              <div className="text-[10px] text-slate-700">声望不足</div>
+                                                            </>;
+                                                          }
                                                           const mult = getReputationRewardMultiplier(party.reputation);
                                                           const boosted = Math.floor(quest.rewardGold * mult);
                                                           const hasBonus = mult > 1;
@@ -1109,23 +1145,34 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                         })()}
                                                     </div>
                                                 </div>
-                                                <p className="text-sm text-slate-500 italic mb-4 border-l-2 border-amber-900/30 pl-3 leading-relaxed">
-                                                    "{quest.description}"
+                                                <p className={`text-sm italic mb-4 border-l-2 pl-3 leading-relaxed ${
+                                                    reputationLocked ? 'text-slate-600 border-slate-800' : 'text-slate-500 border-amber-900/30'
+                                                }`}>
+                                                    {reputationLocked 
+                                                        ? '「此委托只接受声名远扬的战团。你们……还不够格。」' 
+                                                        : `"${quest.description}"`
+                                                    }
                                                 </p>
                                                 <button 
-                                                    onClick={() => handleQuestTake(quest)}
-                                                    disabled={!!party.activeQuest}
+                                                    onClick={() => !isDisabled && handleQuestTake(quest)}
+                                                    disabled={isDisabled}
                                                     className={`w-full py-3 border font-bold tracking-widest uppercase transition-all
-                                                        ${party.activeQuest 
-                                                            ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed' 
-                                                            : 'bg-amber-900/20 border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white'
+                                                        ${reputationLocked
+                                                            ? 'bg-slate-950/30 border-slate-800 text-slate-700 cursor-not-allowed'
+                                                            : party.activeQuest 
+                                                                ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed' 
+                                                                : 'bg-amber-900/20 border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white'
                                                         }
                                                     `}
                                                 >
-                                                    {party.activeQuest ? '无法接受' : '接受委托'}
+                                                    {reputationLocked 
+                                                        ? `声望不足（需 ${quest.requiredReputation}）` 
+                                                        : party.activeQuest ? '无法接受' : '接受委托'
+                                                    }
                                                 </button>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-700">

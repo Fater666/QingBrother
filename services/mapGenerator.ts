@@ -3,8 +3,8 @@
  * 使用柏林噪声和区域系统生成具有特色的地图
  */
 
-import { WorldTile, City, Quest, Character, Item } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods } from '../constants';
+import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -465,26 +465,6 @@ export const generateCities = (
       ];
       const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
       
-      // 根据区域生成不同风格的任务描述，难度随机1-3星
-      const questDesc = getQuestDescription(biome);
-      const difficultyRoll = Math.random();
-      const questDifficulty: 1 | 2 | 3 = difficultyRoll < 0.4 ? 1 : difficultyRoll < 0.75 ? 2 : 3;
-      const questReward = questDifficulty === 1 ? 200 + Math.floor(Math.random() * 100)
-                        : questDifficulty === 2 ? 400 + Math.floor(Math.random() * 200)
-                        : 700 + Math.floor(Math.random() * 300);
-      const quests: Quest[] = [{
-        id: `q-${nameIndex}-1`, 
-        type: 'HUNT', 
-        title: questDesc.title, 
-        description: questDesc.desc,
-        difficulty: questDifficulty, 
-        rewardGold: questReward, 
-        sourceCityId: `city-${nameIndex}`, 
-        targetEntityName: questDesc.targetEntityName,
-        isCompleted: false, 
-        daysLeft: 7 + questDifficulty * 2
-      }];
-      
       // 城市类型：第一个城市是王都，其他根据区域定
       let cityType: 'CAPITAL' | 'TOWN' | 'VILLAGE' = 'TOWN';
       if (nameIndex === 0) {
@@ -492,6 +472,9 @@ export const generateCities = (
       } else if (biome === 'NORTHERN_TUNDRA' || biome === 'FAR_SOUTH_DESERT') {
         cityType = 'VILLAGE';
       }
+      
+      // 根据城市规模生成不同数量的任务（仿战场兄弟）
+      const quests = generateCityQuests(biome, cityType, `city-${nameIndex}`, nameIndex);
       
       cities.push({
         id: `city-${nameIndex}`,
@@ -513,46 +496,250 @@ export const generateCities = (
   return cities;
 };
 
+// ============================================================================
+// 任务生成系统 - 丰富描述 + 多任务 + 声望门槛
+// ============================================================================
+
+const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
 /**
- * 根据区域生成任务描述（含目标敌人名称）
+ * 根据城市规模确定任务数量
  */
-const getQuestDescription = (biome: BiomeType): { title: string; desc: string; targetEntityName: string } => {
-  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+const getQuestCount = (cityType: City['type']): number => {
+  switch (cityType) {
+    case 'VILLAGE': return 1 + (Math.random() < 0.5 ? 1 : 0); // 1-2
+    case 'TOWN': return 2 + (Math.random() < 0.5 ? 1 : 0);    // 2-3
+    case 'CAPITAL': return 3 + (Math.random() < 0.5 ? 1 : 0);  // 3-4
+  }
+};
+
+/**
+ * 为城市生成一组任务
+ */
+const generateCityQuests = (
+  biome: BiomeType,
+  cityType: City['type'],
+  sourceCityId: string,
+  nameIndex: number
+): Quest[] => {
+  const questCount = getQuestCount(cityType);
+  const quests: Quest[] = [];
+  const usedTargets = new Set<string>(); // 避免重复目标
   
-  switch (biome) {
-    case 'NORTHERN_TUNDRA': {
-      const target = pick(['北疆狼群', '雪狼', '冻土野狼']);
-      return {
-        title: '驱逐狼群',
-        desc: `北疆苦寒，一群名为「${target}」的恶狼成群出没，威胁边民安全。请前往雪原深处将其清剿。`,
-        targetEntityName: target
-      };
+  const biomeTemplates = QUEST_TEMPLATES[biome];
+  const places = QUEST_PLACE_NAMES[biome];
+  const npcPool = [...QUEST_NPC_NAMES.OFFICIALS, ...QUEST_NPC_NAMES.MERCHANTS, ...QUEST_NPC_NAMES.VILLAGERS];
+  
+  // 决定是否生成高声望任务（城镇和王都才有机会）
+  const eliteSlot = cityType !== 'VILLAGE' && Math.random() < (cityType === 'CAPITAL' ? 0.8 : 0.4);
+  
+  for (let qi = 0; qi < questCount; qi++) {
+    const isElite = eliteSlot && qi === questCount - 1; // 最后一个槽位留给高声望任务
+    
+    if (isElite) {
+      // 生成高声望任务
+      const eliteTemplates = ELITE_QUEST_TEMPLATES[biome];
+      if (eliteTemplates && eliteTemplates.length > 0) {
+        const tmpl = pick(eliteTemplates);
+        const difficulty = tmpl.minDifficulty;
+        const place = pick(places);
+        const npc = pick([...QUEST_NPC_NAMES.MILITARY, ...QUEST_NPC_NAMES.OFFICIALS]);
+        const target = tmpl.targets.length > 0 ? pick(tmpl.targets) : '';
+        const descFn = pick(tmpl.descs);
+        const desc = descFn(target, place, npc);
+        const title = tmpl.titles(difficulty);
+        
+        const rewardGold = difficulty === 2 ? 600 + Math.floor(Math.random() * 300)
+                         : 1000 + Math.floor(Math.random() * 500);
+        
+        quests.push({
+          id: `q-${nameIndex}-${qi + 1}`,
+          type: tmpl.type,
+          title,
+          description: desc,
+          difficulty,
+          rewardGold,
+          sourceCityId,
+          targetEntityName: target || undefined,
+          isCompleted: false,
+          daysLeft: 7 + difficulty * 3,
+          requiredReputation: tmpl.requiredReputation,
+        });
+        continue;
+      }
     }
-    case 'CENTRAL_PLAINS': {
-      const target = pick(['流寇', '山贼', '劫匪', '盗贼', '响马']);
-      return {
-        title: '剿灭山贼',
-        desc: `市井传闻，附近官道上有一伙「${target}」打劫商旅，气焰嚣张。官府悬赏缉拿。`,
-        targetEntityName: target
-      };
+    
+    // 普通任务生成
+    // 决定任务类型：前几个优先 HUNT（因为其他类型暂时只有描述没有完整玩法），但也有概率出其他类型
+    const availableTypes: QuestType[] = ['HUNT'];
+    if (biomeTemplates.PATROL) availableTypes.push('PATROL');
+    if ((biomeTemplates as any).ESCORT) availableTypes.push('ESCORT');
+    if ((biomeTemplates as any).DELIVERY) availableTypes.push('DELIVERY');
+    
+    // HUNT 权重更高（70%），其他类型平分剩余
+    let questType: QuestType;
+    if (qi === 0 || Math.random() < 0.7) {
+      questType = 'HUNT';
+    } else {
+      questType = pick(availableTypes);
     }
-    case 'SOUTHERN_WETLANDS': {
-      const target = pick(['沼泽蛮人', '密林蛮族', '越人战士']);
-      return {
-        title: '清剿蛮族',
-        desc: `密林深处有一股「${target}」盘踞，时常袭扰往来行人。请前往清理，恢复通途。`,
-        targetEntityName: target
-      };
+    
+    // 难度：村庄偏低，王都偏高
+    const diffRoll = Math.random();
+    let difficulty: 1 | 2 | 3;
+    if (cityType === 'VILLAGE') {
+      difficulty = diffRoll < 0.6 ? 1 : diffRoll < 0.9 ? 2 : 3;
+    } else if (cityType === 'CAPITAL') {
+      difficulty = diffRoll < 0.2 ? 1 : diffRoll < 0.6 ? 2 : 3;
+    } else {
+      difficulty = diffRoll < 0.4 ? 1 : diffRoll < 0.75 ? 2 : 3;
     }
-    case 'FAR_SOUTH_DESERT': {
-      const target = pick(['胡人劫掠者', '沙匪', '戎狄骑兵']);
-      return {
-        title: '击退胡骑',
-        desc: `沙漠中一伙「${target}」频繁劫掠绿洲商队。绿洲城主急需雇佣勇士将其击退。`,
-        targetEntityName: target
-      };
+    
+    const place = pick(places);
+    const npc = pick(npcPool);
+    
+    if (questType === 'HUNT') {
+      const huntTemplates = biomeTemplates.HUNT;
+      const tmpl = pick(huntTemplates);
+      // 选一个未重复的目标
+      let target = pick(tmpl.targets);
+      let attempts = 0;
+      while (usedTargets.has(target) && attempts < 10) {
+        target = pick(tmpl.targets);
+        attempts++;
+      }
+      usedTargets.add(target);
+      
+      const title = tmpl.titles(difficulty);
+      const descFn = pick(tmpl.descs);
+      const desc = descFn(target, place, npc);
+      
+      const rewardGold = difficulty === 1 ? 200 + Math.floor(Math.random() * 100)
+                       : difficulty === 2 ? 400 + Math.floor(Math.random() * 200)
+                       : 700 + Math.floor(Math.random() * 300);
+      
+      quests.push({
+        id: `q-${nameIndex}-${qi + 1}`,
+        type: 'HUNT',
+        title,
+        description: desc,
+        difficulty,
+        rewardGold,
+        sourceCityId,
+        targetEntityName: target,
+        isCompleted: false,
+        daysLeft: 7 + difficulty * 2,
+      });
+    } else if (questType === 'PATROL' && biomeTemplates.PATROL) {
+      const patrolTemplates = biomeTemplates.PATROL;
+      const tmpl = pick(patrolTemplates);
+      const title = tmpl.titles(difficulty);
+      const descFn = pick(tmpl.descs);
+      const desc = descFn(place, npc);
+      
+      // PATROL 任务也需要目标敌人（巡逻时遇到的敌人）
+      const huntTmpl = pick(biomeTemplates.HUNT);
+      const target = pick(huntTmpl.targets);
+      
+      const rewardGold = difficulty === 1 ? 150 + Math.floor(Math.random() * 80)
+                       : difficulty === 2 ? 300 + Math.floor(Math.random() * 150)
+                       : 550 + Math.floor(Math.random() * 250);
+      
+      quests.push({
+        id: `q-${nameIndex}-${qi + 1}`,
+        type: 'PATROL',
+        title,
+        description: desc,
+        difficulty,
+        rewardGold,
+        sourceCityId,
+        targetEntityName: target,
+        isCompleted: false,
+        daysLeft: 5 + difficulty * 2,
+      });
+    } else if (questType === 'ESCORT' && (biomeTemplates as any).ESCORT) {
+      const escortTemplates = (biomeTemplates as any).ESCORT;
+      const tmpl = pick(escortTemplates);
+      const title = tmpl.titles(difficulty);
+      const descFn = pick(tmpl.descs);
+      const desc = descFn(place, npc);
+      
+      // ESCORT 同样可能遭遇敌人
+      const huntTmpl = pick(biomeTemplates.HUNT);
+      const target = pick(huntTmpl.targets);
+      
+      const rewardGold = difficulty === 1 ? 250 + Math.floor(Math.random() * 100)
+                       : difficulty === 2 ? 500 + Math.floor(Math.random() * 200)
+                       : 800 + Math.floor(Math.random() * 300);
+      
+      quests.push({
+        id: `q-${nameIndex}-${qi + 1}`,
+        type: 'ESCORT',
+        title,
+        description: desc,
+        difficulty,
+        rewardGold,
+        sourceCityId,
+        targetEntityName: target,
+        isCompleted: false,
+        daysLeft: 8 + difficulty * 2,
+      });
+    } else if (questType === 'DELIVERY' && (biomeTemplates as any).DELIVERY) {
+      const deliveryTemplates = (biomeTemplates as any).DELIVERY;
+      const tmpl = pick(deliveryTemplates);
+      const title = tmpl.titles(difficulty);
+      const descFn = pick(tmpl.descs);
+      const desc = descFn(place, npc);
+      
+      // DELIVERY 路上可能遇到截杀
+      const huntTmpl = pick(biomeTemplates.HUNT);
+      const target = pick(huntTmpl.targets);
+      
+      const rewardGold = difficulty === 1 ? 180 + Math.floor(Math.random() * 80)
+                       : difficulty === 2 ? 350 + Math.floor(Math.random() * 150)
+                       : 600 + Math.floor(Math.random() * 250);
+      
+      quests.push({
+        id: `q-${nameIndex}-${qi + 1}`,
+        type: 'DELIVERY',
+        title,
+        description: desc,
+        difficulty,
+        rewardGold,
+        sourceCityId,
+        targetEntityName: target,
+        isCompleted: false,
+        daysLeft: 6 + difficulty * 2,
+      });
+    } else {
+      // 回退到 HUNT
+      const huntTemplates = biomeTemplates.HUNT;
+      const tmpl = pick(huntTemplates);
+      const target = pick(tmpl.targets);
+      const title = tmpl.titles(difficulty);
+      const descFn = pick(tmpl.descs);
+      const desc = descFn(target, place, npc);
+      
+      const rewardGold = difficulty === 1 ? 200 + Math.floor(Math.random() * 100)
+                       : difficulty === 2 ? 400 + Math.floor(Math.random() * 200)
+                       : 700 + Math.floor(Math.random() * 300);
+      
+      quests.push({
+        id: `q-${nameIndex}-${qi + 1}`,
+        type: 'HUNT',
+        title,
+        description: desc,
+        difficulty,
+        rewardGold,
+        sourceCityId,
+        targetEntityName: target,
+        isCompleted: false,
+        daysLeft: 7 + difficulty * 2,
+      });
     }
   }
+  
+  return quests;
 };
 
 // ============================================================================

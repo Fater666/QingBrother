@@ -167,6 +167,7 @@ export interface Quest {
     targetEntityName?: string; // 目标敌人名称（杀敌任务用）
     isCompleted: boolean;
     daysLeft: number;
+    requiredReputation?: number; // 接取此任务所需的最低声望值
 }
 
 export type CityFacility = 'MARKET' | 'RECRUIT' | 'TAVERN' | 'TEMPLE';

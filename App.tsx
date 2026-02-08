@@ -816,12 +816,19 @@ export const App: React.FC = () => {
       return merc;
     });
 
+    // 初始补给：2个金创药 + 1个修甲工具
+    const startingInventory: Item[] = [
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_1' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_2' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_1' },
+    ];
+
     setParty({
       x: mapData.cities[0].x, y: mapData.cities[0].y,
       targetX: null, targetY: null,
       gold: origin.gold, food: origin.food,
       mercenaries: mercs,
-      inventory: [], day: 1.0, activeQuest: null,
+      inventory: startingInventory, day: 1.0, activeQuest: null,
       reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
     });
     lastProcessedDayRef.current = 1; // 新游戏从第1天开始
@@ -1485,8 +1492,10 @@ export const App: React.FC = () => {
 
              <div className="flex gap-8 items-center">
                  <div className="flex gap-4 text-xs font-mono">
-                     <span className="text-amber-500">金: {party.gold}</span>
-                     <span className="text-emerald-500">粮: {party.food}</span>
+                     <span className="text-amber-500">💰 {party.gold}</span>
+                     <span className="text-emerald-500">🌾 {party.food}</span>
+                     <span className={`${party.inventory.filter(it => it.subType === 'MEDICINE').length > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药 ×${party.inventory.filter(it => it.subType === 'MEDICINE').length}`}>💊 {party.inventory.filter(it => it.subType === 'MEDICINE').length}</span>
+                     <span className={`${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲工具 ×${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}`}>🔧 {party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}</span>
                      <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
                      <span className="text-yellow-600">望: {party.reputation}</span>
                  </div>
