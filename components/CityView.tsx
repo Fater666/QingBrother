@@ -11,6 +11,7 @@ interface CityViewProps {
   onUpdateParty: (party: Party) => void;
   onUpdateCity: (city: City) => void;
   onAcceptQuest: (quest: Quest) => void;
+  onCompleteQuest: () => void; // 交付已完成的任务（返回接取城市时调用）
 }
 
 // 获取物品类型的中文名称
@@ -238,7 +239,7 @@ const getBuildingPositions = (facilities: CityFacility[]): Record<CityFacility, 
 
 type SubView = 'MAP' | CityFacility;
 
-export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpdateParty, onUpdateCity, onAcceptQuest }) => {
+export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpdateParty, onUpdateCity, onAcceptQuest, onCompleteQuest }) => {
   const [subView, setSubView] = useState<SubView>('MAP');
   const [notification, setNotification] = useState<string | null>(null);
   const [hoveredBuilding, setHoveredBuilding] = useState<CityFacility | null>(null);
@@ -254,6 +255,13 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       setNotification(msg);
       setTimeout(() => setNotification(null), 2000);
   };
+
+  // 自动跳转：进入接取任务的城市且任务已完成时，自动切换到酒肆
+  useEffect(() => {
+      if (party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id) {
+          setSubView('TAVERN');
+      }
+  }, []); // 仅在进入城市时检查一次
 
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
@@ -1096,13 +1104,56 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             <div className="shrink-0 mb-4 text-center">
                                 <h2 className="text-lg font-bold text-amber-600 tracking-widest">契约公告</h2>
                                 <p className="text-xs text-slate-600 mt-1">在此处接取工作，赚取金币与声望</p>
-                                {party.activeQuest && (
+                                {party.activeQuest && !party.activeQuest.isCompleted && (
                                     <div className="mt-2 text-xs text-red-400 font-bold bg-red-950/20 py-1 px-3 inline-block border border-red-900/40">
                                         已有在身契约，需先完成当前任务
                                     </div>
                                 )}
+                                {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId !== city.id && (
+                                    <div className="mt-2 text-xs text-amber-400 font-bold bg-amber-950/20 py-1 px-3 inline-block border border-amber-900/40">
+                                        契约已完成，请返回接取城市交付
+                                    </div>
+                                )}
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                {/* ===== 已完成任务交付面板（仿战场兄弟：返回接取城市交付） ===== */}
+                                {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id && (
+                                    <div className="mb-5 border-2 border-emerald-700/60 bg-emerald-950/20 p-5 relative animate-pulse-slow">
+                                        <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 border border-emerald-600/50 text-emerald-400 bg-emerald-900/30 font-bold tracking-wider">
+                                            任务完成
+                                        </div>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="text-emerald-500 text-lg">&#10003;</span>
+                                            <h3 className="text-lg font-bold text-emerald-300">{party.activeQuest.title}</h3>
+                                        </div>
+                                        <p className="text-sm text-slate-400 italic mb-3 border-l-2 border-emerald-800/50 pl-3">
+                                            目标已消灭，委托人对你的表现非常满意。
+                                        </p>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="text-sm text-slate-400">
+                                                <span className="text-slate-600">类型: </span>
+                                                <span className="text-amber-600">{party.activeQuest.type === 'HUNT' ? '讨伐' : party.activeQuest.type === 'ESCORT' ? '护送' : party.activeQuest.type === 'PATROL' ? '巡逻' : '押运'}</span>
+                                                {party.activeQuest.targetEntityName && (
+                                                    <span className="ml-3 text-red-400">目标:「{party.activeQuest.targetEntityName}」</span>
+                                                )}
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xl font-mono text-amber-500 font-bold">{party.activeQuest.rewardGold}</div>
+                                                <div className="text-[10px] text-amber-700">金币报酬</div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                onCompleteQuest();
+                                                showNotification(`契约完成！获得 ${party.activeQuest!.rewardGold} 金币`);
+                                            }}
+                                            className="w-full py-3 bg-emerald-800/80 hover:bg-emerald-600 border border-emerald-500/60 text-white font-bold tracking-[0.3em] uppercase transition-all shadow-lg"
+                                        >
+                                            交付契约
+                                        </button>
+                                    </div>
+                                )}
+
                                 {city.quests && city.quests.length > 0 ? (
                                     <div className="space-y-4">
                                         {city.quests.map(quest => {

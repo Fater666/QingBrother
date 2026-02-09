@@ -146,6 +146,16 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
               <p className="text-lg text-amber-600/80 italic">
                 击败了 {result.enemyName}
               </p>
+              {/* 任务目标完成提示 */}
+              {party.activeQuest && party.activeQuest.isCompleted && (
+                <div className="mt-4 px-5 py-2 border border-emerald-600/50 bg-emerald-950/30">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-emerald-400">&#10003;</span>
+                    <span className="text-sm text-emerald-400 font-bold tracking-wider">契约目标已完成</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">返回接取城市交付契约以领取报酬</p>
+                </div>
+              )}
             </>
           ) : (
             <>

@@ -1686,21 +1686,48 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       {/* ===== 当前任务面板 (Quest HUD) ===== */}
       {party.activeQuest && (
         <div className="absolute top-4 right-4 z-50 pointer-events-none">
-          <div className="bg-[#0f0d0a]/85 border border-amber-900/50 backdrop-blur-sm shadow-xl min-w-[220px] max-w-[280px]">
-            <div className="px-3 py-1.5 bg-amber-900/20 border-b border-amber-900/30 flex items-center gap-2">
-              <span className="text-[9px] text-amber-700 uppercase tracking-[0.2em] font-bold">当前契约</span>
+          <div className={`bg-[#0f0d0a]/85 border backdrop-blur-sm shadow-xl min-w-[220px] max-w-[280px] ${
+            party.activeQuest.isCompleted ? 'border-emerald-700/60' : 'border-amber-900/50'
+          }`}>
+            <div className={`px-3 py-1.5 border-b flex items-center gap-2 ${
+              party.activeQuest.isCompleted 
+                ? 'bg-emerald-900/20 border-emerald-900/30' 
+                : 'bg-amber-900/20 border-amber-900/30'
+            }`}>
+              <span className={`text-[9px] uppercase tracking-[0.2em] font-bold ${
+                party.activeQuest.isCompleted ? 'text-emerald-500' : 'text-amber-700'
+              }`}>
+                {party.activeQuest.isCompleted ? '契约完成 - 返回交付' : '当前契约'}
+              </span>
             </div>
             <div className="px-3 py-2 space-y-1.5">
-              <div className="text-sm font-bold text-amber-400 tracking-wider">{party.activeQuest.title}</div>
-              {party.activeQuest.type === 'HUNT' && party.activeQuest.targetEntityName && (
+              <div className={`text-sm font-bold tracking-wider ${
+                party.activeQuest.isCompleted ? 'text-emerald-400' : 'text-amber-400'
+              }`}>{party.activeQuest.title}</div>
+              
+              {/* 已完成：显示返回城市提示 */}
+              {party.activeQuest.isCompleted && (
+                <div className="mt-1.5 pt-1.5 border-t border-emerald-900/30 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-500 text-xs">&#10003;</span>
+                    <span className="text-[10px] text-emerald-400 font-bold">目标已消灭</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 italic">
+                    返回接取契约的城市交付以领取报酬
+                  </div>
+                </div>
+              )}
+
+              {/* 未完成：显示讨伐目标和追踪信息 */}
+              {!party.activeQuest.isCompleted && party.activeQuest.type === 'HUNT' && party.activeQuest.targetEntityName && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] text-red-700 uppercase tracking-widest">讨伐</span>
                   <span className="text-red-400 text-xs font-bold">「{party.activeQuest.targetEntityName}」</span>
                 </div>
               )}
               
-              {/* 追踪信息 */}
-              {party.activeQuest.type === 'HUNT' && questTarget && questTargetDist !== null && questTargetAngle !== null && (
+              {/* 追踪信息（仅未完成时显示） */}
+              {!party.activeQuest.isCompleted && party.activeQuest.type === 'HUNT' && questTarget && questTargetDist !== null && questTargetAngle !== null && (
                 <div className="mt-1.5 pt-1.5 border-t border-amber-900/20 space-y-1">
                   {/* 方向指示 */}
                   <div className="flex items-center gap-2">
@@ -1740,8 +1767,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                 </div>
               )}
               
-              {/* 目标不存在 - 可能已被消灭或找不到 */}
-              {party.activeQuest.type === 'HUNT' && !questTarget && party.activeQuest.targetEntityName && (
+              {/* 目标不存在 - 可能已被消灭或找不到（仅未完成时显示） */}
+              {!party.activeQuest.isCompleted && party.activeQuest.type === 'HUNT' && !questTarget && party.activeQuest.targetEntityName && (
                 <div className="mt-1.5 pt-1.5 border-t border-amber-900/20">
                   <span className="text-[10px] text-slate-600 italic">目标已不在此地…</span>
                 </div>
@@ -1749,7 +1776,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               
               <div className="flex items-center justify-between text-[10px] pt-1">
                 <span className="text-amber-600 font-mono">{party.activeQuest.rewardGold} 金</span>
-                <span className="text-slate-600">剩余 {party.activeQuest.daysLeft} 天</span>
+                {!party.activeQuest.isCompleted && (
+                  <span className="text-slate-600">剩余 {party.activeQuest.daysLeft} 天</span>
+                )}
               </div>
             </div>
           </div>

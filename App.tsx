@@ -868,6 +868,7 @@ export const App: React.FC = () => {
   const [preCombatEntity, setPreCombatEntity] = useState<WorldEntity | null>(null);
   const [battleResult, setBattleResult] = useState<BattleResult | null>(null);
   const combatEnemyNameRef = useRef<string>('');
+  const combatEntityIdRef = useRef<string>(''); // 记录战斗实体ID，用于判断是否击杀了任务目标
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
@@ -1232,6 +1233,7 @@ export const App: React.FC = () => {
     const worldTerrain = tiles[tileIndex]?.type || 'PLAINS';
     
     combatEnemyNameRef.current = entity.name;
+    combatEntityIdRef.current = entity.id;
     setCombatState({
       units: allUnits, 
       turnOrder: sortedTurnOrder,
@@ -1338,12 +1340,26 @@ export const App: React.FC = () => {
               return item;
             });
 
+            // === 任务天数倒计时 ===
+            let updatedQuest = p.activeQuest;
+            if (updatedQuest && !updatedQuest.isCompleted) {
+              const newDaysLeft = updatedQuest.daysLeft - 1;
+              if (newDaysLeft <= 0) {
+                // 任务超时失败：清除任务，扣声望
+                updatedQuest = null;
+              } else {
+                updatedQuest = { ...updatedQuest, daysLeft: newDaysLeft };
+              }
+            }
+
             return {
               ...p,
               food: newFood,
               mercenaries: updatedMercs,
               inventory: updatedInv,
               moraleModifier: isStarving ? -1 : p.moraleModifier,
+              activeQuest: updatedQuest,
+              reputation: updatedQuest === null && p.activeQuest ? Math.max(0, p.reputation - 3) : p.reputation, // 任务失败扣3声望
             };
           });
 
@@ -1834,20 +1850,31 @@ export const App: React.FC = () => {
                       party.mercenaries
                     );
                     setBattleResult(result);
-                    // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数
+                    // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数 + 任务目标击杀判定
                     if (victory) {
-                      setParty(p => ({
-                        ...p,
-                        mercenaries: p.mercenaries.map(m => {
-                          const sur = survivors.find(s => s.id === m.id);
-                          if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
-                          return m; // 阵亡者暂时保留，在结算完成后移除
-                        }),
-                        ambitionState: {
-                          ...p.ambitionState,
-                          battlesWon: p.ambitionState.battlesWon + 1,
+                      setParty(p => {
+                        // 检查是否击杀了任务目标（仿战场兄弟：击杀后标记完成，需返回接取城市交付）
+                        let updatedQuest = p.activeQuest;
+                        if (updatedQuest && updatedQuest.type === 'HUNT' && !updatedQuest.isCompleted) {
+                          const defeatedEntityId = combatEntityIdRef.current;
+                          if (updatedQuest.targetEntityId === defeatedEntityId) {
+                            updatedQuest = { ...updatedQuest, isCompleted: true };
+                          }
                         }
-                      }));
+                        return {
+                          ...p,
+                          activeQuest: updatedQuest,
+                          mercenaries: p.mercenaries.map(m => {
+                            const sur = survivors.find(s => s.id === m.id);
+                            if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
+                            return m; // 阵亡者暂时保留，在结算完成后移除
+                          }),
+                          ambitionState: {
+                            ...p.ambitionState,
+                            battlesWon: p.ambitionState.battlesWon + 1,
+                          }
+                        };
+                      });
                     }
                     setCombatState(null);
                     setView('BATTLE_RESULT');
@@ -1901,6 +1928,20 @@ export const App: React.FC = () => {
                 onLeave={() => { setView('WORLD_MAP'); setTimeScale(0); }}
                 onUpdateParty={setParty}
                 onUpdateCity={(newCity) => { setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c)); setCurrentCity(newCity); }}
+                onCompleteQuest={() => {
+                    // 交付已完成的任务：获得金币奖励 + 声望 + 清除activeQuest
+                    setParty(p => {
+                      if (!p.activeQuest || !p.activeQuest.isCompleted) return p;
+                      const rewardGold = p.activeQuest.rewardGold;
+                      const repGain = p.activeQuest.difficulty * 3 + 2; // 声望奖励：难度*3+2
+                      return {
+                        ...p,
+                        gold: p.gold + rewardGold,
+                        reputation: p.reputation + repGain,
+                        activeQuest: null,
+                      };
+                    });
+                }}
                 onAcceptQuest={(q) => {
                     // 寻找地图上名称匹配的最近敌人实体，绑定targetEntityId
                     // 如果附近没有匹配实体（距离>15格），在城市附近生成一个任务专属目标
