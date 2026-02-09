@@ -570,6 +570,57 @@ const getQuestCount = (cityType: City['type']): number => {
   }
 };
 
+/**
+ * 难度分布池（仿战场兄弟）
+ * 按城市类型和契约数量，定义加权的难度组合池，确保同一城市契约难度多样性。
+ * 村庄不出三星；城镇三星最多1个；王都三星最多2个。
+ */
+type DiffPool = { pool: (1|2|3)[]; weight: number };
+const DIFFICULTY_POOLS: Record<City['type'], Record<number, DiffPool[]>> = {
+  VILLAGE: {
+    1: [{ pool: [1], weight: 4 }, { pool: [2], weight: 1 }],
+    2: [{ pool: [1, 1], weight: 3 }, { pool: [1, 2], weight: 5 }, { pool: [2, 2], weight: 1 }],
+  },
+  TOWN: {
+    2: [{ pool: [1, 2], weight: 5 }, { pool: [1, 1], weight: 2 }, { pool: [2, 3], weight: 2 }],
+    3: [{ pool: [1, 1, 2], weight: 3 }, { pool: [1, 2, 2], weight: 4 }, { pool: [1, 2, 3], weight: 3 }],
+    4: [{ pool: [1, 1, 2, 2], weight: 2 }, { pool: [1, 1, 2, 3], weight: 4 }, { pool: [1, 2, 2, 3], weight: 4 }],
+  },
+  CAPITAL: {
+    3: [{ pool: [1, 2, 3], weight: 4 }, { pool: [2, 2, 3], weight: 3 }, { pool: [1, 2, 2], weight: 2 }],
+    4: [{ pool: [1, 2, 2, 3], weight: 3 }, { pool: [1, 2, 3, 3], weight: 3 }, { pool: [2, 2, 2, 3], weight: 2 }],
+    5: [{ pool: [1, 2, 2, 3, 3], weight: 3 }, { pool: [1, 1, 2, 3, 3], weight: 2 }, { pool: [2, 2, 2, 3, 3], weight: 2 }, { pool: [1, 2, 3, 3, 3], weight: 1 }],
+  },
+};
+
+/** Fisher-Yates 洗牌 */
+const shuffle = <T>(arr: T[]): T[] => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+/**
+ * 根据城市类型和普通任务数量，从预设分布池中加权随机选取一组难度，并打乱顺序。
+ */
+const generateDifficultyDistribution = (normalQuestCount: number, cityType: City['type']): (1|2|3)[] => {
+  const poolsForCount = DIFFICULTY_POOLS[cityType]?.[normalQuestCount];
+  if (!poolsForCount || poolsForCount.length === 0) {
+    // 回退：全部为1星
+    return Array(normalQuestCount).fill(1);
+  }
+  const totalWeight = poolsForCount.reduce((s, p) => s + p.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of poolsForCount) {
+    roll -= entry.weight;
+    if (roll <= 0) return shuffle([...entry.pool]);
+  }
+  return shuffle([...poolsForCount[poolsForCount.length - 1].pool]);
+};
+
 // 任务模板类型定义
 interface HuntTemplate {
   targets: string[];
@@ -609,6 +660,11 @@ export const generateCityQuests = (
   // 决定是否生成高声望任务（城镇和王都才有机会）
   // 王都100%出高声望任务，城镇50%
   const eliteSlot = cityType !== 'VILLAGE' && Math.random() < (cityType === 'CAPITAL' ? 1.0 : 0.5);
+  
+  // 预生成普通任务的难度分布（仿战场兄弟规则，保证多样性）
+  const normalQuestCount = eliteSlot ? questCount - 1 : questCount;
+  const difficulties = generateDifficultyDistribution(normalQuestCount, cityType);
+  let normalQi = 0;
   
   for (let qi = 0; qi < questCount; qi++) {
     const isElite = eliteSlot && qi === questCount - 1; // 最后一个槽位留给高声望任务
@@ -661,16 +717,8 @@ export const generateCityQuests = (
       questType = pick(availableTypes);
     }
     
-    // 难度：村庄偏低，王都偏高
-    const diffRoll = Math.random();
-    let difficulty: 1 | 2 | 3;
-    if (cityType === 'VILLAGE') {
-      difficulty = diffRoll < 0.6 ? 1 : diffRoll < 0.9 ? 2 : 3;
-    } else if (cityType === 'CAPITAL') {
-      difficulty = diffRoll < 0.2 ? 1 : diffRoll < 0.6 ? 2 : 3;
-    } else {
-      difficulty = diffRoll < 0.4 ? 1 : diffRoll < 0.75 ? 2 : 3;
-    }
+    // 难度：从预生成的分布池中取值（保证同城市难度多样性）
+    const difficulty = difficulties[normalQi++];
     
     const place = pick(places);
     const npc = pick(npcPool);

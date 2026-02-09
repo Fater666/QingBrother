@@ -265,7 +265,7 @@ export interface EnemyCamp {
 
 // ==================== 野心目标系统 ====================
 
-export type AmbitionType = 'COMBAT' | 'ECONOMY' | 'TEAM' | 'EQUIPMENT' | 'EXPLORATION';
+export type AmbitionType = 'COMBAT' | 'ECONOMY' | 'TEAM' | 'EQUIPMENT' | 'EXPLORATION' | 'DIPLOMACY';
 
 export interface Ambition {
   id: string;
@@ -284,6 +284,8 @@ export interface AmbitionState {
   totalCompleted: number;                 // 累计完成目标数
   battlesWon: number;                     // 累计战斗胜利数（用于目标检测）
   citiesVisited: string[];                // 已访问过的城市ID（用于目标检测）
+  contractsCompleted?: number;            // 累计完成的合同/契约数
+  campsDestroyed?: number;                // 累计摧毁的敌方营地数
 }
 
 export interface Party {

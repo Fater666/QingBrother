@@ -41,16 +41,12 @@ export interface AmbitionTemplate extends Ambition {
 
 /**
  * 根据条件表达式字符串生成完成条件检测函数
+ * 
+ * 支持的指标：
+ * - battlesWon, gold, mercenaries, citiesVisited, day, heavyArmor, qualityWeapons
+ * - 新增: maxMercLevel, contractsCompleted, reputation, totalCompleted, campsDestroyed, allMercsArmed
  */
 function createCompleteCondition(conditionStr: string): (party: Party) => boolean {
-  // battlesWon_ge_1 -> party.ambitionState.battlesWon >= 1
-  // gold_ge_500 -> party.gold >= 500
-  // mercenaries_ge_6 -> party.mercenaries.length >= 6
-  // citiesVisited_ge_3 -> party.ambitionState.citiesVisited.length >= 3
-  // day_ge_30 -> party.day >= 30
-  // heavyArmor_ge_3 -> countHeavyArmor(party) >= 3
-  // qualityWeapons_ge_3 -> countQualityWeapons(party) >= 3
-  
   if (conditionStr.startsWith('battlesWon_ge_')) {
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.ambitionState.battlesWon >= value;
@@ -80,38 +76,72 @@ function createCompleteCondition(conditionStr: string): (party: Party) => boolea
     return (party) => countQualityWeapons(party) >= value;
   }
   
+  // === 新增完成条件 ===
+  
+  if (conditionStr.startsWith('maxMercLevel_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => getMaxMercLevel(party) >= value;
+  }
+  if (conditionStr.startsWith('contractsCompleted_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => (party.ambitionState.contractsCompleted || 0) >= value;
+  }
+  if (conditionStr.startsWith('reputation_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.reputation >= value;
+  }
+  if (conditionStr.startsWith('totalCompleted_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.totalCompleted >= value;
+  }
+  if (conditionStr.startsWith('campsDestroyed_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => (party.ambitionState.campsDestroyed || 0) >= value;
+  }
+  if (conditionStr === 'allMercsArmed_eq_1') {
+    return (party) => checkAllMercsArmed(party);
+  }
+  
   return () => false;
 }
 
 /**
  * 根据条件表达式字符串生成可用条件检测函数
+ * 
+ * 支持的条件格式：
+ * - 基本比较: battlesWon_lt_5, gold_ge_300, day_lt_30 等
+ * - 复合条件: gold_lt_2000_and_ge_300（用 _and_ 连接两个条件）
+ * - 前置完成: completed_first_victory（要求指定ID的宏愿已完成）
+ * - 新增指标: maxMercLevel_lt_5, contractsCompleted_lt_3, reputation_lt_300,
+ *             totalCompleted_ge_2, campsDestroyed_lt_3, allMercsArmed_eq_0
  */
 function createAvailableCondition(conditionStr: string): (party: Party) => boolean {
-  // battlesWon_eq_0 -> party.ambitionState.battlesWon === 0
-  // battlesWon_lt_5 -> party.ambitionState.battlesWon < 5
-  // battlesWon_ge_5_and_lt_15 -> party.ambitionState.battlesWon >= 5 && party.ambitionState.battlesWon < 15
-  // gold_lt_500 -> party.gold < 500
-  // gold_lt_2000_and_ge_300 -> party.gold < 2000 && party.gold >= 300
-  
+  // 所有已知的指标前缀（用于 _and_ 复合条件的智能分割）
+  const METRIC_PREFIXES = ['gold_', 'battlesWon_', 'mercenaries_', 'citiesVisited_', 'day_',
+                    'maxMercLevel_', 'contractsCompleted_', 'reputation_', 'totalCompleted_',
+                    'campsDestroyed_', 'heavyArmor_', 'qualityWeapons_', 'allMercsArmed_'];
+
+  // === 复合条件（_and_ 连接）必须优先处理 ===
+  // 例如: completed_first_victory_and_battlesWon_lt_5 → split → completed_first_victory + battlesWon_lt_5
+  // 例如: gold_lt_2000_and_ge_300 → split → gold_lt_2000 + gold_ge_300
   if (conditionStr.includes('_and_')) {
-    // 处理复合条件，需要找到最后一个 _and_ 的位置来正确分割
     const lastAndIndex = conditionStr.lastIndexOf('_and_');
     const part1 = conditionStr.substring(0, lastAndIndex);
     const part2 = conditionStr.substring(lastAndIndex + 5); // +5 跳过 "_and_"
     
-    // 对于 part2，需要重新构造完整的条件表达式
-    // 例如：如果 part1 是 "gold_lt_2000"，part2 是 "ge_300"，需要变成 "gold_ge_300"
+    // 判断 part2 是否已经是完整条件（以已知指标前缀或 completed_ 开头）
     let part2Full = part2;
-    if (part1.startsWith('gold_')) {
-      part2Full = 'gold_' + part2;
-    } else if (part1.startsWith('battlesWon_')) {
-      part2Full = 'battlesWon_' + part2;
-    } else if (part1.startsWith('mercenaries_')) {
-      part2Full = 'mercenaries_' + part2;
-    } else if (part1.startsWith('citiesVisited_')) {
-      part2Full = 'citiesVisited_' + part2;
-    } else if (part1.startsWith('day_')) {
-      part2Full = 'day_' + part2;
+    const isFullCondition = part2.startsWith('completed_') ||
+      METRIC_PREFIXES.some(prefix => part2.startsWith(prefix));
+    
+    if (!isFullCondition) {
+      // part2 是片段（如 "ge_300"），需要从 part1 提取指标前缀补全
+      for (const prefix of METRIC_PREFIXES) {
+        if (part1.startsWith(prefix)) {
+          part2Full = prefix + part2;
+          break;
+        }
+      }
     }
     
     const cond1 = createAvailableCondition(part1);
@@ -119,6 +149,16 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     return (party) => cond1(party) && cond2(party);
   }
   
+  // === 前置完成条件: completed_xxx ===
+  // 例如: completed_first_victory -> party.ambitionState.completedIds.includes('first_victory')
+  if (conditionStr.startsWith('completed_')) {
+    const requiredId = conditionStr.substring('completed_'.length);
+    return (party) => party.ambitionState.completedIds.includes(requiredId);
+  }
+  
+  // === 基本条件 ===
+  
+  // battlesWon
   if (conditionStr.startsWith('battlesWon_eq_')) {
     const value = parseInt(conditionStr.split('_eq_')[1]);
     return (party) => party.ambitionState.battlesWon === value;
@@ -131,6 +171,8 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.ambitionState.battlesWon >= value;
   }
+  
+  // gold
   if (conditionStr.startsWith('gold_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => party.gold < value;
@@ -139,6 +181,8 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.gold >= value;
   }
+  
+  // mercenaries count
   if (conditionStr.startsWith('mercenaries_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => party.mercenaries.length < value;
@@ -147,6 +191,8 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.mercenaries.length >= value;
   }
+  
+  // citiesVisited
   if (conditionStr.startsWith('citiesVisited_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => party.ambitionState.citiesVisited.length < value;
@@ -155,6 +201,8 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.ambitionState.citiesVisited.length >= value;
   }
+  
+  // day
   if (conditionStr.startsWith('day_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => party.day < value;
@@ -163,13 +211,77 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
     const value = parseInt(conditionStr.split('_ge_')[1]);
     return (party) => party.day >= value;
   }
+  
+  // heavyArmor
   if (conditionStr.startsWith('heavyArmor_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => countHeavyArmor(party) < value;
   }
+  
+  // qualityWeapons
   if (conditionStr.startsWith('qualityWeapons_lt_')) {
     const value = parseInt(conditionStr.split('_lt_')[1]);
     return (party) => countQualityWeapons(party) < value;
+  }
+  
+  // === 新增指标 ===
+  
+  // maxMercLevel: 队伍中最高等级的佣兵等级
+  if (conditionStr.startsWith('maxMercLevel_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => getMaxMercLevel(party) < value;
+  }
+  if (conditionStr.startsWith('maxMercLevel_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => getMaxMercLevel(party) >= value;
+  }
+  
+  // contractsCompleted: 累计完成的合同数
+  if (conditionStr.startsWith('contractsCompleted_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => (party.ambitionState.contractsCompleted || 0) < value;
+  }
+  if (conditionStr.startsWith('contractsCompleted_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => (party.ambitionState.contractsCompleted || 0) >= value;
+  }
+  
+  // reputation
+  if (conditionStr.startsWith('reputation_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.reputation < value;
+  }
+  if (conditionStr.startsWith('reputation_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.reputation >= value;
+  }
+  
+  // totalCompleted: 累计完成宏愿数
+  if (conditionStr.startsWith('totalCompleted_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.totalCompleted >= value;
+  }
+  if (conditionStr.startsWith('totalCompleted_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.ambitionState.totalCompleted < value;
+  }
+  
+  // campsDestroyed: 摧毁的营地数
+  if (conditionStr.startsWith('campsDestroyed_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => (party.ambitionState.campsDestroyed || 0) < value;
+  }
+  if (conditionStr.startsWith('campsDestroyed_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => (party.ambitionState.campsDestroyed || 0) >= value;
+  }
+  
+  // allMercsArmed: 是否所有佣兵都装备了武器 (eq_0 表示不是, eq_1 表示是)
+  if (conditionStr === 'allMercsArmed_eq_0') {
+    return (party) => !checkAllMercsArmed(party);
+  }
+  if (conditionStr === 'allMercsArmed_eq_1') {
+    return (party) => checkAllMercsArmed(party);
   }
   
   return () => true;
@@ -177,17 +289,11 @@ function createAvailableCondition(conditionStr: string): (party: Party) => boole
 
 /**
  * 根据进度格式字符串生成进度显示函数
+ * 
+ * 支持的格式: metric/target，如 battlesWon/5, gold/500, maxMercLevel/5 等
  */
 function createProgressFunction(formatStr: string): ((party: Party) => string) | undefined {
   if (!formatStr || formatStr.trim() === '') return undefined;
-  
-  // battlesWon/5 -> `${Math.min(party.ambitionState.battlesWon, 5)}/5`
-  // gold/500 -> `${party.gold}/500`
-  // mercenaries/6 -> `${party.mercenaries.length}/6`
-  // citiesVisited/3 -> `${party.ambitionState.citiesVisited.length}/3`
-  // day/30天 -> `${Math.floor(party.day)}/30天`
-  // heavyArmor/3 -> `${countHeavyArmor(party)}/3`
-  // qualityWeapons/3 -> `${countQualityWeapons(party)}/3`
   
   const parts = formatStr.split('/');
   if (parts.length !== 2) return undefined;
@@ -216,6 +322,27 @@ function createProgressFunction(formatStr: string): ((party: Party) => string) |
   }
   if (metric === 'qualityWeapons') {
     return (party) => `${countQualityWeapons(party)}/${target}`;
+  }
+  
+  // === 新增进度指标 ===
+  if (metric === 'maxMercLevel') {
+    const targetNum = parseInt(target);
+    return (party) => `${Math.min(getMaxMercLevel(party), targetNum)}/${target}`;
+  }
+  if (metric === 'contractsCompleted') {
+    const targetNum = parseInt(target);
+    return (party) => `${Math.min(party.ambitionState.contractsCompleted || 0, targetNum)}/${target}`;
+  }
+  if (metric === 'reputation') {
+    return (party) => `${Math.floor(party.reputation)}/${target}`;
+  }
+  if (metric === 'totalCompleted') {
+    const targetNum = parseInt(target);
+    return (party) => `${Math.min(party.ambitionState.totalCompleted, targetNum)}/${target}`;
+  }
+  if (metric === 'campsDestroyed') {
+    const targetNum = parseInt(target);
+    return (party) => `${Math.min(party.ambitionState.campsDestroyed || 0, targetNum)}/${target}`;
   }
   
   return undefined;
@@ -280,6 +407,18 @@ function countQualityWeapons(party: Party): number {
   return count;
 }
 
+/** 获取队伍中最高等级的佣兵等级 */
+function getMaxMercLevel(party: Party): number {
+  if (party.mercenaries.length === 0) return 0;
+  return Math.max(...party.mercenaries.map(m => m.level));
+}
+
+/** 检查是否所有佣兵都装备了主武器 */
+function checkAllMercsArmed(party: Party): boolean {
+  if (party.mercenaries.length === 0) return false;
+  return party.mercenaries.every(m => m.equipment.mainHand !== null);
+}
+
 // ==================== 核心 API ====================
 
 /**
@@ -318,6 +457,8 @@ function calculateCurrentStage(party: Party): number {
 /**
  * 生成3个候选目标 + 可能的"无野心"选项
  * 按照阶段和难度逐层递进选择，类似《战场兄弟》的机制
+ * 核心规则：3个选项必须来自不同的 type（COMBAT/ECONOMY/TEAM/EQUIPMENT/EXPLORATION），
+ * 避免"赢1场+赢5场"同质化组合出现
  * 返回 { choices: AmbitionTemplate[], showNoAmbition: boolean }
  */
 export function generateAmbitionChoices(party: Party): {
@@ -337,41 +478,47 @@ export function generateAmbitionChoices(party: Party): {
     byStage[ambition.stage].push(ambition);
   }
   
-  // 在每个阶段内按难度排序
+  // 在每个阶段内随机打乱（同难度内增加变化），然后按难度排序
   for (const stage in byStage) {
+    byStage[stage].sort(() => Math.random() - 0.5);
     byStage[stage].sort((a, b) => a.difficulty - b.difficulty);
   }
   
   const choices: AmbitionTemplate[] = [];
+  const usedTypes = new Set<string>(); // 记录已选的 type，确保不重复
   
-  // 策略：优先选择当前阶段的目标，然后考虑下一阶段
-  // 1. 优先选择当前阶段的目标（至少1个）
-  if (byStage[currentStage].length > 0) {
-    // 从当前阶段选择1-2个（优先难度低的）
-    const currentStageChoices = byStage[currentStage].slice(0, 2);
-    choices.push(...currentStageChoices);
+  // 按优先级依次从各阶段池中选取，每次选取都遵守 type 互斥
+  const stagePriority = [currentStage];
+  if (currentStage < 3) stagePriority.push(currentStage + 1);
+  if (currentStage > 1) stagePriority.push(currentStage - 1);
+  // 补充剩余未出现的阶段
+  for (let s = 1; s <= 3; s++) {
+    if (!stagePriority.includes(s)) stagePriority.push(s);
   }
   
-  // 2. 如果当前阶段目标不足，从下一阶段补充
-  if (choices.length < 3 && currentStage < 3 && byStage[currentStage + 1].length > 0) {
-    const nextStageChoices = byStage[currentStage + 1].slice(0, 3 - choices.length);
-    choices.push(...nextStageChoices);
+  for (const stage of stagePriority) {
+    if (choices.length >= 3) break;
+    const pool = byStage[stage].filter(a => !choices.includes(a));
+    for (const candidate of pool) {
+      if (choices.length >= 3) break;
+      if (!usedTypes.has(candidate.type)) {
+        choices.push(candidate);
+        usedTypes.add(candidate.type);
+      }
+    }
   }
   
-  // 3. 如果还不够，从上一阶段补充（但优先度最低）
-  if (choices.length < 3 && currentStage > 1 && byStage[currentStage - 1].length > 0) {
-    const prevStageChoices = byStage[currentStage - 1].slice(0, 3 - choices.length);
-    choices.push(...prevStageChoices);
-  }
-  
-  // 4. 如果还不够3个，从所有可用目标中随机补充
+  // 如果 type 互斥导致不足3个（可用 type 类别不到3种），放宽限制补充
   if (choices.length < 3) {
     const remaining = available.filter(a => !choices.includes(a));
     const shuffled = [...remaining].sort(() => Math.random() - 0.5);
-    choices.push(...shuffled.slice(0, 3 - choices.length));
+    for (const c of shuffled) {
+      if (choices.length >= 3) break;
+      choices.push(c);
+    }
   }
   
-  // 5. 确保不超过3个
+  // 确保不超过3个
   const finalChoices = choices.slice(0, 3);
   
   // 完成过2个以上目标后，出现"无野心"选项
@@ -506,5 +653,7 @@ export function getAmbitionTypeInfo(type: AmbitionType): { name: string; icon: s
     case 'TEAM': return { name: '人才', icon: '👥' };
     case 'EQUIPMENT': return { name: '军备', icon: '🛡️' };
     case 'EXPLORATION': return { name: '壮游', icon: '🗺️' };
+    case 'DIPLOMACY': return { name: '外交', icon: '🏯' };
+    default: return { name: '其他', icon: '📜' };
   }
 }

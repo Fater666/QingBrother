@@ -1509,7 +1509,7 @@ export const App: React.FC = () => {
       if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
       ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
     }
-  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, gameInitialized]);
+  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, party.reputation, party.ambitionState.contractsCompleted, party.ambitionState.campsDestroyed, party.ambitionState.totalCompleted, gameInitialized]);
 
   // --- 野心目标：弹出选择界面 ---
   useEffect(() => {
@@ -1770,13 +1770,21 @@ export const App: React.FC = () => {
                     setBattleResult(result);
                     // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数 + 任务目标击杀判定
                     if (victory) {
-                      // 标记Boss巢穴为已清除
+                      // 标记Boss巢穴为已清除 + 营地摧毁计数
                       if (combatBossCampIdRef.current) {
                         setCamps(prev => prev.map(c =>
                           c.id === combatBossCampIdRef.current
                             ? { ...c, cleared: true, destroyed: true }
                             : c
                         ));
+                        // 营地摧毁计数（用于宏愿系统）
+                        setParty(p => ({
+                          ...p,
+                          ambitionState: {
+                            ...p.ambitionState,
+                            campsDestroyed: (p.ambitionState.campsDestroyed || 0) + 1,
+                          },
+                        }));
                       }
                       // 15% 概率掉落消耗品，直接加到资源池
                       let dropMedicine = 0;
@@ -1871,7 +1879,7 @@ export const App: React.FC = () => {
                 onUpdateParty={setParty}
                 onUpdateCity={(newCity) => { setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c)); setCurrentCity(newCity); }}
                 onCompleteQuest={() => {
-                    // 交付已完成的任务：获得金币奖励 + 声望 + 清除activeQuest
+                    // 交付已完成的任务：获得金币奖励 + 声望 + 清除activeQuest + 契约完成计数
                     setParty(p => {
                       if (!p.activeQuest || !p.activeQuest.isCompleted) return p;
                       const rewardGold = p.activeQuest.rewardGold;
@@ -1881,6 +1889,10 @@ export const App: React.FC = () => {
                         gold: p.gold + rewardGold,
                         reputation: p.reputation + repGain,
                         activeQuest: null,
+                        ambitionState: {
+                          ...p.ambitionState,
+                          contractsCompleted: (p.ambitionState.contractsCompleted || 0) + 1,
+                        },
                       };
                     });
                 }}
