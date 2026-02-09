@@ -1,0 +1,15 @@
+id|name|description|type|reputationReward|stage|difficulty|completeCondition|availableCondition|progressFormat
+first_victory|初战告捷|赢得第一场战斗，证明你的战团并非乌合之众。|COMBAT|100|1|1|battlesWon_ge_1|battlesWon_eq_0|
+win_5_battles|百战之师|累计赢得5场战斗。|COMBAT|100|2|2|battlesWon_ge_5|battlesWon_lt_5|battlesWon/5
+win_15_battles|纵横沙场|累计赢得15场战斗，令天下闻名。|COMBAT|100|3|3|battlesWon_ge_15|battlesWon_ge_5_and_lt_15|battlesWon/15
+gather_500_gold|小有积蓄|积累500金币。|ECONOMY|100|1|1|gold_ge_500|gold_lt_500|gold/500
+gather_2000_gold|富甲一方|积累2000金币。|ECONOMY|100|2|2|gold_ge_2000|gold_lt_2000_and_ge_300|gold/2000
+gather_5000_gold|财可敌国|积累5000金币。|ECONOMY|100|3|3|gold_ge_5000|gold_lt_5000_and_ge_1500|gold/5000
+recruit_6|初具规模|将战团扩充至6人。|TEAM|100|1|1|mercenaries_ge_6|mercenaries_lt_6|mercenaries/6
+recruit_12|满编劲旅|将战团扩充至12人。|TEAM|100|2|2|mercenaries_ge_12|mercenaries_ge_5_and_lt_12|mercenaries/12
+heavy_armor|铁壁之师|拥有3件耐久230以上的重甲（头盔或铠甲）。|EQUIPMENT|100|2|2|heavyArmor_ge_3|heavyArmor_lt_3|heavyArmor/3
+quality_weapons|兵精器利|拥有3把价值400以上的精良武器。|EQUIPMENT|100|2|2|qualityWeapons_ge_3|qualityWeapons_lt_3|qualityWeapons/3
+visit_3_cities|周游列国|访问3座不同的城市。|EXPLORATION|100|1|1|citiesVisited_ge_3|citiesVisited_lt_3|citiesVisited/3
+visit_6_cities|名震天下|访问6座不同的城市。|EXPLORATION|100|2|2|citiesVisited_ge_6|citiesVisited_ge_3_and_lt_6|citiesVisited/6
+survive_30_days|久经风霜|存活30天以上。|EXPLORATION|100|1|1|day_ge_30|day_lt_30|day/30天
+survive_60_days|老当益壮|存活60天以上。|EXPLORATION|100|2|2|day_ge_60|day_ge_20_and_lt_60|day/60天

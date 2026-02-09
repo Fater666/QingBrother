@@ -9,7 +9,7 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     subtitle: '长平遗恨',
     description: '你曾是赵国的一名低级军官。长平之战后，四十万赵卒被坑杀，而你——侥幸逃脱。你率领仅存的数名残兵遁入太行山中，以佣兵为业，在愧疚与求生之间苟延残喘。你的部下多为经历过沙场的老兵，虽然士气低迷，但战斗经验丰富。',
     gold: 1500,
-    food: 120,
+    food: 250,
     mercenaries: [
       { name: '赵括', bg: 'DESERTER', formationIndex: 0, equipment: {
         mainHand: ['w_sword_2', 'w_spear_2'],
@@ -42,7 +42,7 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     subtitle: '家道中落',
     description: '你出身韩国的一个没落士族。家族在政斗中败落后，你散尽最后的家财，招募了一小批杂兵，以佣兵之名行走天下。你的教养使你善于交涉，但麾下人手单薄，需要谨慎经营。',
     gold: 2000,
-    food: 100,
+    food: 200,
     mercenaries: [
       { name: '韩非', bg: 'NOBLE', formationIndex: 0, equipment: {
         mainHand: ['w_sword_2'],
@@ -68,7 +68,7 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     subtitle: '揭竿而起',
     description: '你是太行山中的一名猎户。匪患日炽，你的村庄遭到洗劫后，你联合幸存的乡邻组成了一支自卫武装。你的部下忠厚朴实、吃苦耐劳，虽然缺乏正规训练，但胜在团结和对这片土地的熟悉。',
     gold: 800,
-    food: 200,
+    food: 350,
     mercenaries: [
       { name: '石壮', bg: 'HUNTER', formationIndex: 0, equipment: {
         mainHand: ['w_bow_1', 'w_axe_1'],
@@ -104,7 +104,7 @@ export const ORIGIN_CONFIGS: OriginConfig[] = [
     subtitle: '南下谋生',
     description: '你是北方游牧部落与中原女子的混血儿。因部落内斗失去了一切后，你率领几名忠心的骑手南下。你的部下骑术精湛、机动力强，但在中原的城邑中格格不入，时常遭人白眼。',
     gold: 1000,
-    food: 150,
+    food: 300,
     mercenaries: [
       { name: '呼延豹', bg: 'NOMAD', formationIndex: 0, equipment: {
         mainHand: ['w_cleaver_2', 'w_axe_4'],

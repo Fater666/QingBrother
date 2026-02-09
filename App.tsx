@@ -734,11 +734,16 @@ export const App: React.FC = () => {
       return merc;
     });
 
-    // 初始补给：2个金创药 + 1个修甲工具
+    // 初始补给：5个金创药 + 3个修甲工具
     const startingInventory: Item[] = [
       { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_1' },
       { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_2' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_3' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_4' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_5' },
       { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_1' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_2' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_3' },
     ];
 
     setParty({

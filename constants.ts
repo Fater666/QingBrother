@@ -24,6 +24,7 @@ import GOLD_REWARDS_CSV from './csv/gold_rewards.csv?raw';
 import CAMP_TEMPLATES_CSV from './csv/camp_templates.csv?raw';
 import BOSS_CAMPS_CSV from './csv/boss_camps.csv?raw';
 import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
+import AMBITIONS_CSV from './csv/ambitions.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -438,6 +439,9 @@ parseCSV(MORALE_EFFECTS_CSV).forEach(m => {
         isControllable: m.isControllable,
     };
 });
+
+// --- AMBITIONS CONFIG (from ambitions.csv) ---
+export const AMBITIONS_CONFIG = parseCSV(AMBITIONS_CSV);
 
 export const MAP_SIZE = 100; 
 export const VIEWPORT_WIDTH = 24; 

@@ -9,6 +9,7 @@
  */
 
 import { Ambition, AmbitionState, AmbitionType, Party, Item } from '../types';
+import { AMBITIONS_CONFIG } from '../constants';
 
 // ==================== 默认状态 ====================
 
@@ -32,158 +33,209 @@ export interface AmbitionTemplate extends Ambition {
   checkAvailable: (party: Party) => boolean;
   /** 进度描述（可选，用于HUD显示） */
   getProgress?: (party: Party) => string;
+  /** 阶段（1=早期，2=中期，3=后期） */
+  stage: number;
+  /** 难度（1=简单，2=中等，3=困难） */
+  difficulty: number;
 }
 
-const AMBITION_TEMPLATES: AmbitionTemplate[] = [
-  // ==================== 战斗类 ====================
-  {
-    id: 'first_victory',
-    name: '初战告捷',
-    description: '赢得第一场战斗，证明你的战团并非乌合之众。',
-    type: 'COMBAT',
-    reputationReward: 100,
-    checkComplete: (party) => party.ambitionState.battlesWon >= 1,
-    checkAvailable: (party) => party.ambitionState.battlesWon === 0,
-  },
-  {
-    id: 'win_5_battles',
-    name: '百战之师',
-    description: '累计赢得5场战斗。',
-    type: 'COMBAT',
-    reputationReward: 100,
-    checkComplete: (party) => party.ambitionState.battlesWon >= 5,
-    checkAvailable: (party) => party.ambitionState.battlesWon < 5,
-    getProgress: (party) => `${Math.min(party.ambitionState.battlesWon, 5)}/5`,
-  },
-  {
-    id: 'win_15_battles',
-    name: '纵横沙场',
-    description: '累计赢得15场战斗，令天下闻名。',
-    type: 'COMBAT',
-    reputationReward: 100,
-    checkComplete: (party) => party.ambitionState.battlesWon >= 15,
-    checkAvailable: (party) => party.ambitionState.battlesWon >= 5 && party.ambitionState.battlesWon < 15,
-    getProgress: (party) => `${Math.min(party.ambitionState.battlesWon, 15)}/15`,
-  },
+/**
+ * 根据条件表达式字符串生成完成条件检测函数
+ */
+function createCompleteCondition(conditionStr: string): (party: Party) => boolean {
+  // battlesWon_ge_1 -> party.ambitionState.battlesWon >= 1
+  // gold_ge_500 -> party.gold >= 500
+  // mercenaries_ge_6 -> party.mercenaries.length >= 6
+  // citiesVisited_ge_3 -> party.ambitionState.citiesVisited.length >= 3
+  // day_ge_30 -> party.day >= 30
+  // heavyArmor_ge_3 -> countHeavyArmor(party) >= 3
+  // qualityWeapons_ge_3 -> countQualityWeapons(party) >= 3
+  
+  if (conditionStr.startsWith('battlesWon_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.battlesWon >= value;
+  }
+  if (conditionStr.startsWith('gold_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.gold >= value;
+  }
+  if (conditionStr.startsWith('mercenaries_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.mercenaries.length >= value;
+  }
+  if (conditionStr.startsWith('citiesVisited_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.citiesVisited.length >= value;
+  }
+  if (conditionStr.startsWith('day_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.day >= value;
+  }
+  if (conditionStr.startsWith('heavyArmor_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => countHeavyArmor(party) >= value;
+  }
+  if (conditionStr.startsWith('qualityWeapons_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => countQualityWeapons(party) >= value;
+  }
+  
+  return () => false;
+}
 
-  // ==================== 经济类 ====================
-  {
-    id: 'gather_500_gold',
-    name: '小有积蓄',
-    description: '积累500金币。',
-    type: 'ECONOMY',
-    reputationReward: 100,
-    checkComplete: (party) => party.gold >= 500,
-    checkAvailable: (party) => party.gold < 500,
-    getProgress: (party) => `${party.gold}/500`,
-  },
-  {
-    id: 'gather_2000_gold',
-    name: '富甲一方',
-    description: '积累2000金币。',
-    type: 'ECONOMY',
-    reputationReward: 100,
-    checkComplete: (party) => party.gold >= 2000,
-    checkAvailable: (party) => party.gold < 2000 && party.gold >= 300,
-    getProgress: (party) => `${party.gold}/2000`,
-  },
-  {
-    id: 'gather_5000_gold',
-    name: '财可敌国',
-    description: '积累5000金币。',
-    type: 'ECONOMY',
-    reputationReward: 100,
-    checkComplete: (party) => party.gold >= 5000,
-    checkAvailable: (party) => party.gold < 5000 && party.gold >= 1500,
-    getProgress: (party) => `${party.gold}/5000`,
-  },
+/**
+ * 根据条件表达式字符串生成可用条件检测函数
+ */
+function createAvailableCondition(conditionStr: string): (party: Party) => boolean {
+  // battlesWon_eq_0 -> party.ambitionState.battlesWon === 0
+  // battlesWon_lt_5 -> party.ambitionState.battlesWon < 5
+  // battlesWon_ge_5_and_lt_15 -> party.ambitionState.battlesWon >= 5 && party.ambitionState.battlesWon < 15
+  // gold_lt_500 -> party.gold < 500
+  // gold_lt_2000_and_ge_300 -> party.gold < 2000 && party.gold >= 300
+  
+  if (conditionStr.includes('_and_')) {
+    // 处理复合条件，需要找到最后一个 _and_ 的位置来正确分割
+    const lastAndIndex = conditionStr.lastIndexOf('_and_');
+    const part1 = conditionStr.substring(0, lastAndIndex);
+    const part2 = conditionStr.substring(lastAndIndex + 5); // +5 跳过 "_and_"
+    
+    // 对于 part2，需要重新构造完整的条件表达式
+    // 例如：如果 part1 是 "gold_lt_2000"，part2 是 "ge_300"，需要变成 "gold_ge_300"
+    let part2Full = part2;
+    if (part1.startsWith('gold_')) {
+      part2Full = 'gold_' + part2;
+    } else if (part1.startsWith('battlesWon_')) {
+      part2Full = 'battlesWon_' + part2;
+    } else if (part1.startsWith('mercenaries_')) {
+      part2Full = 'mercenaries_' + part2;
+    } else if (part1.startsWith('citiesVisited_')) {
+      part2Full = 'citiesVisited_' + part2;
+    } else if (part1.startsWith('day_')) {
+      part2Full = 'day_' + part2;
+    }
+    
+    const cond1 = createAvailableCondition(part1);
+    const cond2 = createAvailableCondition(part2Full);
+    return (party) => cond1(party) && cond2(party);
+  }
+  
+  if (conditionStr.startsWith('battlesWon_eq_')) {
+    const value = parseInt(conditionStr.split('_eq_')[1]);
+    return (party) => party.ambitionState.battlesWon === value;
+  }
+  if (conditionStr.startsWith('battlesWon_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.ambitionState.battlesWon < value;
+  }
+  if (conditionStr.startsWith('battlesWon_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.battlesWon >= value;
+  }
+  if (conditionStr.startsWith('gold_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.gold < value;
+  }
+  if (conditionStr.startsWith('gold_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.gold >= value;
+  }
+  if (conditionStr.startsWith('mercenaries_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.mercenaries.length < value;
+  }
+  if (conditionStr.startsWith('mercenaries_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.mercenaries.length >= value;
+  }
+  if (conditionStr.startsWith('citiesVisited_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.ambitionState.citiesVisited.length < value;
+  }
+  if (conditionStr.startsWith('citiesVisited_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.ambitionState.citiesVisited.length >= value;
+  }
+  if (conditionStr.startsWith('day_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => party.day < value;
+  }
+  if (conditionStr.startsWith('day_ge_')) {
+    const value = parseInt(conditionStr.split('_ge_')[1]);
+    return (party) => party.day >= value;
+  }
+  if (conditionStr.startsWith('heavyArmor_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => countHeavyArmor(party) < value;
+  }
+  if (conditionStr.startsWith('qualityWeapons_lt_')) {
+    const value = parseInt(conditionStr.split('_lt_')[1]);
+    return (party) => countQualityWeapons(party) < value;
+  }
+  
+  return () => true;
+}
 
-  // ==================== 团队类 ====================
-  {
-    id: 'recruit_6',
-    name: '初具规模',
-    description: '将战团扩充至6人。',
-    type: 'TEAM',
-    reputationReward: 100,
-    checkComplete: (party) => party.mercenaries.length >= 6,
-    checkAvailable: (party) => party.mercenaries.length < 6,
-    getProgress: (party) => `${party.mercenaries.length}/6`,
-  },
-  {
-    id: 'recruit_12',
-    name: '满编劲旅',
-    description: '将战团扩充至12人。',
-    type: 'TEAM',
-    reputationReward: 100,
-    checkComplete: (party) => party.mercenaries.length >= 12,
-    checkAvailable: (party) => party.mercenaries.length >= 5 && party.mercenaries.length < 12,
-    getProgress: (party) => `${party.mercenaries.length}/12`,
-  },
+/**
+ * 根据进度格式字符串生成进度显示函数
+ */
+function createProgressFunction(formatStr: string): ((party: Party) => string) | undefined {
+  if (!formatStr || formatStr.trim() === '') return undefined;
+  
+  // battlesWon/5 -> `${Math.min(party.ambitionState.battlesWon, 5)}/5`
+  // gold/500 -> `${party.gold}/500`
+  // mercenaries/6 -> `${party.mercenaries.length}/6`
+  // citiesVisited/3 -> `${party.ambitionState.citiesVisited.length}/3`
+  // day/30天 -> `${Math.floor(party.day)}/30天`
+  // heavyArmor/3 -> `${countHeavyArmor(party)}/3`
+  // qualityWeapons/3 -> `${countQualityWeapons(party)}/3`
+  
+  const parts = formatStr.split('/');
+  if (parts.length !== 2) return undefined;
+  
+  const metric = parts[0];
+  const target = parts[1];
+  
+  if (metric === 'battlesWon') {
+    const targetNum = parseInt(target);
+    return (party) => `${Math.min(party.ambitionState.battlesWon, targetNum)}/${target}`;
+  }
+  if (metric === 'gold') {
+    return (party) => `${party.gold}/${target}`;
+  }
+  if (metric === 'mercenaries') {
+    return (party) => `${party.mercenaries.length}/${target}`;
+  }
+  if (metric === 'citiesVisited') {
+    return (party) => `${party.ambitionState.citiesVisited.length}/${target}`;
+  }
+  if (metric === 'day') {
+    return (party) => `${Math.floor(party.day)}/${target}`;
+  }
+  if (metric === 'heavyArmor') {
+    return (party) => `${countHeavyArmor(party)}/${target}`;
+  }
+  if (metric === 'qualityWeapons') {
+    return (party) => `${countQualityWeapons(party)}/${target}`;
+  }
+  
+  return undefined;
+}
 
-  // ==================== 装备类 ====================
-  {
-    id: 'heavy_armor',
-    name: '铁壁之师',
-    description: '拥有3件耐久230以上的重甲（头盔或铠甲）。',
-    type: 'EQUIPMENT',
-    reputationReward: 100,
-    checkComplete: (party) => countHeavyArmor(party) >= 3,
-    checkAvailable: (party) => countHeavyArmor(party) < 3,
-    getProgress: (party) => `${countHeavyArmor(party)}/3`,
-  },
-  {
-    id: 'quality_weapons',
-    name: '兵精器利',
-    description: '拥有3把价值400以上的精良武器。',
-    type: 'EQUIPMENT',
-    reputationReward: 100,
-    checkComplete: (party) => countQualityWeapons(party) >= 3,
-    checkAvailable: (party) => countQualityWeapons(party) < 3,
-    getProgress: (party) => `${countQualityWeapons(party)}/3`,
-  },
-
-  // ==================== 探索类 ====================
-  {
-    id: 'visit_3_cities',
-    name: '周游列国',
-    description: '访问3座不同的城市。',
-    type: 'EXPLORATION',
-    reputationReward: 100,
-    checkComplete: (party) => party.ambitionState.citiesVisited.length >= 3,
-    checkAvailable: (party) => party.ambitionState.citiesVisited.length < 3,
-    getProgress: (party) => `${party.ambitionState.citiesVisited.length}/3`,
-  },
-  {
-    id: 'visit_6_cities',
-    name: '名震天下',
-    description: '访问6座不同的城市。',
-    type: 'EXPLORATION',
-    reputationReward: 100,
-    checkComplete: (party) => party.ambitionState.citiesVisited.length >= 6,
-    checkAvailable: (party) => party.ambitionState.citiesVisited.length >= 3 && party.ambitionState.citiesVisited.length < 6,
-    getProgress: (party) => `${party.ambitionState.citiesVisited.length}/6`,
-  },
-  {
-    id: 'survive_30_days',
-    name: '久经风霜',
-    description: '存活30天以上。',
-    type: 'EXPLORATION',
-    reputationReward: 100,
-    checkComplete: (party) => party.day >= 30,
-    checkAvailable: (party) => party.day < 30,
-    getProgress: (party) => `${Math.floor(party.day)}/30天`,
-  },
-  {
-    id: 'survive_60_days',
-    name: '老当益壮',
-    description: '存活60天以上。',
-    type: 'EXPLORATION',
-    reputationReward: 100,
-    checkComplete: (party) => party.day >= 60,
-    checkAvailable: (party) => party.day >= 20 && party.day < 60,
-    getProgress: (party) => `${Math.floor(party.day)}/60天`,
-  },
-];
+/**
+ * 从配置加载宏愿模板
+ */
+const AMBITION_TEMPLATES: AmbitionTemplate[] = AMBITIONS_CONFIG.map((config: any) => ({
+  id: config.id,
+  name: config.name,
+  description: config.description,
+  type: config.type as AmbitionType,
+  reputationReward: config.reputationReward,
+  stage: config.stage,
+  difficulty: config.difficulty,
+  checkComplete: createCompleteCondition(config.completeCondition),
+  checkAvailable: createAvailableCondition(config.availableCondition),
+  getProgress: createProgressFunction(config.progressFormat),
+}));
 
 // ==================== 辅助函数 ====================
 
@@ -247,7 +299,25 @@ export function getAvailableAmbitions(party: Party): AmbitionTemplate[] {
 }
 
 /**
+ * 根据玩家进度计算当前应该处于的阶段
+ * 阶段划分：
+ * - Stage 1: 早期（完成0-2个目标，或天数<20）
+ * - Stage 2: 中期（完成3-5个目标，或天数20-50）
+ * - Stage 3: 后期（完成6+个目标，或天数>50）
+ */
+function calculateCurrentStage(party: Party): number {
+  const totalCompleted = party.ambitionState.totalCompleted;
+  const days = party.day;
+  
+  // 根据完成目标数判断
+  if (totalCompleted >= 6 || days > 50) return 3;
+  if (totalCompleted >= 3 || days >= 20) return 2;
+  return 1;
+}
+
+/**
  * 生成3个候选目标 + 可能的"无野心"选项
+ * 按照阶段和难度逐层递进选择，类似《战场兄弟》的机制
  * 返回 { choices: AmbitionTemplate[], showNoAmbition: boolean }
  */
 export function generateAmbitionChoices(party: Party): {
@@ -255,15 +325,59 @@ export function generateAmbitionChoices(party: Party): {
   showNoAmbition: boolean;
 } {
   const available = getAvailableAmbitions(party);
+  if (available.length === 0) {
+    return { choices: [], showNoAmbition: party.ambitionState.totalCompleted >= 2 };
+  }
   
-  // 随机选3个（不重复）
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
-  const choices = shuffled.slice(0, 3);
+  const currentStage = calculateCurrentStage(party);
+  
+  // 按阶段和难度分组
+  const byStage: Record<number, AmbitionTemplate[]> = { 1: [], 2: [], 3: [] };
+  for (const ambition of available) {
+    byStage[ambition.stage].push(ambition);
+  }
+  
+  // 在每个阶段内按难度排序
+  for (const stage in byStage) {
+    byStage[stage].sort((a, b) => a.difficulty - b.difficulty);
+  }
+  
+  const choices: AmbitionTemplate[] = [];
+  
+  // 策略：优先选择当前阶段的目标，然后考虑下一阶段
+  // 1. 优先选择当前阶段的目标（至少1个）
+  if (byStage[currentStage].length > 0) {
+    // 从当前阶段选择1-2个（优先难度低的）
+    const currentStageChoices = byStage[currentStage].slice(0, 2);
+    choices.push(...currentStageChoices);
+  }
+  
+  // 2. 如果当前阶段目标不足，从下一阶段补充
+  if (choices.length < 3 && currentStage < 3 && byStage[currentStage + 1].length > 0) {
+    const nextStageChoices = byStage[currentStage + 1].slice(0, 3 - choices.length);
+    choices.push(...nextStageChoices);
+  }
+  
+  // 3. 如果还不够，从上一阶段补充（但优先度最低）
+  if (choices.length < 3 && currentStage > 1 && byStage[currentStage - 1].length > 0) {
+    const prevStageChoices = byStage[currentStage - 1].slice(0, 3 - choices.length);
+    choices.push(...prevStageChoices);
+  }
+  
+  // 4. 如果还不够3个，从所有可用目标中随机补充
+  if (choices.length < 3) {
+    const remaining = available.filter(a => !choices.includes(a));
+    const shuffled = [...remaining].sort(() => Math.random() - 0.5);
+    choices.push(...shuffled.slice(0, 3 - choices.length));
+  }
+  
+  // 5. 确保不超过3个
+  const finalChoices = choices.slice(0, 3);
   
   // 完成过2个以上目标后，出现"无野心"选项
   const showNoAmbition = party.ambitionState.totalCompleted >= 2;
 
-  return { choices, showNoAmbition };
+  return { choices: finalChoices, showNoAmbition };
 }
 
 /**
