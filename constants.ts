@@ -1,5 +1,5 @@
 
-import { Item, Ability, Character, Perk, BackgroundTemplate, Trait } from './types.ts';
+import { Item, Ability, Character, Perk, BackgroundTemplate, Trait, AIType } from './types.ts';
 export type { BackgroundTemplate };
 
 // --- CSV DATA (loaded from csv/ folder) ---
@@ -12,6 +12,17 @@ import TERRAIN_CSV from './csv/terrain.csv?raw';
 import EVENTS_CSV from './csv/events.csv?raw';
 import BACKGROUNDS_CSV from './csv/backgrounds.csv?raw';
 import TRAITS_CSV from './csv/traits.csv?raw';
+import ABILITIES_CSV from './csv/abilities.csv?raw';
+import CONSUMABLES_CSV from './csv/consumables.csv?raw';
+import NAMES_CSV from './csv/names.csv?raw';
+import STORIES_CSV from './csv/stories.csv?raw';
+import BIOME_CONFIGS_CSV from './csv/biome_configs.csv?raw';
+import MARKET_CONFIG_CSV from './csv/market_config.csv?raw';
+import DIFFICULTY_TIERS_CSV from './csv/difficulty_tiers.csv?raw';
+import ENEMY_COMPOSITIONS_CSV from './csv/enemy_compositions.csv?raw';
+import GOLD_REWARDS_CSV from './csv/gold_rewards.csv?raw';
+import CAMP_TEMPLATES_CSV from './csv/camp_templates.csv?raw';
+import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -91,23 +102,11 @@ export const EVENT_TEMPLATES: any[] = parseCSV(EVENTS_CSV).map(e => ({
   ]
 }));
 
-const STORIES: Record<string, string[]> = {
-    'FARMER': ['原本在垄亩间耕作，直到秦军的征粮官拿走了最后一粒米。', '一场大旱毁了他的庄稼，为了不让家人饿死。', '因为不堪忍受沉重的徭役。'],
-    'DESERTER': ['长平之战的幸存者之一。', '他在一次夜袭中扔掉了戈矛。', '作为前锋营的死士，他奇迹般地活了下来。'],
-    'HUNTER': ['他曾独自在深山中追踪猛虎。', '官府划定了新的禁苑。', '他的村庄被土匪洗劫。'],
-    'NOMAD': ['因为部落间的仇杀，他失去了牛羊。', '他向向往中原的繁华，骑着瘦马一路南下。'],
-    'NOBLE': ['他的家族在政治斗争中败落。', '为了复兴家族的荣光，他散尽家财。', '他曾是稷下学宫的学子。'],
-    'BLACKSMITH': ["炉火已熄，国破家亡，唯有手中铁锤尚能锻造命运。", "昔日为兵器师，今欲以血肉之躯，亲验所铸利刃锋芒。", "厌倦了为贵族打造华而不实的玩物，想为真正的战士铸造武器。"],
-    'PHYSICIAN': ["悬壶济世，终难医乱世沉疴，唯有以身涉险，方能寻得生机。", "医者仁心，却见生灵涂炭，愿入伍以血肉之躯，止戈救人。", "尝尝药石无功，今欲于刀光剑影中，洞悉生死奥秘。"],
-    'BEGGAR': ["饥寒交迫，命如草芥，不如提刀入伍，或能博得一线生机。", "昔日沿街乞讨，今欲以手中之刃，夺回本该属于自己的尊严。", "乱世之中，乞食亦难，不如以血肉之躯，搏一个饱饭。"],
-    'MERCHANT': ["商道断绝，货物尽失，唯有刀剑之路，或可重开财源。", "曾逐利天下，今欲以武力为舟，再渡乱世洪流。", "厌恶了官吏的盘剥，渴望以武力守护自己的所得。"],
-    'ASSASSIN': ["一击不中，反遭追杀，不如投身乱世，以血还血。", "厌倦了阴影中的生活，欲以手中之刃，光明正大立于战场。", "昔日为钱财取人性命，今欲寻一明主，以武报国。"],
-    'LABORER': ["农田荒芜，生计艰难，唯有投笔从戎，或可求得温饱。", "日复一日的劳作，不如以血肉之躯，在沙场上搏一个出路。", "不甘终身困于泥土，欲以汗水与鲜血，铸就一番功业。"],
-    'FISHERMAN': ["河川枯竭，鱼虾无踪，不如弃舟从戎，搏一个生路。", "水匪横行，生计难维，唯有提刀入伍，方可自保。", "厌倦了水上漂泊，想在陆地上，用另一种方式捕获命运。"],
-    'MINER': ["矿坑塌陷，生灵涂炭，不如以手中镐头，改掘乱世财宝。", "不见天日的劳作，不如以血肉之躯，在阳光下搏杀。", "不甘为奴为婢，愿以一身蛮力，在沙场上掘出新的人生。"],
-    'PERFORMER': ["弦歌中断，看客散尽，不如以血肉为舞，再奏一曲悲歌。", "乱世无太平，歌舞难维生，唯有持剑而舞，方能生存。", "厌倦了虚假的欢笑，想在真实的战场上，演绎生命的价值。"],
-    'MOHIST': ["兼爱非攻，终难平乱世之争，唯有以身入局，方能止戈。", "墨者兼爱，却见民不聊生，愿以手中之剑，捍卫世间公义。", "昔日游说诸侯，今欲以血肉之躯，亲身践行兼爱非攻之道。"],
-};
+const STORIES: Record<string, string[]> = {};
+parseCSV(STORIES_CSV).forEach(s => {
+    if (!STORIES[s.bgId]) STORIES[s.bgId] = [];
+    STORIES[s.bgId].push(s.story);
+});
 
 export const BACKGROUNDS: Record<string, BackgroundTemplate> = {};
 parseCSV(BACKGROUNDS_CSV).forEach(bg => {
@@ -230,25 +229,15 @@ export const getTraitStatMods = (traitIds: string[]): {
 };
 
 // --- REMAINING CONSTANTS ---
-export const ABILITIES: Record<string, Ability> = {
-    'WAIT': { id: 'WAIT', name: '等待', description: '推迟行动顺序。', apCost: 0, fatCost: 0, range: [0, 0], icon: '⏳', type: 'UTILITY', targetType: 'SELF' },
-    'MOVE': { id: 'MOVE', name: '移动', description: '移动到目标地块。', apCost: 2, fatCost: 2, range: [1, 12], icon: '🦶', type: 'UTILITY', targetType: 'GROUND' },
-    'SLASH': { id: 'SLASH', name: '劈砍', description: '基础剑术攻击。', apCost: 4, fatCost: 10, range: [1, 1], icon: '🗡️', type: 'ATTACK', targetType: 'ENEMY' },
-    'RIPOSTE': { id: 'RIPOSTE', name: '反击', description: '进入防御姿态，受到攻击时会自动反击。', apCost: 4, fatCost: 20, range: [0, 0], icon: '🔄', type: 'SKILL', targetType: 'SELF' },
-    'CHOP': { id: 'CHOP', name: '斧劈', description: '沉重的劈砍，对头部造成额外伤害。', apCost: 4, fatCost: 12, range: [1, 1], icon: '🪓', type: 'ATTACK', targetType: 'ENEMY' },
-    'SPLIT_SHIELD': { id: 'SPLIT_SHIELD', name: '破盾', description: '专门破坏盾牌的攻击。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🛡️💥', type: 'ATTACK', targetType: 'ENEMY' },
-    'THRUST': { id: 'THRUST', name: '刺击', description: '利用长矛的距离优势进行攻击。', apCost: 4, fatCost: 12, range: [1, 1], icon: '🔱', type: 'ATTACK', targetType: 'ENEMY' },
-    'SPEARWALL': { id: 'SPEARWALL', name: '矛墙', description: '阻止敌人进入近身范围。', apCost: 6, fatCost: 25, range: [0, 0], icon: '🚧', type: 'SKILL', targetType: 'SELF' },
-    'BASH': { id: 'BASH', name: '重击', description: '造成大量疲劳伤害，有几率击晕。', apCost: 4, fatCost: 14, range: [1, 1], icon: '🔨', type: 'ATTACK', targetType: 'ENEMY' },
-    'IMPALE': { id: 'IMPALE', name: '穿刺', description: '长柄武器攻击，无视部分护甲。', apCost: 6, fatCost: 15, range: [1, 2], icon: '🍢', type: 'ATTACK', targetType: 'ENEMY' },
-    'SHOOT': { id: 'SHOOT', name: '射击', description: '远程攻击。', apCost: 4, fatCost: 10, range: [2, 7], icon: '🏹', type: 'ATTACK', targetType: 'ENEMY' },
-    'RELOAD': { id: 'RELOAD', name: '装填', description: '为弩装填箭矢。', apCost: 6, fatCost: 15, range: [0, 0], icon: '🔄', type: 'UTILITY', targetType: 'SELF' },
-    'PUNCTURE': { id: 'PUNCTURE', name: '透甲', description: '匕首攻击，完全无视护甲，但很难命中。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🔪', type: 'ATTACK', targetType: 'ENEMY' },
-    'SHIELDWALL': { id: 'SHIELDWALL', name: '盾墙', description: '大幅提高近战和远程防御。', apCost: 4, fatCost: 20, range: [0, 0], icon: '🛡️', type: 'SKILL', targetType: 'SELF' },
-    'KNOCK_BACK': { id: 'KNOCK_BACK', name: '推撞', description: '将敌人推开一格。', apCost: 4, fatCost: 15, range: [1, 1], icon: '🤚', type: 'SKILL', targetType: 'ENEMY' },
-    'THROW': { id: 'THROW', name: '投掷', description: '投掷武器进行远程攻击。', apCost: 4, fatCost: 12, range: [2, 4], icon: '🪨', type: 'ATTACK', targetType: 'ENEMY' },
-    'BITE': { id: 'BITE', name: '撕咬', description: '野兽的凶猛撕咬。', apCost: 4, fatCost: 8, range: [1, 1], icon: '🐺', type: 'ATTACK', targetType: 'ENEMY' },
-};
+export const ABILITIES: Record<string, Ability> = {};
+parseCSV(ABILITIES_CSV).forEach(a => {
+    ABILITIES[a.id] = {
+        id: a.id, name: a.name, description: a.description,
+        apCost: a.apCost, fatCost: a.fatCost,
+        range: [a.rangeMin, a.rangeMax],
+        icon: a.icon, type: a.type, targetType: a.targetType,
+    };
+});
 
 export const getUnitAbilities = (char: Character): Ability[] => {
     const skills: Ability[] = [ABILITIES['MOVE']];
@@ -325,22 +314,119 @@ export const getUnitAbilities = (char: Character): Ability[] => {
     return skills;
 };
 
-export const CONSUMABLE_TEMPLATES: Item[] = [
-    // 粮食类
-    { id: 'c_food1', name: '干粮', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 10, value: 10, weight: 2, durability: 1, maxDurability: 1, description: '简单的行军口粮，可供数人食用。购买后直接补充粮食储备。' },
-    { id: 'c_food2', name: '腌肉', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 30, value: 25, weight: 4, durability: 1, maxDurability: 1, description: '盐渍风干的肉脯，耐储存且饱腹感强。购买后直接补充粮食储备。' },
-    { id: 'c_food3', name: '上等口粮', type: 'CONSUMABLE', subType: 'FOOD', effectValue: 60, value: 50, weight: 6, durability: 1, maxDurability: 1, description: '精心准备的行军粮秣，含肉干、谷饼与蜜饯。购买后直接补充粮食储备。' },
-    // 医药类
-    { id: 'c_med1', name: '金创药', type: 'CONSUMABLE', subType: 'MEDICINE', effectValue: 20, value: 50, weight: 1, durability: 1, maxDurability: 1, description: '用草药制成的外敷药膏，可治疗刀伤箭创。在营地中使用，恢复20点生命。' },
-    { id: 'c_med2', name: '续命膏', type: 'CONSUMABLE', subType: 'MEDICINE', effectValue: 50, value: 120, weight: 1, durability: 1, maxDurability: 1, description: '名医秘制的珍贵药膏，药效卓著。在营地中使用，恢复50点生命。' },
-    // 修甲工具类
-    { id: 'c_rep1', name: '修甲工具', type: 'CONSUMABLE', subType: 'REPAIR_KIT', effectValue: 50, value: 80, weight: 3, durability: 1, maxDurability: 1, description: '简易的铁锤与铆钉，可用于修补甲胄。在营地中使用，恢复50点装备耐久。' },
-    { id: 'c_rep2', name: '精铁修甲具', type: 'CONSUMABLE', subType: 'REPAIR_KIT', effectValue: 9999, value: 200, weight: 5, durability: 1, maxDurability: 1, description: '铁匠级别的精良工具套装，可将甲胄完全修复如新。在营地中使用，完全恢复装备耐久。' },
-];
+export const CONSUMABLE_TEMPLATES: Item[] = parseCSV(CONSUMABLES_CSV).map(c => ({
+    id: c.id, name: c.name, type: 'CONSUMABLE' as const, subType: c.subType,
+    effectValue: c.effectValue, value: c.value, weight: c.weight,
+    durability: 1, maxDurability: 1, description: c.description,
+}));
 
-export const CITY_NAMES = ['咸阳', '邯郸', '大梁', '临淄', '郢都', '新郑', '蓟城', '洛阳', '寿春', '琅琊', '会稽', '番禺'];
-export const SURNAMES = ['赵', '钱', '孙', '李', '周', '吴', '郑', '王', '冯', '陈', '褚', '卫', '蒋', '沈', '韩', '杨', '朱', '秦', '尤', '许', '何', '吕', '施', '张', '孔', '曹', '严', '华', '金', '魏', '陶', '姜', '戚', '谢', '邹', '喻', '柏', '水', '窦', '章'];
-export const NAMES_MALE = ['伯', '仲', '叔', '季', '勇', '猛', '刚', '强', '平', '安', '福', '寿', '康', '宁', '文', '武', '德', '才', '光', '明', '虎', '豹', '龙', '非', '忌', '去病', '无忌', '不害', '鞅', '仪', '斯', '恬', '信', '广', '胜', '起', '翦', '贲'];
+const _namesData = parseCSV(NAMES_CSV);
+export const CITY_NAMES = _namesData.filter((n: any) => n.category === 'CITY').map((n: any) => n.name as string);
+export const SURNAMES = _namesData.filter((n: any) => n.category === 'SURNAME').map((n: any) => n.name as string);
+export const NAMES_MALE = _namesData.filter((n: any) => n.category === 'MALE_NAME').map((n: any) => n.name as string);
+
+// --- BIOME CONFIGS (from biome_configs.csv) ---
+export const BIOME_CONFIGS_DATA: Record<string, {
+    name: string; yRange: [number, number]; baseTemperature: number; baseMoisture: number;
+    terrainWeights: Record<string, number>; cityDensity: number; ruinChance: number;
+}> = {};
+parseCSV(BIOME_CONFIGS_CSV).forEach(b => {
+    const terrainWeights: Record<string, number> = {};
+    if (b.twSNOW) terrainWeights.SNOW = b.twSNOW;
+    if (b.twFOREST) terrainWeights.FOREST = b.twFOREST;
+    if (b.twMOUNTAIN) terrainWeights.MOUNTAIN = b.twMOUNTAIN;
+    if (b.twPLAINS) terrainWeights.PLAINS = b.twPLAINS;
+    if (b.twSWAMP) terrainWeights.SWAMP = b.twSWAMP;
+    if (b.twRUINS) terrainWeights.RUINS = b.twRUINS;
+    if (b.twDESERT) terrainWeights.DESERT = b.twDESERT;
+    BIOME_CONFIGS_DATA[b.id] = {
+        name: b.name,
+        yRange: [b.yRangeMin, b.yRangeMax],
+        baseTemperature: b.baseTemperature,
+        baseMoisture: b.baseMoisture,
+        terrainWeights,
+        cityDensity: b.cityDensity,
+        ruinChance: b.ruinChance,
+    };
+});
+
+// --- MARKET CONFIG (from market_config.csv) ---
+export const RARITY_WEIGHTS: Record<string, Record<string, number>> = {};
+export const MARKET_STOCK_CONFIG: Record<string, {
+    weapons: [number, number]; armors: [number, number]; helmets: [number, number];
+    shields: [number, number]; food: [number, number]; med: [number, number]; repairChance: number;
+}> = {};
+parseCSV(MARKET_CONFIG_CSV).forEach(m => {
+    RARITY_WEIGHTS[m.cityType] = {
+        COMMON: m.rarityCommon, UNCOMMON: m.rarityUncommon, RARE: m.rarityRare,
+        EPIC: m.rarityEpic, LEGENDARY: m.rarityLegendary,
+    };
+    MARKET_STOCK_CONFIG[m.cityType] = {
+        weapons: [m.weaponsMin, m.weaponsMax], armors: [m.armorsMin, m.armorsMax],
+        helmets: [m.helmetsMin, m.helmetsMax], shields: [m.shieldsMin, m.shieldsMax],
+        food: [m.foodMin, m.foodMax], med: [m.medMin, m.medMax],
+        repairChance: m.repairChance,
+    };
+});
+
+// --- DIFFICULTY TIERS (from difficulty_tiers.csv) ---
+const _difficultyTiers = parseCSV(DIFFICULTY_TIERS_CSV);
+export const getDifficultyTier = (day: number) => {
+    for (const t of _difficultyTiers) {
+        if (day <= t.maxDay) return { tier: t.tier, valueLimit: t.valueLimit, statMult: t.statMult };
+    }
+    const last = _difficultyTiers[_difficultyTiers.length - 1];
+    return { tier: last.tier, valueLimit: last.valueLimit, statMult: last.statMult };
+};
+
+// --- ENEMY COMPOSITIONS (from enemy_compositions.csv) ---
+export const TIERED_ENEMY_COMPOSITIONS: Record<string, { name: string; bg: string; aiType: AIType }[][]> = {};
+parseCSV(ENEMY_COMPOSITIONS_CSV).forEach(e => {
+    if (!TIERED_ENEMY_COMPOSITIONS[e.enemyType]) TIERED_ENEMY_COMPOSITIONS[e.enemyType] = [];
+    const tiers = TIERED_ENEMY_COMPOSITIONS[e.enemyType];
+    while (tiers.length <= e.tier) tiers.push([]);
+    tiers[e.tier].push({ name: e.name, bg: e.bg, aiType: e.aiType as AIType });
+});
+
+// --- GOLD REWARDS (from gold_rewards.csv) ---
+export const GOLD_REWARDS: Record<string, { goldMin: number; goldMax: number }> = {};
+parseCSV(GOLD_REWARDS_CSV).forEach(g => {
+    GOLD_REWARDS[g.aiType] = { goldMin: g.goldMin, goldMax: g.goldMax };
+});
+
+// --- CAMP TEMPLATES (from camp_templates.csv) ---
+export const CAMP_TEMPLATES_DATA = parseCSV(CAMP_TEMPLATES_CSV).map((c: any) => ({
+    region: c.region,
+    entityType: c.entityType,
+    entitySubType: c.entitySubType,
+    faction: c.faction,
+    maxAlive: c.maxAlive,
+    spawnCooldown: c.spawnCooldown,
+    namePool: Array.isArray(c.namePool) ? c.namePool : [c.namePool],
+    speed: [c.speedMin, c.speedMax] as [number, number],
+    alertRadius: [c.alertMin, c.alertMax] as [number, number],
+    chaseRadius: [c.chaseMin, c.chaseMax] as [number, number],
+    strength: c.strengthMin != null ? [c.strengthMin, c.strengthMax] as [number, number] : undefined,
+    fleeThreshold: c.fleeMin != null ? [c.fleeMin, c.fleeMax] as [number, number] : undefined,
+    territoryRadius: c.territoryMin != null ? [c.territoryMin, c.territoryMax] as [number, number] : undefined,
+    aiState: c.aiState,
+    preferredTerrain: Array.isArray(c.preferredTerrain) ? c.preferredTerrain : [c.preferredTerrain],
+    yRange: [c.yRangeMin, c.yRangeMax] as [number, number],
+}));
+
+// --- MORALE EFFECTS (from morale_effects.csv) ---
+export const MORALE_EFFECTS_DATA: Record<string, {
+    hitChanceMod: number; damageMod: number; defenseMod: number;
+    skipActionChance: number; isControllable: boolean;
+}> = {};
+parseCSV(MORALE_EFFECTS_CSV).forEach(m => {
+    MORALE_EFFECTS_DATA[m.status] = {
+        hitChanceMod: m.hitChanceMod, damageMod: m.damageMod,
+        defenseMod: m.defenseMod, skipActionChance: m.skipActionChance,
+        isControllable: m.isControllable,
+    };
+});
+
 export const MAP_SIZE = 100; 
 export const VIEWPORT_WIDTH = 24; 
 export const VIEWPORT_HEIGHT = 14; 

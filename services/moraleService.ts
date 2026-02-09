@@ -8,7 +8,7 @@
  */
 
 import { CombatState, CombatUnit, MoraleStatus } from '../types';
-import { getHexDistance } from '../constants';
+import { getHexDistance, MORALE_EFFECTS_DATA } from '../constants';
 
 // ==================== 常量配置 ====================
 
@@ -62,59 +62,21 @@ export interface MoraleEffects {
 }
 
 /**
- * 获取士气状态对战斗属性的影响
+ * 获取士气状态对战斗属性的影响（从 CSV 配置读取）
  */
 export const getMoraleEffects = (morale: MoraleStatus): MoraleEffects => {
-  switch (morale) {
-    case MoraleStatus.CONFIDENT:
-      return {
-        hitChanceMod: 10,
-        damageMod: 10,
-        defenseMod: 5,
-        skipActionChance: 0,
-        isControllable: true
-      };
-    case MoraleStatus.STEADY:
-      return {
-        hitChanceMod: 0,
-        damageMod: 0,
-        defenseMod: 0,
-        skipActionChance: 0,
-        isControllable: true
-      };
-    case MoraleStatus.WAVERING:
-      return {
-        hitChanceMod: -5,
-        damageMod: 0,
-        defenseMod: -5,
-        skipActionChance: 0,
-        isControllable: true
-      };
-    case MoraleStatus.BREAKING:
-      return {
-        hitChanceMod: -15,
-        damageMod: -5,
-        defenseMod: -10,
-        skipActionChance: 0.25, // 25%概率跳过行动
-        isControllable: true
-      };
-    case MoraleStatus.FLEEING:
-      return {
-        hitChanceMod: -30,
-        damageMod: -20,
-        defenseMod: -20,
-        skipActionChance: 0,
-        isControllable: false // 失去控制，自动逃跑
-      };
-    default:
-      return {
-        hitChanceMod: 0,
-        damageMod: 0,
-        defenseMod: 0,
-        skipActionChance: 0,
-        isControllable: true
-      };
+  const data = MORALE_EFFECTS_DATA[morale];
+  if (data) {
+    return {
+      hitChanceMod: data.hitChanceMod,
+      damageMod: data.damageMod,
+      defenseMod: data.defenseMod,
+      skipActionChance: data.skipActionChance,
+      isControllable: data.isControllable,
+    };
   }
+  // 默认值
+  return { hitChanceMod: 0, damageMod: 0, defenseMod: 0, skipActionChance: 0, isControllable: true };
 };
 
 // ==================== 士气检定事件类型 ====================

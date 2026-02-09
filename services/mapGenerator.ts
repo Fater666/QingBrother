@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -121,66 +121,7 @@ export interface BiomeConfig {
   ruinChance: number;        // 遗迹概率
 }
 
-export const BIOME_CONFIGS: Record<BiomeType, BiomeConfig> = {
-  NORTHERN_TUNDRA: {
-    name: '北疆冻土',
-    yRange: [0, 0.25],
-    baseTemperature: 0.15,
-    baseMoisture: 0.4,
-    terrainWeights: {
-      SNOW: 0.5,
-      FOREST: 0.25,
-      MOUNTAIN: 0.15,
-      PLAINS: 0.1
-    },
-    cityDensity: 0.5,
-    ruinChance: 0.02
-  },
-  CENTRAL_PLAINS: {
-    name: '中原沃野',
-    yRange: [0.25, 0.6],
-    baseTemperature: 0.6,
-    baseMoisture: 0.5,
-    terrainWeights: {
-      PLAINS: 0.55,
-      FOREST: 0.25,
-      MOUNTAIN: 0.1,
-      SWAMP: 0.05,
-      RUINS: 0.05
-    },
-    cityDensity: 1.5,
-    ruinChance: 0.03
-  },
-  SOUTHERN_WETLANDS: {
-    name: '江南水乡',
-    yRange: [0.6, 0.8],
-    baseTemperature: 0.7,
-    baseMoisture: 0.75,
-    terrainWeights: {
-      SWAMP: 0.3,
-      FOREST: 0.35,
-      PLAINS: 0.2,
-      RUINS: 0.1,
-      MOUNTAIN: 0.05
-    },
-    cityDensity: 1.0,
-    ruinChance: 0.06
-  },
-  FAR_SOUTH_DESERT: {
-    name: '南疆荒漠',
-    yRange: [0.8, 1.0],
-    baseTemperature: 0.9,
-    baseMoisture: 0.15,
-    terrainWeights: {
-      DESERT: 0.6,
-      PLAINS: 0.15,
-      MOUNTAIN: 0.15,
-      RUINS: 0.1
-    },
-    cityDensity: 0.6,
-    ruinChance: 0.05
-  }
-};
+export const BIOME_CONFIGS: Record<BiomeType, BiomeConfig> = BIOME_CONFIGS_DATA as Record<BiomeType, BiomeConfig>;
 
 /**
  * 获取坐标所在的区域
@@ -394,19 +335,11 @@ const createMercenary = (id: string): Character => {
 /** 品质等级及其在各城市规模下的出现权重 */
 const RARITY_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const;
 
-/** 各城市规模允许的最高品质及品质权重 */
-const RARITY_WEIGHTS: Record<string, Record<string, number>> = {
-  VILLAGE:  { COMMON: 50, UNCOMMON: 40, RARE: 10, EPIC: 0, LEGENDARY: 0 },
-  TOWN:    { COMMON: 20, UNCOMMON: 35, RARE: 30, EPIC: 12, LEGENDARY: 3 },
-  CAPITAL: { COMMON: 10, UNCOMMON: 20, RARE: 30, EPIC: 25, LEGENDARY: 15 },
-};
+/** 各城市规模允许的最高品质及品质权重（从 CSV 加载） */
+const RARITY_WEIGHTS = CSV_RARITY_WEIGHTS;
 
-/** 各城市规模的库存数量范围 [min, max] */
-const MARKET_STOCK_CONFIG: Record<string, { weapons: [number, number]; armors: [number, number]; helmets: [number, number]; shields: [number, number]; food: [number, number]; med: [number, number]; repairChance: number }> = {
-  VILLAGE:  { weapons: [2, 3], armors: [1, 2], helmets: [0, 1], shields: [0, 1], food: [2, 3], med: [1, 1], repairChance: 0.3 },
-  TOWN:    { weapons: [3, 5], armors: [2, 3], helmets: [1, 2], shields: [1, 2], food: [2, 4], med: [1, 2], repairChance: 0.6 },
-  CAPITAL: { weapons: [5, 7], armors: [3, 4], helmets: [2, 3], shields: [2, 3], food: [3, 5], med: [2, 3], repairChance: 0.9 },
-};
+/** 各城市规模的库存数量范围（从 CSV 加载） */
+const MARKET_STOCK_CONFIG = CSV_MARKET_STOCK_CONFIG;
 
 /** 按权重随机选择一个品质等级 */
 const rollRarity = (cityType: string): string => {

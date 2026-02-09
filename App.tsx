@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -96,7 +96,7 @@ const generateMap = (): { tiles: WorldTile[], cities: City[] } => {
 
 // ==================== 巢穴系统（仿战场兄弟） ====================
 
-// 巢穴配置表：每个区域的巢穴模板
+// 巢穴配置表：从 CSV 数据加载
 interface CampTemplate {
   region: CampRegion;
   entityType: WorldAIType;
@@ -117,73 +117,7 @@ interface CampTemplate {
   yRange: [number, number];     // Y轴范围比例 (0-1)
 }
 
-const CAMP_TEMPLATES: CampTemplate[] = [
-  // 北疆 - 3个狼群巢穴
-  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
-    maxAlive: 3, spawnCooldown: 2.5, namePool: ['北疆狼群', '雪狼', '冻土野狼', '雪豹'],
-    speed: [1.0, 1.2], alertRadius: [4, 4], chaseRadius: [7, 9], territoryRadius: [5, 8],
-    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST'], yRange: [0, 0.25] },
-  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['北疆狼群', '雪狼', '冻土野狼'],
-    speed: [0.9, 1.1], alertRadius: [3, 5], chaseRadius: [6, 8], territoryRadius: [4, 7],
-    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST'], yRange: [0, 0.3] },
-  { region: 'NORTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['雪豹', '冻土野狼'],
-    speed: [1.0, 1.3], alertRadius: [4, 5], chaseRadius: [7, 9], territoryRadius: [5, 8],
-    aiState: 'WANDER', preferredTerrain: ['SNOW', 'FOREST', 'MOUNTAIN'], yRange: [0, 0.25] },
-  // 中原 - 4个土匪巢穴
-  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 3, spawnCooldown: 2, namePool: ['流寇', '山贼', '劫匪', '盗贼', '响马'],
-    speed: [0.7, 1.0], alertRadius: [4, 6], chaseRadius: [10, 14], strength: [3, 5], fleeThreshold: [0.2, 0.3],
-    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS', 'FOREST'], yRange: [0.2, 0.6] },
-  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 3, spawnCooldown: 2, namePool: ['流寇', '山贼', '劫匪', '响马'],
-    speed: [0.7, 1.0], alertRadius: [4, 6], chaseRadius: [10, 14], strength: [3, 6], fleeThreshold: [0.2, 0.3],
-    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS', 'FOREST'], yRange: [0.25, 0.55] },
-  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 2.5, namePool: ['流寇', '盗贼', '劫匪'],
-    speed: [0.7, 0.9], alertRadius: [3, 5], chaseRadius: [8, 12], strength: [2, 4], fleeThreshold: [0.25, 0.35],
-    aiState: 'PATROL', preferredTerrain: ['ROAD', 'PLAINS'], yRange: [0.3, 0.6] },
-  { region: 'CENTRAL', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['山贼', '响马'],
-    speed: [0.8, 1.0], alertRadius: [5, 6], chaseRadius: [10, 14], strength: [4, 6], fleeThreshold: [0.15, 0.25],
-    aiState: 'PATROL', preferredTerrain: ['FOREST', 'PLAINS', 'MOUNTAIN'], yRange: [0.2, 0.55] },
-  // 江南 - 3个蛮族/野兽巢穴
-  { region: 'SOUTH', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 3, spawnCooldown: 2.5, namePool: ['沼泽蛮人', '密林蛮族', '越人战士'],
-    speed: [0.8, 1.0], alertRadius: [3, 4], chaseRadius: [6, 8], territoryRadius: [4, 7],
-    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.55, 0.8] },
-  { region: 'SOUTH', entityType: 'BANDIT', entitySubType: 'BANDIT', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['沼泽蛮人', '越人战士', '密林蛮族'],
-    speed: [0.7, 0.9], alertRadius: [3, 5], chaseRadius: [6, 9], territoryRadius: [4, 6],
-    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.6, 0.8] },
-  { region: 'SOUTH', entityType: 'BEAST', entitySubType: 'BEAST', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['猛虎', '毒蛇群', '林中巨蟒'],
-    speed: [0.9, 1.2], alertRadius: [3, 5], chaseRadius: [6, 8], territoryRadius: [4, 7],
-    aiState: 'WANDER', preferredTerrain: ['FOREST', 'SWAMP'], yRange: [0.55, 0.8] },
-  // 南疆 - 3个游牧民巢穴
-  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'HOSTILE',
-    maxAlive: 3, spawnCooldown: 2.5, namePool: ['胡人劫掠者', '沙匪', '戎狄骑兵'],
-    speed: [1.1, 1.4], alertRadius: [5, 7], chaseRadius: [9, 12], strength: [4, 6],
-    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.75, 1.0] },
-  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['沙匪', '戎狄骑兵', '胡人劫掠者'],
-    speed: [1.0, 1.3], alertRadius: [5, 7], chaseRadius: [8, 11], strength: [3, 5],
-    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.8, 1.0] },
-  { region: 'DESERT', entityType: 'NOMAD', entitySubType: 'NOMAD', faction: 'NEUTRAL',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['胡人游骑', '沙漠商旅'],
-    speed: [1.0, 1.2], alertRadius: [5, 6], chaseRadius: [8, 10], strength: [3, 5],
-    aiState: 'WANDER', preferredTerrain: ['DESERT', 'PLAINS'], yRange: [0.75, 1.0] },
-  // 邪教巢穴 - 中原和南方各1个
-  { region: 'CENTRAL', entityType: 'CULT', entitySubType: 'CULT', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3, namePool: ['太平道信徒', '邪教徒', '妖道门人'],
-    speed: [0.6, 0.9], alertRadius: [4, 6], chaseRadius: [8, 12], strength: [3, 5],
-    aiState: 'WANDER', preferredTerrain: ['FOREST', 'SWAMP', 'MOUNTAIN'], yRange: [0.25, 0.55] },
-  { region: 'SOUTH', entityType: 'CULT', entitySubType: 'CULT', faction: 'HOSTILE',
-    maxAlive: 2, spawnCooldown: 3.5, namePool: ['巫蛊邪教', '太平道信徒', '妖道门人'],
-    speed: [0.6, 0.8], alertRadius: [3, 5], chaseRadius: [7, 10], strength: [3, 6],
-    aiState: 'WANDER', preferredTerrain: ['SWAMP', 'FOREST'], yRange: [0.55, 0.8] },
-];
+const CAMP_TEMPLATES: CampTemplate[] = CAMP_TEMPLATES_DATA as CampTemplate[];
 
 /**
  * 在指定区域找一个合适的巢穴位置
@@ -498,20 +432,13 @@ const generateBattleResult = (
     }
   }
 
-  // --- 金钱奖励 ---
+  // --- 金钱奖励（从 CSV 配置读取） ---
   let goldReward = 0;
   if (victory) {
     enemyUnits.forEach(enemy => {
       const aiType = enemy.aiType || 'BANDIT';
-      switch (aiType) {
-        case 'ARMY': goldReward += 40 + Math.floor(Math.random() * 40); break;
-        case 'BEAST': goldReward += 15 + Math.floor(Math.random() * 25); break; // 野兽：兽皮/牙等略增金币补偿
-        case 'ARCHER': goldReward += 25 + Math.floor(Math.random() * 30); break;
-        case 'BERSERKER': goldReward += 35 + Math.floor(Math.random() * 45); break;
-        case 'TANK': goldReward += 35 + Math.floor(Math.random() * 35); break;
-        case 'SKIRMISHER': goldReward += 20 + Math.floor(Math.random() * 25); break;
-        default: goldReward += 20 + Math.floor(Math.random() * 30); break; // BANDIT
-      }
+      const reward = GOLD_REWARDS[aiType] || GOLD_REWARDS['BANDIT'] || { goldMin: 20, goldMax: 50 };
+      goldReward += reward.goldMin + Math.floor(Math.random() * (reward.goldMax - reward.goldMin));
     });
   }
 
@@ -529,14 +456,6 @@ const generateBattleResult = (
 };
 
 // --- 难度曲线与装备系统（仿战场兄弟） ---
-
-/** 根据天数获取难度阶段 */
-const getDifficultyTier = (day: number) => {
-  if (day <= 15) return { tier: 0, valueLimit: 400, statMult: 1.0 };
-  if (day <= 40) return { tier: 1, valueLimit: 900, statMult: 1.08 };
-  if (day <= 70) return { tier: 2, valueLimit: 1800, statMult: 1.18 };
-  return { tier: 3, valueLimit: 5000, statMult: 1.3 };
-};
 
 /** 根据AI类型和价值上限为敌人分配合适装备（排除传世红装） */
 const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
@@ -668,192 +587,8 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
   }
 };
 
-/** 多阶段敌人编制表（仿战场兄弟难度递进） */
+/** 多阶段敌人编制表（从 CSV 加载） */
 interface EnemyComp { name: string; bg: string; aiType: AIType }
-
-const TIERED_ENEMY_COMPOSITIONS: Record<string, EnemyComp[][]> = {
-  'BANDIT': [
-    // Tier 0: 早期 - 3人小队
-    [
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '山贼', bg: 'FARMER', aiType: 'BANDIT' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-    ],
-    // Tier 1: 中期 - 5人，加入投石游击手
-    [
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
-    ],
-    // Tier 2: 后期 - 7人，加入游击手
-    [
-      { name: '山贼头目', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
-      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
-    ],
-    // Tier 3: 末期 - 9人
-    [
-      { name: '贼王', bg: 'NOBLE', aiType: 'BERSERKER' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '悍匪', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '山贼精锐', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '贼投石手', bg: 'FARMER', aiType: 'SKIRMISHER' },
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '山贼', bg: 'BANDIT', aiType: 'BANDIT' },
-      { name: '贼弓手', bg: 'HUNTER', aiType: 'ARCHER' },
-    ],
-  ],
-  'ARMY': [
-    // Tier 0
-    [
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'FARMER', aiType: 'ARMY' },
-    ],
-    // Tier 1: 加入重装盾兵
-    [
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '叛将', bg: 'NOBLE', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-    ],
-    // Tier 2: 阵型更有层次
-    [
-      { name: '叛将', bg: 'NOBLE', aiType: 'BERSERKER' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
-    ],
-    // Tier 3: 重装盾兵+弩手阵线
-    [
-      { name: '叛军主将', bg: 'NOBLE', aiType: 'BERSERKER' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
-      { name: '叛军盾兵', bg: 'DESERTER', aiType: 'TANK' },
-      { name: '叛军精锐', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '叛卒', bg: 'DESERTER', aiType: 'ARMY' },
-      { name: '悍卒', bg: 'DESERTER', aiType: 'BERSERKER' },
-      { name: '弩手', bg: 'HUNTER', aiType: 'ARCHER' },
-    ],
-  ],
-  'BEAST': [
-    // Tier 0: 纯狼群
-    [
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-    ],
-    // Tier 1: 狼群 + 野猪
-    [
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-    ],
-    // Tier 2: 混合兽群 + 虎/豹
-    [
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-      { name: '猛虎', bg: 'BLACKSMITH', aiType: 'BERSERKER' },
-    ],
-    // Tier 3: 凶猛兽群
-    [
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野狼', bg: 'FARMER', aiType: 'BEAST' },
-      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
-      { name: '野猪', bg: 'LABORER', aiType: 'BEAST' },
-      { name: '头狼', bg: 'HUNTER', aiType: 'BEAST' },
-      { name: '猛虎', bg: 'BLACKSMITH', aiType: 'BERSERKER' },
-    ],
-  ],
-  'NOMAD': [
-    // Tier 0
-    [
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-    ],
-    // Tier 1: 加入游击标枪手
-    [
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
-    ],
-    // Tier 2: 游牧风格——游击+骑兵
-    [
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
-      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-    ],
-    // Tier 3: 大规模游牧军
-    [
-      { name: '胡骑大汗', bg: 'NOBLE', aiType: 'BERSERKER' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡弓手', bg: 'NOMAD', aiType: 'ARCHER' },
-      { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑精锐', bg: 'NOMAD', aiType: 'ARMY' },
-      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
-      { name: '胡骑游骑', bg: 'NOMAD', aiType: 'SKIRMISHER' },
-      { name: '胡骑首领', bg: 'NOMAD', aiType: 'BERSERKER' },
-    ],
-  ],
-  'CULT': [
-    // Tier 0: 小股邪教徒
-    [
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-    ],
-    // Tier 1: 中等规模
-    [
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
-      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
-    ],
-    // Tier 2: 大规模——信仰狂热
-    [
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
-      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-    ],
-    // Tier 3: 末期——邪教大军
-    [
-      { name: '邪教教主', bg: 'MONK', aiType: 'BERSERKER' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-      { name: '邪教护卫', bg: 'MONK', aiType: 'TANK' },
-      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
-      { name: '邪教弓手', bg: 'MONK', aiType: 'ARCHER' },
-      { name: '邪教方士', bg: 'MONK', aiType: 'BERSERKER' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-      { name: '邪教信徒', bg: 'MONK', aiType: 'BANDIT' },
-    ],
-  ],
-};
 
 export const App: React.FC = () => {
   const [view, setView] = useState<GameView>('MAIN_MENU');

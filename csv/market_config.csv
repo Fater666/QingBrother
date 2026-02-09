@@ -1,0 +1,4 @@
+cityType|rarityCommon|rarityUncommon|rarityRare|rarityEpic|rarityLegendary|weaponsMin|weaponsMax|armorsMin|armorsMax|helmetsMin|helmetsMax|shieldsMin|shieldsMax|foodMin|foodMax|medMin|medMax|repairChance
+VILLAGE|50|40|10|0|0|2|3|1|2|0|1|0|1|2|3|1|1|0.3
+TOWN|20|35|30|12|3|3|5|2|3|1|2|1|2|2|4|1|2|0.6
+CAPITAL|10|20|30|25|15|5|7|3|4|2|3|2|3|3|5|2|3|0.9
