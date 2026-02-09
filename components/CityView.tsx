@@ -330,12 +330,27 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       const hireCost = Math.floor(merc.salary * 10);
       if (party.mercenaries.length >= 20) { showNotification("战团人数已达上限！"); return; }
       if (party.gold >= hireCost) {
-          const newMerc = { ...merc, formationIndex: null };
+          // 检查当前已上阵人数是否未满 12 人 (正式满员为 12 人)
+          const activeMercs = party.mercenaries.filter(m => m.formationIndex !== null);
+          let formationIndex: number | null = null;
+
+          if (activeMercs.length < 12) {
+              // 寻找第一个空余阵位 (0-17)
+              const occupiedIndices = activeMercs.map(m => m.formationIndex as number);
+              for (let i = 0; i < 18; i++) {
+                  if (!occupiedIndices.includes(i)) {
+                      formationIndex = i;
+                      break;
+                  }
+              }
+          }
+
+          const newMerc = { ...merc, formationIndex };
           onUpdateParty({ ...party, gold: party.gold - hireCost, mercenaries: [...party.mercenaries, newMerc] });
           const newRecruits = [...city.recruits];
           newRecruits.splice(index, 1);
           onUpdateCity({ ...city, recruits: newRecruits });
-          showNotification(`招募了 ${merc.name}`);
+          showNotification(`招募了 ${merc.name}${formationIndex !== null ? '，已上阵' : '，进入后备'}`);
       } else { showNotification("金币不足！"); }
   };
 
