@@ -37,8 +37,8 @@ const getItemTypeName = (type: Item['type']): string => {
 const getItemBrief = (item: Item): string => {
     if (item.type === 'CONSUMABLE' && item.subType) {
         if (item.subType === 'FOOD') return `粮食 +${item.effectValue}`;
-        if (item.subType === 'MEDICINE') return `恢复 ${item.effectValue}HP`;
-        if (item.subType === 'REPAIR_KIT') return item.effectValue! >= 9999 ? '完全修复' : `修复 +${item.effectValue}`;
+        if (item.subType === 'MEDICINE') return `医药 +${item.effectValue}`;
+        if (item.subType === 'REPAIR_KIT') return `修甲材料 +${item.effectValue}`;
     }
     if (item.damage) return `伤害 ${item.damage[0]}-${item.damage[1]}`;
     if (item.durability !== undefined && item.maxDurability > 1) return `耐久 ${item.durability}`;
@@ -184,18 +184,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       onUpdateParty({ ...party, mercenaries: newMercs });
   };
 
-  // 医药和修甲工具现在都是被动效果（行军时自动生效），不再手动使用
-
-  // 获取库存中的医药品和修甲工具
-  const medicineItems = useMemo(() => party.inventory
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.type === 'CONSUMABLE' && item.subType === 'MEDICINE'),
-  [party.inventory]);
-
-  const repairKitItems = useMemo(() => party.inventory
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.type === 'CONSUMABLE' && item.subType === 'REPAIR_KIT'),
-  [party.inventory]);
+  // 医药和修甲材料现在是数值资源池（类似粮食），每天自动消耗
 
   const perkTreeTiers = useMemo(() => {
       const tiers: Perk[][] = Array.from({ length: 7 }, () => []);
@@ -370,18 +359,39 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
                     {/* === 行军被动效果状态面板 === */}
                     <div className="px-4 pb-2 space-y-2">
-                        {/* 生命恢复状态（被动） */}
+                        {/* 资源储备一览 */}
+                        <div className="border border-amber-900/20 bg-black/20 p-3">
+                            <h4 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-2">行军补给</h4>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
+                                    <span className="text-emerald-500 font-mono font-bold">{party.food}</span>
+                                    <span className="text-[9px] text-slate-600 mt-0.5">🌾 粮食</span>
+                                </div>
+                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
+                                    <span className={`font-mono font-bold ${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`}>{party.medicine}</span>
+                                    <span className="text-[9px] text-slate-600 mt-0.5">💊 医药</span>
+                                </div>
+                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
+                                    <span className={`font-mono font-bold ${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`}>{party.repairSupplies}</span>
+                                    <span className="text-[9px] text-slate-600 mt-0.5">🔧 修甲</span>
+                                </div>
+                            </div>
+                            <div className="text-[9px] text-slate-700 mt-2 leading-relaxed">
+                                每天每位伤员消耗 5 医药恢复 5HP · 每件损坏装备消耗 3 修甲材料修复 10 耐久
+                            </div>
+                        </div>
+
+                        {/* 生命恢复状态 */}
                         {selectedMerc.hp < selectedMerc.maxHp && (
                             <div className="border border-red-900/30 bg-red-950/10 p-3">
                                 {(() => {
-                                    const baseHeal = '1~2';
-                                    const medicineBonusHeal = medicineItems.reduce((sum: number, { item }: { item: Item }) => sum + Math.ceil((item.effectValue || 0) / 5), 0);
-                                    const totalHealStr = medicineBonusHeal > 0 ? `${1 + medicineBonusHeal}~${2 + medicineBonusHeal}` : baseHeal;
+                                    const hasMedicine = party.medicine >= 5;
+                                    const totalHealStr = hasMedicine ? '6~7' : '1~2';
                                     return (
                                         <>
                                             <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
                                                 生命恢复中 <span className="text-red-800 normal-case">
-                                                    （{selectedMerc.name} {selectedMerc.hp}/{selectedMerc.maxHp} HP，每天 +{totalHealStr}{medicineItems.length > 0 ? `，含 ${medicineItems.length} 份医药加成` : ''}）
+                                                    （{selectedMerc.name} {selectedMerc.hp}/{selectedMerc.maxHp} HP，每天 +{totalHealStr}{hasMedicine ? '，含医药加成' : '，无医药'}）
                                                 </span>
                                             </h4>
                                             <div className="flex items-center gap-2">
@@ -396,7 +406,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                             </div>
                         )}
 
-                        {/* 装备修复状态提示（被动） */}
+                        {/* 装备修复状态提示 */}
                         {(() => {
                             const damagedSlots: { item: Item }[] = [];
                             (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[]).forEach(slot => {
@@ -406,11 +416,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 }
                             });
                             if (damagedSlots.length === 0) return null;
-                            const repairRate = 5 + repairKitItems.length * 15;
+                            const hasRepairSupplies = party.repairSupplies >= 3;
+                            const repairRate = hasRepairSupplies ? 10 : 2;
                             return (
                                 <div className="border border-amber-900/30 bg-amber-950/10 p-3">
                                     <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">
-                                        装备修复中 <span className="text-amber-800 normal-case">（每天 +{repairRate} 耐久{repairKitItems.length > 0 ? `，含 ${repairKitItems.length} 套修甲工具加成` : ''}）</span>
+                                        装备修复中 <span className="text-amber-800 normal-case">（每件每天 +{repairRate} 耐久{hasRepairSupplies ? '，含修甲材料加成' : '，无修甲材料'}）</span>
                                     </h4>
                                     {damagedSlots.map(({ item: eq }, idx) => {
                                         const durPct = (eq.durability / eq.maxDurability) * 100;

@@ -241,6 +241,14 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                     <span className="text-emerald-500 font-mono font-bold">{origin.food}</span>
                   </div>
                   <div className="flex justify-between text-xs">
+                    <span className="text-slate-600">医药储备</span>
+                    <span className="text-sky-400 font-mono font-bold">40</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-600">修甲材料</span>
+                    <span className="text-orange-400 font-mono font-bold">50</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
                     <span className="text-slate-600">起始人数</span>
                     <span className="text-sky-400 font-mono font-bold">{origin.mercenaries.length} 人</span>
                   </div>

@@ -32,8 +32,8 @@ const getItemTypeName = (type: Item['type']): string => {
 const getItemBrief = (item: Item): string => {
     if (item.type === 'CONSUMABLE' && item.subType) {
         if (item.subType === 'FOOD') return `粮食 +${item.effectValue}`;
-        if (item.subType === 'MEDICINE') return `恢复 ${item.effectValue}HP`;
-        if (item.subType === 'REPAIR_KIT') return item.effectValue! >= 9999 ? '完全修复' : `修复 +${item.effectValue}`;
+        if (item.subType === 'MEDICINE') return `医药 +${item.effectValue}`;
+        if (item.subType === 'REPAIR_KIT') return `修甲材料 +${item.effectValue}`;
     }
     if (item.damage) return `伤害 ${item.damage[0]}-${item.damage[1]}`;
     if (item.durability !== undefined && item.maxDurability > 1) return `耐久 ${item.durability}`;
@@ -266,7 +266,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
       if (party.gold >= price) {
-          // 粮食类消耗品直接转化为 party.food
+          // 消耗品直接转化为资源池数值（与粮食逻辑一致）
           if (item.type === 'CONSUMABLE' && item.subType === 'FOOD' && item.effectValue) {
               onUpdateParty({
                   ...party,
@@ -278,6 +278,28 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
               onUpdateCity({ ...city, market: newMarket });
               setSelectedItem(null);
               showNotification(`购买了 ${item.name}（粮食 +${item.effectValue}）`);
+          } else if (item.type === 'CONSUMABLE' && item.subType === 'MEDICINE' && item.effectValue) {
+              onUpdateParty({
+                  ...party,
+                  gold: party.gold - price,
+                  medicine: party.medicine + item.effectValue,
+              });
+              const newMarket = [...city.market];
+              newMarket.splice(index, 1);
+              onUpdateCity({ ...city, market: newMarket });
+              setSelectedItem(null);
+              showNotification(`购买了 ${item.name}（医药 +${item.effectValue}）`);
+          } else if (item.type === 'CONSUMABLE' && item.subType === 'REPAIR_KIT' && item.effectValue) {
+              onUpdateParty({
+                  ...party,
+                  gold: party.gold - price,
+                  repairSupplies: party.repairSupplies + item.effectValue,
+              });
+              const newMarket = [...city.market];
+              newMarket.splice(index, 1);
+              onUpdateCity({ ...city, market: newMarket });
+              setSelectedItem(null);
+              showNotification(`购买了 ${item.name}（修甲材料 +${item.effectValue}）`);
           } else {
               onUpdateParty({
                   ...party,
@@ -419,8 +441,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         <div className="flex gap-4 text-xs font-mono">
                             <span className="text-amber-500">💰 {party.gold}</span>
                             <span className="text-emerald-500">🌾 {party.food}</span>
-                            <span className={`${party.inventory.filter(it => it.subType === 'MEDICINE').length > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药 ×${party.inventory.filter(it => it.subType === 'MEDICINE').length}`}>💊 {party.inventory.filter(it => it.subType === 'MEDICINE').length}</span>
-                            <span className={`${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲工具 ×${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}`}>🔧 {party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}</span>
+                            <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
+                            <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲材料 ${party.repairSupplies}`}>🔧 {party.repairSupplies}</span>
                             <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
                         </div>
                     </div>
