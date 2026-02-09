@@ -637,6 +637,30 @@ const executeNomadBehavior = (
   return moveEntity(newEntity, dt);
 };
 
+// ==================== 行为树：Boss营地 (BOSS_CAMP) ====================
+/**
+ * Boss营地行为特点：
+ * - 完全静止，固定在据点位置不移动
+ * - 不会主动追击玩家或商队
+ * - 不会逃跑
+ * - 玩家必须主动靠近才会触发战斗（碰撞检测由外部处理）
+ */
+const executeBossCampBehavior = (
+  entity: WorldEntity,
+  _party: Party,
+  _entities: WorldEntity[],
+  _tiles: WorldTile[],
+  _dt: number
+): WorldEntity => {
+  // Boss营地完全不移动，始终停留在原地
+  return {
+    ...entity,
+    aiState: 'IDLE',
+    targetX: null,
+    targetY: null,
+  };
+};
+
 // ==================== 移动函数 ====================
 /**
  * 根据目标位置移动实体
@@ -706,6 +730,8 @@ export const updateWorldEntityAI = (
       return executeTraderBehavior(entity, party, allEntities, tiles, cities, dt);
     case 'NOMAD':
       return executeNomadBehavior(entity, party, allEntities, tiles, dt);
+    case 'BOSS_CAMP':
+      return executeBossCampBehavior(entity, party, allEntities, tiles, dt);
     case 'CULT':
       // 邪教使用土匪行为（游荡+追击）
       return executeBanditBehavior(entity, party, allEntities, tiles, dt);
@@ -725,7 +751,8 @@ export const getWorldAITypeName = (aiType: WorldAIType): string => {
     'ARMY': '军队',
     'TRADER': '商队',
     'NOMAD': '游牧',
-    'CULT': '邪教'
+    'CULT': '邪教',
+    'BOSS_CAMP': 'Boss据点'
   };
   return names[aiType] || '未知';
 };

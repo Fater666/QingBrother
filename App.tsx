@@ -216,15 +216,15 @@ const spawnBossEntity = (camp: EnemyCamp): WorldEntity => {
     faction: 'HOSTILE',
     x: ex, y: ey,
     targetX: null, targetY: null,
-    speed: 0.6 + Math.random() * 0.2,
-    aiState: 'WANDER',
+    speed: 0,
+    aiState: 'IDLE',
     homeX: camp.x, homeY: camp.y,
-    worldAIType: 'BANDIT',
+    worldAIType: 'BOSS_CAMP',
     alertRadius: 5,
-    chaseRadius: 10,
+    chaseRadius: 5,
     campId: camp.id,
     wanderCooldown: Math.random() * 5,
-    territoryRadius: 3 + Math.random() * 2,
+    territoryRadius: 3,
     strength: 8,
     isBossEntity: true,
   };
@@ -1983,8 +1983,14 @@ export const App: React.FC = () => {
             <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-10">
                 <div className="w-full max-w-md bg-[#1a110a] border border-amber-900/50 p-8 shadow-2xl relative">
                     <div className="absolute inset-0 opacity-10 pointer-events-none" style={{backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(139,69,19,0.3) 2px, rgba(139,69,19,0.3) 4px)'}} />
-                    <h2 className="text-2xl font-bold text-amber-500 mb-4 tracking-widest text-center">遭遇 {preCombatEntity.name}</h2>
-                    <p className="text-slate-400 text-center mb-8 italic">一支{preCombatEntity.name}正在逼近，由于距离过近，战斗已不可避免。</p>
+                    <h2 className="text-2xl font-bold text-amber-500 mb-4 tracking-widest text-center">
+                      {preCombatEntity.isBossEntity ? `发现 ${preCombatEntity.name}` : `遭遇 ${preCombatEntity.name}`}
+                    </h2>
+                    <p className="text-slate-400 text-center mb-8 italic">
+                      {preCombatEntity.isBossEntity
+                        ? `你已深入${preCombatEntity.name}的腹地，前方的守卫已经发现了你。`
+                        : `一支${preCombatEntity.name}正在逼近，由于距离过近，战斗已不可避免。`}
+                    </p>
                     <div className="flex flex-col gap-3">
                         <button 
                             onClick={() => { startCombat(preCombatEntity); setPreCombatEntity(null); }}

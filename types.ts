@@ -204,7 +204,7 @@ export interface WorldTile {
 }
 
 // 大地图AI行为类型
-export type WorldAIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'TRADER' | 'NOMAD' | 'CULT';
+export type WorldAIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'TRADER' | 'NOMAD' | 'CULT' | 'BOSS_CAMP';
 
 export interface WorldEntity {
   id: string;
