@@ -97,8 +97,76 @@ const calculateThreat = (target: CombatUnit, attacker?: CombatUnit, state?: Comb
 };
 
 /**
+ * 计算位置的战术得分
+ * 用于评估移动目标的优劣
+ */
+const calculatePositionScore = (
+  unit: CombatUnit,
+  pos: { q: number; r: number },
+  targetPos: { q: number; r: number },
+  state: CombatState,
+  preferredRange: number
+): number => {
+  const distToTarget = getHexDistance(pos, targetPos);
+  let score = 0;
+
+  // 1. 距离评分
+  if (preferredRange > 1) {
+    // 远程单位逻辑
+    if (distToTarget > preferredRange) {
+      // 距离太远，需要靠近：距离每增加1格，扣10分
+      // 例：Range=4. Dist=5 -> 100 - 10 = 90
+      score += 100 - (distToTarget - preferredRange) * 10;
+    } else {
+      // 在射程内：距离越接近 preferredRange 越好
+      // 距离每减少1格（过于靠近），扣15分（加大惩罚防止骑脸）
+      // 例：Range=4. Dist=4 -> 100. Dist=3 -> 85. Dist=1 -> 55.
+      score += 100 - (preferredRange - distToTarget) * 15;
+    }
+  } else {
+    // 近战单位逻辑：越接近目标越好
+    if (distToTarget <= preferredRange) {
+      score += 100 - distToTarget * 10;
+    } else {
+      score += 80 - distToTarget * 5;
+    }
+  }
+
+  // 2. ZoC (控制区) 威胁评估
+  const inZoC = isInEnemyZoC(pos, unit, state);
+  if (inZoC) {
+    let zocPenalty = 0;
+    
+    // 检查具体的威胁（有多少人能截击）
+    const threats = getThreateningEnemies(pos, unit, state);
+    if (threats.length > 0) {
+       // 每个威胁来源造成显著惩罚
+       zocPenalty = threats.length * 40;
+       
+       // 血量不健康时更怕死
+       const hpPercent = unit.hp / unit.maxHp;
+       if (hpPercent < 0.5) zocPenalty += 30;
+    } else {
+       // 在ZoC内但暂无直接威胁（如敌人已行动过），轻微不利
+       zocPenalty = 10; 
+    }
+
+    // 豁免条件：如果该位置能有效攻击到目标（且是近战）
+    // 近战单位必须进入ZoC才能攻击，因此需要豁免部分惩罚
+    if (preferredRange === 1 && distToTarget <= 1) {
+        // 豁免相当于 1 个敌人的惩罚（即 1v1 不怕，1vN 怕）
+        zocPenalty = Math.max(0, zocPenalty - 40); 
+    }
+    
+    score -= zocPenalty;
+  }
+
+  return score;
+};
+
+/**
  * 寻找移动到目标附近的最佳位置
- * 强化控制区感知（仿战场兄弟：ZoC内移动风险极大）
+ * 强化控制区感知与远程单位风筝逻辑
  */
 const findBestMovePosition = (
   unit: CombatUnit,
@@ -109,75 +177,35 @@ const findBestMovePosition = (
   const maxMoveDistance = Math.floor(unit.currentAP / 2);
   if (maxMoveDistance < 1) return null;
   
+  // 1. 计算当前位置的得分作为基准
+  // 只有找到比当前位置得分更高的位置，才会移动
+  let bestScore = calculatePositionScore(unit, unit.combatPos, targetPos, state, preferredRange);
   let bestPos: { q: number; r: number } | null = null;
-  let bestScore = -Infinity;
 
-  // 检查当前位置是否在敌方控制区内
-  const currentlyInZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  const threateningEnemiesCount = currentlyInZoC 
-    ? getThreateningEnemies(unit.combatPos, unit, state).length 
-    : 0;
-
-  // 使用六边形网格的正确搜索方式
+  // 2. 搜索可移动范围
   const searchRadius = Math.min(maxMoveDistance, 6); // 限制搜索范围避免性能问题
   
   for (let q = -searchRadius; q <= searchRadius; q++) {
     for (let r = Math.max(-searchRadius, -q - searchRadius); r <= Math.min(searchRadius, -q + searchRadius); r++) {
+      // 偏移量为0即当前位置，跳过
+      if (q === 0 && r === 0) continue;
+
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
       
-      // 跳过原地和超出移动范围的位置
-      if (moveDistance === 0 || moveDistance > maxMoveDistance) continue;
+      // 跳过超出移动范围的位置
+      if (moveDistance > maxMoveDistance) continue;
       // 跳过被占用的位置
       if (isHexOccupied(newPos, state)) continue;
       
-      const distToTarget = getHexDistance(newPos, targetPos);
+      // 计算新位置得分
+      let score = calculatePositionScore(unit, newPos, targetPos, state, preferredRange);
       
-      // 计算位置得分
-      let score = 0;
-      
-      // 越接近目标越好（但要考虑首选攻击距离）
-      if (distToTarget <= preferredRange) {
-        score += 100 - distToTarget * 10;
-      } else {
-        score += 80 - distToTarget * 5;
-      }
-      
-      // 移动消耗越少越好
+      // 减去移动消耗（避免无意义的反复横跳）
       score -= moveDistance * 2;
       
-      // ==================== 强化控制区惩罚 ====================
-      // 如果当前在敌方控制区内，移动会触发截击（仿战场兄弟高风险）
-      if (currentlyInZoC && threateningEnemiesCount > 0) {
-        // 大幅惩罚：每个截击者严重扣分
-        const zocPenalty = threateningEnemiesCount * 40;
-        score -= zocPenalty;
-        
-        // 血量低时极度不愿意触发截击
-        const hpPercent = unit.hp / unit.maxHp;
-        if (hpPercent < 0.5) {
-          score -= 50;
-        }
-        if (hpPercent < 0.25) {
-          score -= 80;
-        }
-        
-        // 但如果移动后能攻击到目标，仍然考虑移动（小幅回调）
-        if (distToTarget <= preferredRange) {
-          score += 30;
-        }
-      }
-      
-      // 检查目标位置是否会进入新的敌方控制区
-      const willBeInZoC = isInEnemyZoC(newPos, unit, state);
-      if (willBeInZoC) {
-        // 进入敌方控制区有风险，但如果是为了攻击则可以接受
-        if (distToTarget > preferredRange) {
-          score -= 25; // 进入ZoC但不能攻击，显著扣分
-        }
-      }
-      
-      if (score > bestScore) {
+      // 只有得分显著高于当前位置才移动（设置阈值+1，避免微小差异导致的抖动）
+      if (score > bestScore + 1) {
         bestScore = score;
         bestPos = newPos;
       }
