@@ -293,6 +293,8 @@ export interface Party {
   targetY: number | null;
   gold: number;
   food: number;
+  medicine: number;                       // 医药储备（类似food，每天消耗治疗伤员）
+  repairSupplies: number;                 // 修甲材料储备（类似food，每天消耗修复装备）
   mercenaries: Character[];
   inventory: Item[];
   day: number; 

@@ -465,14 +465,8 @@ const generateBattleResult = (
       }
     }
 
-    // 15% 概率额外掉落消耗品
-    if (Math.random() < 0.15 && CONSUMABLE_TEMPLATES.length > 0) {
-      const consumable = CONSUMABLE_TEMPLATES[Math.floor(Math.random() * CONSUMABLE_TEMPLATES.length)];
-      lootItems.push({
-        ...consumable,
-        id: `loot-${consumable.id}-${Date.now()}`,
-      });
-    }
+    // 15% 概率额外掉落消耗品（消耗品不再进入lootItems，直接在战斗结算时加到资源池）
+    // 注：消耗品掉落在 App 的 onCombatEnd 回调中处理，直接加到 party.medicine/repairSupplies/food
 
     // --- 传世红装特殊掉落（仅Boss巢穴） ---
     // 击败Boss巢穴守卫后，100%从绑定掉落池中获得一件全耐久红装
@@ -673,6 +667,7 @@ export const App: React.FC = () => {
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
+    medicine: 0, repairSupplies: 0,
     mercenaries: [], inventory: [], day: 1.0, activeQuest: null,
     reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
   });
@@ -734,19 +729,16 @@ export const App: React.FC = () => {
       return merc;
     });
 
-    // 初始补给：2个金创药 + 1个修甲工具
-    const startingInventory: Item[] = [
-      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_1' },
-      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_2' },
-      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_1' },
-    ];
-
+    // 初始补给：2个金创药(20*2=40 medicine) + 1个修甲工具(50 repairSupplies)
+    // 消耗品不再放入背包，而是直接转为数值资源池
     setParty({
       x: mapData.cities[0].x, y: mapData.cities[0].y,
       targetX: null, targetY: null,
       gold: origin.gold, food: origin.food,
+      medicine: 40,          // 2个金创药 × 20 = 40
+      repairSupplies: 50,    // 1个修甲工具 × 50 = 50
       mercenaries: mercs,
-      inventory: startingInventory, day: 1.0, activeQuest: null,
+      inventory: [], day: 1.0, activeQuest: null,
       reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
     });
     lastProcessedDayRef.current = 1; // 新游戏从第1天开始
@@ -829,9 +821,26 @@ export const App: React.FC = () => {
         setEntities(data.entities);
         // 旧存档兼容：巢穴系统
         setCamps(data.camps || []);
-        // 旧存档兼容：补充缺失的野心/声望字段
+        // 旧存档兼容：补充缺失的野心/声望字段 + 医药/修甲资源池迁移
+        const oldInventory: Item[] = data.party.inventory || [];
+        // 如果旧存档没有 medicine/repairSupplies 字段，从库存中的消耗品转换
+        let migratedMedicine = data.party.medicine ?? 0;
+        let migratedRepair = data.party.repairSupplies ?? 0;
+        let migratedInventory = oldInventory;
+        if (data.party.medicine == null || data.party.repairSupplies == null) {
+          // 将库存中的 MEDICINE/REPAIR_KIT 物品转换为资源池数值
+          const medItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
+          const repItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT');
+          migratedMedicine = medItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 20), 0);
+          migratedRepair = repItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 50), 0);
+          // 从库存中移除这些消耗品
+          migratedInventory = oldInventory.filter((it: Item) => !(it.type === 'CONSUMABLE' && (it.subType === 'MEDICINE' || it.subType === 'REPAIR_KIT')));
+        }
         const loadedParty: Party = {
           ...data.party,
+          medicine: migratedMedicine,
+          repairSupplies: migratedRepair,
+          inventory: migratedInventory,
           reputation: data.party.reputation ?? 0,
           ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
           moraleModifier: data.party.moraleModifier ?? 0,
@@ -1118,13 +1127,11 @@ export const App: React.FC = () => {
             const newFood = Math.max(0, p.food - foodCost);
             const isStarving = newFood <= 0;
 
-            // 自动修复装备：每天修复基础 5 点耐久，库存中每个修甲工具额外 +15
-            const repairKitsCount = p.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT').length;
-            const dailyRepair = 5 + repairKitsCount * 15;
+            // === 医药资源池消耗：每个受伤佣兵消耗5点medicine，获得额外5HP恢复 ===
+            let remainingMedicine = p.medicine;
 
-            // 自动治疗：每天基础恢复 1~2 HP，库存中每个医药品额外 +effectValue/5（向上取整）
-            const medicineItems = p.inventory.filter(it => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
-            const medicineBonusHeal = medicineItems.reduce((sum, med) => sum + Math.ceil((med.effectValue || 0) / 5), 0);
+            // === 修甲资源池消耗：每件受损装备消耗3点repairSupplies，修复10点耐久 ===
+            let remainingRepair = p.repairSupplies;
 
             // 自然恢复 + 自动修复装备
             const updatedMercs = p.mercenaries.map(m => {
@@ -1135,7 +1142,13 @@ export const App: React.FC = () => {
                 updated = { ...updated, hp: Math.max(1, updated.hp - hpLoss) };
               } else if (updated.hp < updated.maxHp) {
                 const baseHeal = 1 + Math.floor(Math.random() * 2); // 基础 1~2
-                const heal = baseHeal + medicineBonusHeal; // 医药被动加速
+                // 消耗医药：每个受伤佣兵消耗5点，获得额外5HP
+                let medicineBonusHeal = 0;
+                if (remainingMedicine >= 5) {
+                  remainingMedicine -= 5;
+                  medicineBonusHeal = 5;
+                }
+                const heal = baseHeal + medicineBonusHeal;
                 updated = { ...updated, hp: Math.min(updated.maxHp, updated.hp + heal) };
               }
               // 自动修复装备耐久
@@ -1144,7 +1157,14 @@ export const App: React.FC = () => {
               (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof typeof newEquip)[]).forEach(slot => {
                 const item = newEquip[slot];
                 if (item && item.maxDurability > 0 && item.durability < item.maxDurability) {
-                  const newDur = Math.min(item.maxDurability, item.durability + dailyRepair);
+                  const baseRepair = 2; // 无修甲材料时基础修复2点
+                  let repairAmount = baseRepair;
+                  // 消耗修甲材料：每件受损装备消耗3点，修复10点
+                  if (remainingRepair >= 3) {
+                    remainingRepair -= 3;
+                    repairAmount = 10;
+                  }
+                  const newDur = Math.min(item.maxDurability, item.durability + repairAmount);
                   newEquip = { ...newEquip, [slot]: { ...item, durability: newDur } };
                   changed = true;
                 }
@@ -1153,10 +1173,16 @@ export const App: React.FC = () => {
               return updated;
             });
 
-            // 同时自动修复库存中的装备
+            // 同时自动修复库存中的装备（使用剩余修甲材料）
             const updatedInv = p.inventory.map(item => {
               if (item.type !== 'CONSUMABLE' && item.maxDurability > 0 && item.durability < item.maxDurability) {
-                return { ...item, durability: Math.min(item.maxDurability, item.durability + dailyRepair) };
+                const baseRepair = 2;
+                let repairAmount = baseRepair;
+                if (remainingRepair >= 3) {
+                  remainingRepair -= 3;
+                  repairAmount = 10;
+                }
+                return { ...item, durability: Math.min(item.maxDurability, item.durability + repairAmount) };
               }
               return item;
             });
@@ -1176,6 +1202,8 @@ export const App: React.FC = () => {
             return {
               ...p,
               food: newFood,
+              medicine: remainingMedicine,
+              repairSupplies: remainingRepair,
               mercenaries: updatedMercs,
               inventory: updatedInv,
               moraleModifier: isStarving ? -1 : p.moraleModifier,
@@ -1533,8 +1561,8 @@ export const App: React.FC = () => {
                  <div className="flex gap-4 text-xs font-mono">
                      <span className="text-amber-500">💰 {party.gold}</span>
                      <span className="text-emerald-500">🌾 {party.food}</span>
-                     <span className={`${party.inventory.filter(it => it.subType === 'MEDICINE').length > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药 ×${party.inventory.filter(it => it.subType === 'MEDICINE').length}`}>💊 {party.inventory.filter(it => it.subType === 'MEDICINE').length}</span>
-                     <span className={`${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲工具 ×${party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}`}>🔧 {party.inventory.filter(it => it.subType === 'REPAIR_KIT').length}</span>
+                     <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
+                     <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲材料 ${party.repairSupplies}`}>🔧 {party.repairSupplies}</span>
                      <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
                      <span className="text-yellow-600">望: {party.reputation}</span>
                  </div>
@@ -1695,6 +1723,16 @@ export const App: React.FC = () => {
                             : c
                         ));
                       }
+                      // 15% 概率掉落消耗品，直接加到资源池
+                      let dropMedicine = 0;
+                      let dropRepair = 0;
+                      let dropFood = 0;
+                      if (Math.random() < 0.15 && CONSUMABLE_TEMPLATES.length > 0) {
+                        const consumable = CONSUMABLE_TEMPLATES[Math.floor(Math.random() * CONSUMABLE_TEMPLATES.length)];
+                        if (consumable.subType === 'MEDICINE') dropMedicine = consumable.effectValue || 0;
+                        else if (consumable.subType === 'REPAIR_KIT') dropRepair = consumable.effectValue || 0;
+                        else if (consumable.subType === 'FOOD') dropFood = consumable.effectValue || 0;
+                      }
                       setParty(p => {
                         // 检查是否击杀了任务目标（仿战场兄弟：击杀后标记完成，需返回接取城市交付）
                         let updatedQuest = p.activeQuest;
@@ -1707,6 +1745,9 @@ export const App: React.FC = () => {
                         return {
                           ...p,
                           activeQuest: updatedQuest,
+                          medicine: p.medicine + dropMedicine,
+                          repairSupplies: p.repairSupplies + dropRepair,
+                          food: p.food + dropFood,
                           mercenaries: p.mercenaries.map(m => {
                             const sur = survivors.find(s => s.id === m.id);
                             if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
