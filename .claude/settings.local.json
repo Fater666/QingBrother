@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(set \"GEMINI_API_KEY=AIzaSyD8zN38Cw6Qf7s2-QGwJ9Ct0XIZy7yYH8w\")",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(pip --version:*)"
+    ]
+  }
+}

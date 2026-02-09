@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-《战国·与伍同行》CSV 配置自动生成脚本
+《战国·与伍同行》配置自动生成脚本
 使用 Google Gemini API 批量生成游戏配置数据。
 
 用法:
@@ -10,6 +10,8 @@
     2. 运行脚本:
        python generate_csv.py              # 生成全部
        python generate_csv.py weapons      # 只生成武器
+       python generate_csv.py quests       # 生成普通任务描述模板（JSON→TypeScript）
+       python generate_csv.py elite_quests # 生成高声望任务描述模板
        python generate_csv.py weapons events backgrounds  # 指定多个类型
        python generate_csv.py --dry-run    # 干跑模式，只打印 prompt 不调用 API
 """
@@ -53,7 +55,7 @@ _constants_dir = Path(__file__).parent.parent
 CONSTANTS_FILE = _constants_dir / "constants.ts" if (_constants_dir / "constants.ts").exists() else _constants_dir / "constants.tsx"
 
 # 所有支持的生成类型
-ALL_TYPES = ["weapons", "armor", "helmets", "shields", "backgrounds", "events"]
+ALL_TYPES = ["weapons", "armor", "helmets", "shields", "backgrounds", "events", "quests", "elite_quests"]
 
 # ============================================================
 #  通用系统提示词
@@ -448,6 +450,488 @@ def prompt_events() -> tuple[str, str, int]:
 
 
 # ============================================================
+#  任务模板生成 (JSON → TypeScript)
+# ============================================================
+
+# 当前 constants.ts 中已有的区域
+BIOMES = ["NORTHERN_TUNDRA", "CENTRAL_PLAINS", "SOUTHERN_WETLANDS", "FAR_SOUTH_DESERT"]
+BIOME_NAMES = {
+    "NORTHERN_TUNDRA": "北方苦寒之地（类似战场兄弟的北方冻土）",
+    "CENTRAL_PLAINS": "中原大地（战国时期的核心地带，流寇、叛军、邪教出没）",
+    "SOUTHERN_WETLANDS": "南方沼泽密林（百越蛮族、水贼出没）",
+    "FAR_SOUTH_DESERT": "西南沙漠（胡人、沙匪、商路争夺）",
+}
+QUEST_TYPES = ["HUNT", "PATROL", "ESCORT", "DELIVERY"]
+
+
+def _read_existing_quest_templates() -> str:
+    """从 constants.ts 中读取现有的 QUEST_TEMPLATES，供 AI 参考风格"""
+    if not CONSTANTS_FILE.exists():
+        return ""
+    content = CONSTANTS_FILE.read_text(encoding="utf-8")
+    # 提取 QUEST_TEMPLATES 对象（大致范围）
+    start = content.find("export const QUEST_TEMPLATES = {")
+    if start == -1:
+        return ""
+    # 找到匹配的结束 };
+    depth = 0
+    end = start
+    for i in range(start, len(content)):
+        if content[i] == '{':
+            depth += 1
+        elif content[i] == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    # 截取前 2000 字符作为参考（避免 prompt 过长）
+    snippet = content[start:end]
+    if len(snippet) > 2000:
+        snippet = snippet[:2000] + "\n... (已截断)"
+    return snippet
+
+
+def _read_existing_elite_templates() -> str:
+    """从 constants.ts 中读取现有的 ELITE_QUEST_TEMPLATES"""
+    if not CONSTANTS_FILE.exists():
+        return ""
+    content = CONSTANTS_FILE.read_text(encoding="utf-8")
+    start = content.find("export const ELITE_QUEST_TEMPLATES = {")
+    if start == -1:
+        return ""
+    depth = 0
+    end = start
+    for i in range(start, len(content)):
+        if content[i] == '{':
+            depth += 1
+        elif content[i] == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    snippet = content[start:end]
+    if len(snippet) > 2000:
+        snippet = snippet[:2000] + "\n... (已截断)"
+    return snippet
+
+
+def prompt_quests() -> str:
+    """构建普通任务模板生成提示词，返回 prompt（生成 JSON）"""
+    existing = _read_existing_quest_templates()
+
+    prompt = f"""请为我的游戏生成更多任务描述模板。我需要 JSON 格式的数据，后续会由脚本转换为 TypeScript。
+
+## 任务模板结构说明
+
+每个区域 (biome) 下有多种任务类型：
+- HUNT: 杀敌/讨伐任务，描述函数参数为 (target, place, npc)
+- PATROL: 巡逻任务，描述函数参数为 (place, npc)
+- ESCORT: 护送任务，描述函数参数为 (place, npc)
+- DELIVERY: 送信/运货任务，描述函数参数为 (place, npc)
+
+每个模板包含：
+- targets: 目标名称数组（仅 HUNT 类型需要）
+- titles: 三个难度对应的标题 {{"1": "...", "2": "...", "3": "..."}}（PATROL/ESCORT/DELIVERY 三个难度通常相同）
+- descs: 描述文本数组，使用占位符 {{target}}, {{place}}, {{npc}}（非 HUNT 类型没有 {{target}}）
+
+## 描述文本要求
+- 每条描述 60~120 字
+- 使用 {{target}}, {{place}}, {{npc}} 占位符
+- 必须有战国时期的文学韵味和代入感
+- 描述要有场景感：包含 NPC 的动作、表情、语气
+- 要形式多样：有的是对话形式，有的是告示形式，有的是旁白叙述
+- 使用「」表示对话内容
+
+## 已有数据（请参考风格，不要重复这些内容）
+{existing}
+
+## 四个区域
+1. NORTHERN_TUNDRA — {BIOME_NAMES['NORTHERN_TUNDRA']}
+2. CENTRAL_PLAINS — {BIOME_NAMES['CENTRAL_PLAINS']}
+3. SOUTHERN_WETLANDS — {BIOME_NAMES['SOUTHERN_WETLANDS']}
+4. FAR_SOUTH_DESERT — {BIOME_NAMES['FAR_SOUTH_DESERT']}
+
+## 生成要求
+为每个区域的每种任务类型各生成 1~2 个新模板组，每组包含 3~4 条描述。
+重点增加 HUNT 类型的多样性（每区域增加 2~3 个新 HUNT 模板组）。
+
+请严格按以下 JSON 格式输出，不要有任何其他文字或 markdown 标记：
+{{
+  "NORTHERN_TUNDRA": {{
+    "HUNT": [
+      {{
+        "targets": ["目标1", "目标2", "目标3"],
+        "titles": {{"1": "低难度标题", "2": "中难度标题", "3": "高难度标题"}},
+        "descs": [
+          "{{npc}}说道：「{{place}}那边的{{target}}又闹事了……」",
+          "告示上写着：「悬赏通缉{{place}}之{{target}}……」"
+        ]
+      }}
+    ],
+    "PATROL": [
+      {{
+        "titles": {{"1": "巡逻", "2": "巡逻", "3": "巡逻"}},
+        "descs": [
+          "{{npc}}递来地图：「{{place}}一带需要巡查……」"
+        ]
+      }}
+    ],
+    "ESCORT": [...],
+    "DELIVERY": [...]
+  }},
+  "CENTRAL_PLAINS": {{ ... }},
+  "SOUTHERN_WETLANDS": {{ ... }},
+  "FAR_SOUTH_DESERT": {{ ... }}
+}}
+
+只输出 JSON，不要 markdown 代码块标记。"""
+    return prompt
+
+
+def prompt_elite_quests() -> str:
+    """构建高声望任务模板生成提示词"""
+    existing = _read_existing_elite_templates()
+
+    prompt = f"""请为我的游戏生成更多高声望专属任务模板。这些是只有声望足够高的战团才能接取的精英任务。
+
+## 高声望任务模板结构
+在普通任务基础上，增加：
+- type: 任务类型 ("HUNT", "PATROL", "ESCORT")
+- minDifficulty: 最低难度（通常为 2 或 3）
+- requiredReputation: 所需声望值（200~600）
+- targets: 目标名称数组（可为空，如护送任务）
+- titles: 三个难度对应的标题
+- descs: 描述文本数组，使用占位符 {{target}}, {{place}}, {{npc}}
+
+## 描述文本要求
+- 每条描述 80~150 字（比普通任务更长、更有氛围感）
+- 使用 {{target}}, {{place}}, {{npc}} 占位符
+- 语气要更郑重、更有分量——这是委托给精锐的重大任务
+- 要体现出对战团声望的认可
+
+## 已有高声望任务模板（请参考风格，不要重复）
+{existing}
+
+## 四个区域
+1. NORTHERN_TUNDRA — {BIOME_NAMES['NORTHERN_TUNDRA']}
+2. CENTRAL_PLAINS — {BIOME_NAMES['CENTRAL_PLAINS']}
+3. SOUTHERN_WETLANDS — {BIOME_NAMES['SOUTHERN_WETLANDS']}
+4. FAR_SOUTH_DESERT — {BIOME_NAMES['FAR_SOUTH_DESERT']}
+
+## 生成要求
+每个区域生成 2~3 个新的高声望任务模板。
+
+请严格按以下 JSON 格式输出：
+{{
+  "NORTHERN_TUNDRA": [
+    {{
+      "type": "HUNT",
+      "targets": ["目标1", "目标2"],
+      "titles": {{"1": "标题1", "2": "标题2", "3": "标题3"}},
+      "descs": [
+        "{{npc}}取出密函：「{{place}}出现了{{target}}……」"
+      ],
+      "minDifficulty": 3,
+      "requiredReputation": 300
+    }}
+  ],
+  "CENTRAL_PLAINS": [...],
+  "SOUTHERN_WETLANDS": [...],
+  "FAR_SOUTH_DESERT": [...]
+}}
+
+只输出 JSON，不要 markdown 代码块标记。"""
+    return prompt
+
+
+def _desc_to_ts_function(desc_text: str, quest_type: str) -> str:
+    """将占位符描述文本转换为 TypeScript 箭头函数字符串"""
+    # 替换占位符为模板字面量
+    ts_body = desc_text.replace("{target}", "${target}").replace("{place}", "${place}").replace("{npc}", "${npc}")
+
+    if quest_type == "HUNT":
+        # HUNT: (target, place, npc) => `...`
+        # 检测是否用到了各参数，对未用到的加下划线前缀
+        uses_npc = "{npc}" in desc_text
+        npc_param = "npc" if uses_npc else "_npc"
+        return f"(target: string, place: string, {npc_param}: string) => `{ts_body}`"
+    else:
+        # PATROL/ESCORT/DELIVERY: (place, npc) => `...`
+        uses_npc = "{npc}" in desc_text
+        npc_param = "npc" if uses_npc else "_npc"
+        return f"(place: string, {npc_param}: string) => `{ts_body}`"
+
+
+def _titles_to_ts_function(titles: dict, quest_type: str) -> str:
+    """将标题字典转换为 TypeScript 箭头函数"""
+    t1 = titles.get("1", titles.get(1, ""))
+    t2 = titles.get("2", titles.get(2, ""))
+    t3 = titles.get("3", titles.get(3, ""))
+
+    # 如果三个标题都相同，用简化写法
+    if t1 == t2 == t3:
+        return f"(_diff: 1|2|3) => '{t1}'"
+    # 两个相同的情况
+    if t2 == t3:
+        return f"(diff: 1|2|3) => diff === 1 ? '{t1}' : '{t2}'"
+    return f"(diff: 1|2|3) => diff === 1 ? '{t1}' : diff === 2 ? '{t2}' : '{t3}'"
+
+
+def _quest_template_to_ts(tmpl: dict, quest_type: str, indent: str = "      ") -> str:
+    """将单个任务模板 JSON 转换为 TypeScript 对象字符串"""
+    lines = [f"{indent}{{"]
+
+    # targets (仅 HUNT)
+    if quest_type == "HUNT" and "targets" in tmpl:
+        targets_str = json.dumps(tmpl["targets"], ensure_ascii=False)
+        lines.append(f"{indent}  targets: {targets_str},")
+
+    # titles
+    titles_fn = _titles_to_ts_function(tmpl["titles"], quest_type)
+    lines.append(f"{indent}  titles: {titles_fn},")
+
+    # descs
+    descs = tmpl.get("descs", [])
+    lines.append(f"{indent}  descs: [")
+    for desc in descs:
+        fn = _desc_to_ts_function(desc, quest_type)
+        lines.append(f"{indent}    {fn},")
+    lines.append(f"{indent}  ],")
+
+    lines.append(f"{indent}}}")
+    return "\n".join(lines)
+
+
+def _elite_template_to_ts(tmpl: dict, indent: str = "    ") -> str:
+    """将高声望任务模板 JSON 转换为 TypeScript 对象字符串"""
+    quest_type = tmpl.get("type", "HUNT")
+    lines = [f"{indent}{{"]
+
+    lines.append(f"{indent}  type: '{quest_type}' as const,")
+
+    # targets
+    targets = tmpl.get("targets", [])
+    targets_str = json.dumps(targets, ensure_ascii=False)
+    lines.append(f"{indent}  targets: {targets_str},")
+
+    # titles
+    titles_fn = _titles_to_ts_function(tmpl["titles"], quest_type)
+    lines.append(f"{indent}  titles: {titles_fn},")
+
+    # descs
+    descs = tmpl.get("descs", [])
+    lines.append(f"{indent}  descs: [")
+    for desc in descs:
+        fn = _desc_to_ts_function(desc, quest_type)
+        lines.append(f"{indent}    {fn},")
+    lines.append(f"{indent}  ],")
+
+    # minDifficulty & requiredReputation
+    min_diff = tmpl.get("minDifficulty", 3)
+    req_rep = tmpl.get("requiredReputation", 300)
+    lines.append(f"{indent}  minDifficulty: {min_diff} as 1|2|3,")
+    lines.append(f"{indent}  requiredReputation: {req_rep},")
+
+    lines.append(f"{indent}}}")
+    return "\n".join(lines)
+
+
+def update_quest_templates_in_constants(quest_data: dict):
+    """将新的普通任务模板追加到 constants.ts 的 QUEST_TEMPLATES 中"""
+    if not CONSTANTS_FILE.exists():
+        print(f"  [警告] 找不到 {CONSTANTS_FILE}，跳过更新")
+        return
+
+    content = CONSTANTS_FILE.read_text(encoding="utf-8")
+    backup_file(CONSTANTS_FILE)
+    updated = False
+
+    for biome in BIOMES:
+        biome_data = quest_data.get(biome, {})
+        if not biome_data:
+            continue
+
+        for quest_type in QUEST_TYPES:
+            templates = biome_data.get(quest_type, [])
+            if not templates:
+                continue
+
+            # 生成要插入的 TS 代码
+            new_entries = []
+            for tmpl in templates:
+                ts_code = _quest_template_to_ts(tmpl, quest_type)
+                new_entries.append(ts_code)
+
+            if not new_entries:
+                continue
+
+            # 在对应 biome -> quest_type 数组的末尾（最后一个 ] 之前）插入
+            # 策略：找到 QUEST_TEMPLATES 中对应位置
+            # 查找模式: biome 下的 quest_type 数组
+            # 使用简单策略：找到 `quest_type: [` 在 biome 块内的位置
+            insert_text = ",\n" + ",\n".join(new_entries)
+
+            # 找到 QUEST_TEMPLATES 对象起始
+            qt_start = content.find("export const QUEST_TEMPLATES = {")
+            if qt_start == -1:
+                print("  [警告] 未找到 QUEST_TEMPLATES")
+                continue
+
+            # 找到对应 biome 块
+            biome_search_start = content.find(f"  {biome}: {{", qt_start)
+            if biome_search_start == -1:
+                print(f"  [警告] 未找到 biome: {biome}")
+                continue
+
+            # 找到对应 quest_type 数组
+            type_search_start = content.find(f"    {quest_type}: [", biome_search_start)
+            if type_search_start == -1:
+                # 该 biome 下没有这个 quest_type，需要新增整个数组
+                # 找到 biome 块的最后一个 ] 或 }, 之前插入
+                print(f"  [信息] {biome} 下没有 {quest_type} 类型，将新增")
+                # 找到 biome 块的结尾 },
+                # 简单做法：找到下一个 biome 的开始或 }; 结束
+                next_biome_pos = len(content)
+                for next_biome in BIOMES:
+                    if next_biome == biome:
+                        continue
+                    pos = content.find(f"  {next_biome}: {{", biome_search_start + 1)
+                    if pos != -1 and pos < next_biome_pos:
+                        next_biome_pos = pos
+
+                # 也检查 QUEST_TEMPLATES 的结尾 };
+                qt_end = content.find("};", biome_search_start)
+                if qt_end != -1 and qt_end < next_biome_pos:
+                    next_biome_pos = qt_end
+
+                # 在 biome 结尾的 }, 之前插入新的 quest_type 数组
+                # 回溯找到 }, 之前的位置
+                insert_pos = content.rfind("},", biome_search_start, next_biome_pos)
+                if insert_pos == -1:
+                    insert_pos = content.rfind("],", biome_search_start, next_biome_pos)
+                if insert_pos == -1:
+                    print(f"  [警告] 无法定位 {biome} 块的结尾")
+                    continue
+
+                # 在 ], 或 }, 之后插入
+                insert_pos = content.find("\n", insert_pos)
+                new_array_code = f"\n    {quest_type}: [\n" + ",\n".join(new_entries) + ",\n    ],"
+                content = content[:insert_pos] + new_array_code + content[insert_pos:]
+                updated = True
+                print(f"  [新增] {biome}.{quest_type}: {len(new_entries)} 个模板")
+                continue
+
+            # 找到该 quest_type 数组的最后一个 }（最后一个模板的结尾）
+            # 从 type_search_start 开始，找到匹配的 ]
+            bracket_depth = 0
+            array_end = type_search_start
+            for i in range(type_search_start, len(content)):
+                if content[i] == '[':
+                    bracket_depth += 1
+                elif content[i] == ']':
+                    bracket_depth -= 1
+                    if bracket_depth == 0:
+                        array_end = i
+                        break
+
+            # 在 ] 之前插入新模板
+            # 找到 ] 前最后一个 } 的位置
+            last_brace = content.rfind("}", type_search_start, array_end)
+            if last_brace == -1:
+                # 空数组，直接在 [ 之后插入
+                insert_pos = content.find("[", type_search_start) + 1
+                insert_text = "\n" + ",\n".join(new_entries) + ",\n    "
+            else:
+                insert_pos = last_brace + 1
+                # 检查后面是否已有逗号
+                after = content[insert_pos:insert_pos+5].strip()
+                if after and after[0] == ',':
+                    insert_text = "\n" + ",\n".join(new_entries)
+                else:
+                    insert_text = ",\n" + ",\n".join(new_entries)
+
+            content = content[:insert_pos] + insert_text + content[insert_pos:]
+            updated = True
+            print(f"  [追加] {biome}.{quest_type}: {len(new_entries)} 个模板")
+
+    if updated:
+        CONSTANTS_FILE.write_text(content, encoding="utf-8")
+        print(f"  [写入] 已更新 QUEST_TEMPLATES")
+    else:
+        print("  [跳过] 没有需要追加的任务模板")
+
+
+def update_elite_templates_in_constants(elite_data: dict):
+    """将新的高声望任务模板追加到 constants.ts 的 ELITE_QUEST_TEMPLATES 中"""
+    if not CONSTANTS_FILE.exists():
+        print(f"  [警告] 找不到 {CONSTANTS_FILE}，跳过更新")
+        return
+
+    content = CONSTANTS_FILE.read_text(encoding="utf-8")
+    backup_file(CONSTANTS_FILE)
+    updated = False
+
+    for biome in BIOMES:
+        templates = elite_data.get(biome, [])
+        if not templates:
+            continue
+
+        new_entries = []
+        for tmpl in templates:
+            ts_code = _elite_template_to_ts(tmpl)
+            new_entries.append(ts_code)
+
+        if not new_entries:
+            continue
+
+        # 找到 ELITE_QUEST_TEMPLATES 中对应 biome 数组
+        eq_start = content.find("export const ELITE_QUEST_TEMPLATES = {")
+        if eq_start == -1:
+            print("  [警告] 未找到 ELITE_QUEST_TEMPLATES")
+            continue
+
+        biome_search_start = content.find(f"  {biome}: [", eq_start)
+        if biome_search_start == -1:
+            print(f"  [警告] ELITE_QUEST_TEMPLATES 中未找到 {biome}")
+            continue
+
+        # 找到该 biome 数组的结尾 ]
+        bracket_depth = 0
+        array_end = biome_search_start
+        for i in range(biome_search_start, len(content)):
+            if content[i] == '[':
+                bracket_depth += 1
+            elif content[i] == ']':
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    array_end = i
+                    break
+
+        # 在 ] 之前插入，找到最后一个 }
+        last_brace = content.rfind("}", biome_search_start, array_end)
+        if last_brace == -1:
+            insert_pos = content.find("[", biome_search_start) + 1
+            insert_text = "\n" + ",\n".join(new_entries) + ",\n  "
+        else:
+            insert_pos = last_brace + 1
+            after = content[insert_pos:insert_pos+5].strip()
+            if after and after[0] == ',':
+                insert_text = "\n" + ",\n".join(new_entries)
+            else:
+                insert_text = ",\n" + ",\n".join(new_entries)
+
+        content = content[:insert_pos] + insert_text + content[insert_pos:]
+        updated = True
+        print(f"  [追加] ELITE {biome}: {len(new_entries)} 个模板")
+
+    if updated:
+        CONSTANTS_FILE.write_text(content, encoding="utf-8")
+        print(f"  [写入] 已更新 ELITE_QUEST_TEMPLATES")
+    else:
+        print("  [跳过] 没有需要追加的高声望任务模板")
+
+
+# ============================================================
 #  Stories 更新逻辑
 # ============================================================
 
@@ -495,12 +979,46 @@ def update_stories_in_constants(stories_dict: dict):
 # ============================================================
 
 def generate_type(gen_type: str, dry_run: bool = False):
-    """生成指定类型的 CSV 数据"""
+    """生成指定类型的数据（CSV 或 任务模板 JSON）"""
     print(f"\n{'=' * 50}")
     print(f"  正在生成: {gen_type}")
     print(f"{'=' * 50}")
 
-    # 获取 prompt
+    # ---- 任务模板类型：走 JSON → TypeScript 流程 ----
+    if gen_type in ("quests", "elite_quests"):
+        if gen_type == "quests":
+            prompt = prompt_quests()
+        else:
+            prompt = prompt_elite_quests()
+
+        response = call_gemini(prompt, dry_run=dry_run)
+        if dry_run or not response:
+            return
+
+        cleaned = clean_ai_response(response)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            print(f"  [错误] JSON 解析失败: {e}")
+            print(f"  原始返回:\n{cleaned[:800]}")
+            return
+
+        if gen_type == "quests":
+            # 统计数量
+            total = sum(
+                len(templates)
+                for biome_data in data.values()
+                for templates in biome_data.values()
+            )
+            print(f"  [解析] 获得 {total} 个任务模板")
+            update_quest_templates_in_constants(data)
+        else:
+            total = sum(len(templates) for templates in data.values())
+            print(f"  [解析] 获得 {total} 个高声望任务模板")
+            update_elite_templates_in_constants(data)
+        return
+
+    # ---- CSV 类型：原有流程 ----
     prompt_funcs = {
         "weapons": prompt_weapons,
         "armor": prompt_armor,
