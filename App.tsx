@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -201,11 +201,42 @@ const spawnEntityFromCamp = (
 };
 
 /**
- * 生成所有巢穴
+ * 从Boss巢穴产出一个Boss实体（只产出一个守卫，带Boss标记）
+ */
+const spawnBossEntity = (camp: EnemyCamp): WorldEntity => {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 1 + Math.random() * 2;
+  const ex = Math.max(0, Math.min(MAP_SIZE - 1, camp.x + Math.cos(angle) * dist));
+  const ey = Math.max(0, Math.min(MAP_SIZE - 1, camp.y + Math.sin(angle) * dist));
+  
+  return {
+    id: `${camp.id}-boss-${Date.now().toString(36)}`,
+    name: camp.bossName || 'Boss守卫',
+    type: 'BANDIT',
+    faction: 'HOSTILE',
+    x: ex, y: ey,
+    targetX: null, targetY: null,
+    speed: 0.6 + Math.random() * 0.2,
+    aiState: 'WANDER',
+    homeX: camp.x, homeY: camp.y,
+    worldAIType: 'BANDIT',
+    alertRadius: 5,
+    chaseRadius: 10,
+    campId: camp.id,
+    wanderCooldown: Math.random() * 5,
+    territoryRadius: 3 + Math.random() * 2,
+    strength: 8,
+    isBossEntity: true,
+  };
+};
+
+/**
+ * 生成所有巢穴（含Boss巢穴）
  */
 const generateCamps = (tiles: WorldTile[]): EnemyCamp[] => {
   const camps: EnemyCamp[] = [];
   
+  // 普通巢穴
   CAMP_TEMPLATES.forEach((template, idx) => {
     const pos = findCampPosition(tiles, template.yRange, template.preferredTerrain);
     
@@ -224,6 +255,31 @@ const generateCamps = (tiles: WorldTile[]): EnemyCamp[] => {
     });
   });
   
+  // Boss巢穴
+  BOSS_CAMP_CONFIGS.forEach((bossConfig: any) => {
+    const pos = findCampPosition(tiles, bossConfig.yRange, bossConfig.preferredTerrain);
+    
+    camps.push({
+      id: bossConfig.id,
+      x: pos.x,
+      y: pos.y,
+      region: bossConfig.region as CampRegion,
+      entityType: 'BANDIT' as WorldAIType,  // Boss巢穴默认用BANDIT类型
+      maxAlive: 1,       // Boss巢穴只产出1个实体
+      currentAlive: 0,
+      spawnCooldown: 999, // Boss不重生
+      lastSpawnDay: 0,
+      namePool: [bossConfig.name],
+      destroyed: false,
+      // Boss专属字段
+      isBoss: true,
+      bossName: bossConfig.name,
+      uniqueLootIds: bossConfig.uniqueLootIds,
+      bossCompositionKey: bossConfig.bossCompositionKey,
+      cleared: false,
+    });
+  });
+  
   return camps;
 };
 
@@ -234,8 +290,17 @@ const generateEntities = (cities: City[], tiles: WorldTile[], camps: EnemyCamp[]
     const ents: WorldEntity[] = [];
     let entityCounter = 0;
     
-    // 从每个巢穴产出初始实体（每个巢穴产出2个）
+    // 从每个巢穴产出初始实体
     camps.forEach((camp, campIdx) => {
+      // Boss巢穴：产出一个Boss实体
+      if (camp.isBoss) {
+        const bossEnt = spawnBossEntity(camp);
+        ents.push(bossEnt);
+        camp.currentAlive = 1;
+        return;
+      }
+      
+      // 普通巢穴：产出2个
       const template = CAMP_TEMPLATES[campIdx];
       if (!template) return;
       
@@ -315,7 +380,8 @@ const generateBattleResult = (
   enemyUnits: CombatUnit[],
   rounds: number,
   enemyName: string,
-  playerUnitsBeforeCombat: Character[]
+  playerUnitsBeforeCombat: Character[],
+  bossLootIds: string[] = []  // Boss巢穴掉落池（红装ID列表）
 ): BattleResult => {
   const enemiesKilled = enemyUnits.filter(u => u.isDead).length;
   const enemiesRouted = enemyUnits.filter(u => !u.isDead && u.morale === MoraleStatus.FLEEING).length;
@@ -408,26 +474,24 @@ const generateBattleResult = (
       });
     }
 
-    // --- 传世红装特殊掉落 ---
-    // 仅在击杀高难度敌人（ARMY / BERSERKER）时，有小概率额外掉落一件传世红装
-    const highTierKills = enemyUnits.filter(u => u.isDead && (u.aiType === 'ARMY' || u.aiType === 'BERSERKER' || u.aiType === 'TANK')).length;
-    if (highTierKills > 0) {
-      // 每个高级敌人增加 2% 掉落率，最高 12%
-      const uniqueDropChance = Math.min(0.12, highTierKills * 0.02);
-      if (Math.random() < uniqueDropChance) {
-        const allUniqueItems: Item[] = [
-          ...UNIQUE_WEAPON_TEMPLATES,
-          ...UNIQUE_ARMOR_TEMPLATES,
-          ...UNIQUE_HELMET_TEMPLATES,
-          ...UNIQUE_SHIELD_TEMPLATES,
-        ];
-        if (allUniqueItems.length > 0) {
-          const uniqueItem = allUniqueItems[Math.floor(Math.random() * allUniqueItems.length)];
-          lootItems.push({
-            ...uniqueItem,
-            id: `loot-unique-${uniqueItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          });
-        }
+    // --- 传世红装特殊掉落（仅Boss巢穴） ---
+    // 击败Boss巢穴守卫后，100%从绑定掉落池中获得一件全耐久红装
+    if (bossLootIds.length > 0) {
+      const allUniqueItems: Item[] = [
+        ...UNIQUE_WEAPON_TEMPLATES,
+        ...UNIQUE_ARMOR_TEMPLATES,
+        ...UNIQUE_HELMET_TEMPLATES,
+        ...UNIQUE_SHIELD_TEMPLATES,
+      ];
+      // 从掉落池中随机选一个ID
+      const chosenId = bossLootIds[Math.floor(Math.random() * bossLootIds.length)];
+      const uniqueItem = allUniqueItems.find(item => item.id === chosenId);
+      if (uniqueItem) {
+        lootItems.push({
+          ...uniqueItem,
+          id: `loot-unique-${uniqueItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          durability: uniqueItem.maxDurability, // 全耐久
+        });
       }
     }
   }
@@ -604,6 +668,8 @@ export const App: React.FC = () => {
   const [battleResult, setBattleResult] = useState<BattleResult | null>(null);
   const combatEnemyNameRef = useRef<string>('');
   const combatEntityIdRef = useRef<string>(''); // 记录战斗实体ID，用于判断是否击杀了任务目标
+  const combatBossLootIdsRef = useRef<string[]>([]); // Boss战斗掉落池（红装ID列表）
+  const combatBossCampIdRef = useRef<string>(''); // Boss巢穴ID（用于胜利后标记cleared）
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
@@ -834,9 +900,27 @@ export const App: React.FC = () => {
     const day = party.day;
     const { tier, valueLimit, statMult } = getDifficultyTier(day);
     
+    // Boss实体检测：如果是Boss实体，使用Boss专属编制和掉落
+    const isBoss = !!entity.isBossEntity;
+    let bossCamp: EnemyCamp | undefined;
+    if (isBoss && entity.campId) {
+      bossCamp = camps.find(c => c.id === entity.campId && c.isBoss);
+    }
+    
+    // 设置Boss掉落池
+    combatBossLootIdsRef.current = bossCamp?.uniqueLootIds || [];
+    combatBossCampIdRef.current = bossCamp?.id || '';
+    
     // 获取当前实体类型对应的阶段编制
-    const tierComps = TIERED_ENEMY_COMPOSITIONS[entity.type] || TIERED_ENEMY_COMPOSITIONS['BANDIT'];
-    const compositions = tierComps[Math.min(tier, tierComps.length - 1)];
+    let compositions: { name: string; bg: string; aiType: AIType }[];
+    if (isBoss && bossCamp?.bossCompositionKey) {
+      // Boss使用专属编制（始终使用tier 0，因为boss compositions只有一个tier）
+      const bossComps = TIERED_ENEMY_COMPOSITIONS[bossCamp.bossCompositionKey];
+      compositions = bossComps ? bossComps[0] : (TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[3] || TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[0] || []);
+    } else {
+      const tierComps = TIERED_ENEMY_COMPOSITIONS[entity.type] || TIERED_ENEMY_COMPOSITIONS['BANDIT'];
+      compositions = tierComps[Math.min(tier, tierComps.length - 1)];
+    }
     
     const enemies: CombatUnit[] = compositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
@@ -916,14 +1000,16 @@ export const App: React.FC = () => {
       }
       
       // --- 属性缩放：天数越高敌人基础属性越强 ---
-      if (statMult > 1.0) {
-        baseChar.maxHp = Math.floor(baseChar.maxHp * statMult);
+      // Boss实体保底1.3倍属性
+      const effectiveMult = isBoss ? Math.max(1.3, statMult) : statMult;
+      if (effectiveMult > 1.0) {
+        baseChar.maxHp = Math.floor(baseChar.maxHp * effectiveMult);
         baseChar.hp = baseChar.maxHp;
-        baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * statMult);
-        baseChar.stats.rangedSkill = Math.floor(baseChar.stats.rangedSkill * statMult);
-        baseChar.stats.meleeDefense = Math.floor(baseChar.stats.meleeDefense * statMult);
-        baseChar.stats.rangedDefense = Math.floor(baseChar.stats.rangedDefense * statMult);
-        baseChar.stats.resolve = Math.floor(baseChar.stats.resolve * statMult);
+        baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * effectiveMult);
+        baseChar.stats.rangedSkill = Math.floor(baseChar.stats.rangedSkill * effectiveMult);
+        baseChar.stats.meleeDefense = Math.floor(baseChar.stats.meleeDefense * effectiveMult);
+        baseChar.stats.rangedDefense = Math.floor(baseChar.stats.rangedDefense * effectiveMult);
+        baseChar.stats.resolve = Math.floor(baseChar.stats.resolve * effectiveMult);
       }
       
       return {
@@ -987,7 +1073,7 @@ export const App: React.FC = () => {
       setParty(p => ({ ...p, moraleModifier: 0 }));
     }
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles]);
+  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles, camps]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -1225,8 +1311,22 @@ export const App: React.FC = () => {
         const dayNow = Math.floor(party.day);
         setCamps(prevCamps => {
           let anyChanged = false;
-          const newCamps = prevCamps.map(camp => {
+          // 普通巢穴数量（Boss巢穴追加在后面）
+          const normalCampCount = CAMP_TEMPLATES.length;
+          const newCamps = prevCamps.map((camp, campIdx) => {
             if (camp.destroyed) return camp;
+            // Boss巢穴不重生（已cleared或被摧毁后不再刷怪）
+            if (camp.isBoss) {
+              // Boss巢穴：如果当前存活=0且未cleared，重新产出一个Boss实体
+              if (camp.cleared) return camp;
+              if (camp.currentAlive >= camp.maxAlive) return camp;
+              const distToPlayer = Math.hypot(camp.x - party.x, camp.y - party.y);
+              if (distToPlayer < 10) return camp;
+              const bossEnt = spawnBossEntity(camp);
+              setEntities(prev => [...prev, bossEnt]);
+              anyChanged = true;
+              return { ...camp, currentAlive: 1, lastSpawnDay: dayNow };
+            }
             if (camp.currentAlive >= camp.maxAlive) return camp;
             if (dayNow - camp.lastSpawnDay < camp.spawnCooldown) return camp;
             
@@ -1234,9 +1334,8 @@ export const App: React.FC = () => {
             const distToPlayer = Math.hypot(camp.x - party.x, camp.y - party.y);
             if (distToPlayer < 10) return camp;
             
-            // 找到对应的模板
-            const templateIdx = prevCamps.indexOf(camp);
-            const template = CAMP_TEMPLATES[templateIdx];
+            // 找到对应的模板（只对普通巢穴有效）
+            const template = campIdx < normalCampCount ? CAMP_TEMPLATES[campIdx] : null;
             if (!template) return camp;
             
             // 产出一个新实体
@@ -1582,11 +1681,20 @@ export const App: React.FC = () => {
                       enemyUnits,
                       rounds,
                       combatEnemyNameRef.current || '未知敌人',
-                      party.mercenaries
+                      party.mercenaries,
+                      combatBossLootIdsRef.current // 传入Boss掉落池
                     );
                     setBattleResult(result);
                     // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数 + 任务目标击杀判定
                     if (victory) {
+                      // 标记Boss巢穴为已清除
+                      if (combatBossCampIdRef.current) {
+                        setCamps(prev => prev.map(c =>
+                          c.id === combatBossCampIdRef.current
+                            ? { ...c, cleared: true, destroyed: true }
+                            : c
+                        ));
+                      }
                       setParty(p => {
                         // 检查是否击杀了任务目标（仿战场兄弟：击杀后标记完成，需返回接取城市交付）
                         let updatedQuest = p.activeQuest;
@@ -1611,6 +1719,9 @@ export const App: React.FC = () => {
                         };
                       });
                     }
+                    // 清理Boss引用
+                    combatBossLootIdsRef.current = [];
+                    combatBossCampIdRef.current = '';
                     setCombatState(null);
                     setView('BATTLE_RESULT');
                     setTimeScale(0);

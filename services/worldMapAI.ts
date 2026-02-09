@@ -724,7 +724,8 @@ export const getWorldAITypeName = (aiType: WorldAIType): string => {
     'BEAST': '野兽',
     'ARMY': '军队',
     'TRADER': '商队',
-    'NOMAD': '游牧'
+    'NOMAD': '游牧',
+    'CULT': '邪教'
   };
   return names[aiType] || '未知';
 };

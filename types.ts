@@ -236,6 +236,7 @@ export interface WorldEntity {
   linkedCityId?: string;                       // 绑定城市ID（军队/商队）
   destinationCityId?: string;                  // 目的地城市ID（商队）
   campId?: string;                             // 所属巢穴ID（用于刷新计数）
+  isBossEntity?: boolean;                      // 是否为Boss巢穴产出的Boss实体
 }
 
 // ==================== 巢穴系统（仿战场兄弟） ====================
@@ -254,6 +255,12 @@ export interface EnemyCamp {
   lastSpawnDay: number;          // 上次刷新天数
   namePool: string[];            // 名字池
   destroyed: boolean;            // 是否被摧毁
+  // Boss巢穴专属字段
+  isBoss?: boolean;              // 是否为Boss巢穴
+  bossName?: string;             // Boss巢穴名称
+  uniqueLootIds?: string[];      // 绑定的红装掉落池
+  bossCompositionKey?: string;   // Boss专属敌人编制键
+  cleared?: boolean;             // Boss巢穴是否已被击败清除
 }
 
 // ==================== 野心目标系统 ====================

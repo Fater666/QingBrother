@@ -22,6 +22,7 @@ import DIFFICULTY_TIERS_CSV from './csv/difficulty_tiers.csv?raw';
 import ENEMY_COMPOSITIONS_CSV from './csv/enemy_compositions.csv?raw';
 import GOLD_REWARDS_CSV from './csv/gold_rewards.csv?raw';
 import CAMP_TEMPLATES_CSV from './csv/camp_templates.csv?raw';
+import BOSS_CAMPS_CSV from './csv/boss_camps.csv?raw';
 import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
 
 // --- CSV PARSER UTILITY ---
@@ -412,6 +413,17 @@ export const CAMP_TEMPLATES_DATA = parseCSV(CAMP_TEMPLATES_CSV).map((c: any) => 
     aiState: c.aiState,
     preferredTerrain: Array.isArray(c.preferredTerrain) ? c.preferredTerrain : [c.preferredTerrain],
     yRange: [c.yRangeMin, c.yRangeMax] as [number, number],
+}));
+
+// --- BOSS CAMP CONFIGS (from boss_camps.csv) ---
+export const BOSS_CAMP_CONFIGS = parseCSV(BOSS_CAMPS_CSV).map((b: any) => ({
+  id: b.id as string,
+  name: b.name as string,
+  region: b.region as string,
+  preferredTerrain: Array.isArray(b.preferredTerrain) ? b.preferredTerrain as string[] : [b.preferredTerrain as string],
+  yRange: [b.yRangeMin, b.yRangeMax] as [number, number],
+  uniqueLootIds: Array.isArray(b.uniqueLootIds) ? b.uniqueLootIds as string[] : [b.uniqueLootIds as string],
+  bossCompositionKey: b.bossCompositionKey as string,
 }));
 
 // --- MORALE EFFECTS (from morale_effects.csv) ---

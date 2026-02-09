@@ -505,12 +505,20 @@ const drawEntityIcon = (
   const centerY = screenY + tileSize / 2;
   const radius = tileSize * 0.35;
   
+  const isBoss = !!entity.isBossEntity;
+  
   let baseColor = '#334155';
   let accentColor = '#475569';
   let iconColor = '#e2e8f0';
   let nameColor = '#c8d0dc';
   
-  if (entity.faction === 'HOSTILE') {
+  if (isBoss) {
+    // Boss实体：紫金色调
+    baseColor = '#4a1942';
+    accentColor = '#7b2d8e';
+    iconColor = '#f5d742';
+    nameColor = '#f5d742';
+  } else if (entity.faction === 'HOSTILE') {
     baseColor = '#7f1d1d';
     accentColor = '#991b1b';
     iconColor = '#fecaca';
@@ -520,6 +528,18 @@ const drawEntityIcon = (
     accentColor = '#718096';
     iconColor = '#e2e8f0';
     nameColor = '#cbd5e1';
+  }
+  
+  // Boss实体：外围光环
+  if (isBoss) {
+    const glowGradient = ctx.createRadialGradient(centerX, centerY, radius * 0.8, centerX, centerY, radius * 1.8);
+    glowGradient.addColorStop(0, 'rgba(123, 45, 142, 0.4)');
+    glowGradient.addColorStop(0.5, 'rgba(245, 215, 66, 0.15)');
+    glowGradient.addColorStop(1, 'rgba(245, 215, 66, 0)');
+    ctx.fillStyle = glowGradient;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * 1.8, 0, Math.PI * 2);
+    ctx.fill();
   }
   
   // 阴影
@@ -536,8 +556,17 @@ const drawEntityIcon = (
   
   // 边框
   ctx.strokeStyle = accentColor;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = isBoss ? 3 : 2;
   ctx.stroke();
+  
+  // Boss实体：金色内圈
+  if (isBoss) {
+    ctx.strokeStyle = '#f5d742';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   
   ctx.fillStyle = iconColor;
   ctx.strokeStyle = iconColor;
@@ -545,7 +574,36 @@ const drawEntityIcon = (
   
   const iconSize = radius * 0.5;
   
-  switch (entity.type) {
+  // Boss实体使用专属骷髅图标
+  if (isBoss) {
+    // 骷髅头 - Boss专属图标
+    const skullR = iconSize * 0.7;
+    // 头骨轮廓
+    ctx.fillStyle = iconColor;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY - skullR * 0.1, skullR, 0, Math.PI * 2);
+    ctx.fill();
+    // 眼眶
+    ctx.fillStyle = baseColor;
+    ctx.beginPath();
+    ctx.arc(centerX - skullR * 0.35, centerY - skullR * 0.2, skullR * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(centerX + skullR * 0.35, centerY - skullR * 0.2, skullR * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    // 鼻孔
+    ctx.beginPath();
+    ctx.arc(centerX, centerY + skullR * 0.15, skullR * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    // 下颌
+    ctx.fillStyle = iconColor;
+    ctx.fillRect(centerX - skullR * 0.5, centerY + skullR * 0.5, skullR, skullR * 0.35);
+    // 牙齿
+    ctx.fillStyle = baseColor;
+    for (let t = -2; t <= 2; t++) {
+      ctx.fillRect(centerX + t * skullR * 0.2 - skullR * 0.06, centerY + skullR * 0.5, skullR * 0.12, skullR * 0.15);
+    }
+  } else switch (entity.type) {
     case 'BANDIT':
       ctx.beginPath();
       ctx.moveTo(centerX - iconSize, centerY - iconSize);
@@ -1124,14 +1182,27 @@ const drawMinimap = (
     const ex = pad + (ent.x + 0.5) * cellSize;
     const ey = pad + (ent.y + 0.5) * cellSize;
 
-    if (ent.faction === 'HOSTILE') {
+    if (ent.isBossEntity) {
+      // Boss实体：紫金色，更大
+      ctx.fillStyle = '#c084fc';
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.max(2.5, cellSize * 0.9), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f5d742';
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.max(1.5, cellSize * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (ent.faction === 'HOSTILE') {
       ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.max(1.5, cellSize * 0.6), 0, Math.PI * 2);
+      ctx.fill();
     } else {
       ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.max(1.5, cellSize * 0.6), 0, Math.PI * 2);
+      ctx.fill();
     }
-    ctx.beginPath();
-    ctx.arc(ex, ey, Math.max(1.5, cellSize * 0.6), 0, Math.PI * 2);
-    ctx.fill();
   }
 
   // 绘制视野框（当前 viewport 范围）
