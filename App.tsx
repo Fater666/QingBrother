@@ -12,7 +12,7 @@ import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
 import { BattleResultView } from './components/BattleResultView.tsx';
 import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
-import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier } from './services/mapGenerator.ts';
+import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier, generateCityQuests } from './services/mapGenerator.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 
@@ -998,6 +998,9 @@ export const App: React.FC = () => {
             // 补充缺失的商店刷新字段
             if (updated.lastMarketRefreshDay == null) updated.lastMarketRefreshDay = 1;
             if (updated.priceModifier == null) updated.priceModifier = rollPriceModifier();
+            // 补充缺失的任务刷新字段和区域信息
+            if (updated.lastQuestRefreshDay == null) updated.lastQuestRefreshDay = 1;
+            if (!updated.biome) updated.biome = getBiome(updated.y, MAP_SIZE);
 
             const hasConsumables = updated.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
             const hasHelmets = updated.market.some((item: Item) => item.type === 'HELMET');
@@ -1348,17 +1351,32 @@ export const App: React.FC = () => {
           setCities(prevCities => {
             let changed = false;
             const updated = prevCities.map(c => {
+              let city = c;
+              // 商店刷新
               if (currentDay - (c.lastMarketRefreshDay || 1) >= 3) {
                 changed = true;
-                return {
-                  ...c,
+                city = {
+                  ...city,
                   market: generateCityMarket(c.type),
                   recruits: Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${c.id}-${currentDay}-${j}`)),
                   lastMarketRefreshDay: currentDay,
                   priceModifier: rollPriceModifier(),
                 };
               }
-              return c;
+              // 任务刷新：村庄每5天，城镇每4天，王都每3天
+              const questRefreshInterval = c.type === 'VILLAGE' ? 5 : c.type === 'TOWN' ? 4 : 3;
+              if (currentDay - (c.lastQuestRefreshDay || 1) >= questRefreshInterval) {
+                changed = true;
+                const cityIndex = parseInt(c.id.replace('city-', ''), 10) || 0;
+                const biome = (c.biome || 'CENTRAL_PLAINS') as any;
+                const newQuests = generateCityQuests(biome, c.type, c.id, cityIndex);
+                city = {
+                  ...city,
+                  quests: newQuests,
+                  lastQuestRefreshDay: currentDay,
+                };
+              }
+              return city;
             });
             return changed ? updated : prevCities;
           });

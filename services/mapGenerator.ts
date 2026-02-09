@@ -608,7 +608,9 @@ export const generateCities = (
         recruits,
         quests,
         lastMarketRefreshDay: 1,
+        lastQuestRefreshDay: 1,
         priceModifier: rollPriceModifier(),
+        biome,
       });
       
       nameIndex++;
@@ -630,15 +632,34 @@ const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 const getQuestCount = (cityType: City['type']): number => {
   switch (cityType) {
     case 'VILLAGE': return 1 + (Math.random() < 0.5 ? 1 : 0); // 1-2
-    case 'TOWN': return 2 + (Math.random() < 0.5 ? 1 : 0);    // 2-3
-    case 'CAPITAL': return 3 + (Math.random() < 0.5 ? 1 : 0);  // 3-4
+    case 'TOWN': return 2 + Math.floor(Math.random() * 3);      // 2-4
+    case 'CAPITAL': return 3 + Math.floor(Math.random() * 3);   // 3-5
   }
 };
+
+// 任务模板类型定义
+interface HuntTemplate {
+  targets: string[];
+  titles: (diff: 1|2|3) => string;
+  descs: ((...args: string[]) => string)[];
+}
+interface NonHuntTemplate {
+  titles: (diff: 1|2|3) => string;
+  descs: ((...args: string[]) => string)[];
+}
+interface EliteTemplate {
+  type: QuestType;
+  targets: string[];
+  titles: (diff: 1|2|3) => string;
+  descs: ((...args: string[]) => string)[];
+  minDifficulty: 1|2|3;
+  requiredReputation: number;
+}
 
 /**
  * 为城市生成一组任务
  */
-const generateCityQuests = (
+export const generateCityQuests = (
   biome: BiomeType,
   cityType: City['type'],
   sourceCityId: string,
@@ -648,19 +669,20 @@ const generateCityQuests = (
   const quests: Quest[] = [];
   const usedTargets = new Set<string>(); // 避免重复目标
   
-  const biomeTemplates = QUEST_TEMPLATES[biome];
+  const biomeTemplates = QUEST_TEMPLATES[biome] as { HUNT: HuntTemplate[]; PATROL?: NonHuntTemplate[]; ESCORT?: NonHuntTemplate[]; DELIVERY?: NonHuntTemplate[] };
   const places = QUEST_PLACE_NAMES[biome];
   const npcPool = [...QUEST_NPC_NAMES.OFFICIALS, ...QUEST_NPC_NAMES.MERCHANTS, ...QUEST_NPC_NAMES.VILLAGERS];
   
   // 决定是否生成高声望任务（城镇和王都才有机会）
-  const eliteSlot = cityType !== 'VILLAGE' && Math.random() < (cityType === 'CAPITAL' ? 0.8 : 0.4);
+  // 王都100%出高声望任务，城镇50%
+  const eliteSlot = cityType !== 'VILLAGE' && Math.random() < (cityType === 'CAPITAL' ? 1.0 : 0.5);
   
   for (let qi = 0; qi < questCount; qi++) {
     const isElite = eliteSlot && qi === questCount - 1; // 最后一个槽位留给高声望任务
     
     if (isElite) {
       // 生成高声望任务
-      const eliteTemplates = ELITE_QUEST_TEMPLATES[biome];
+      const eliteTemplates = ELITE_QUEST_TEMPLATES[biome] as EliteTemplate[];
       if (eliteTemplates && eliteTemplates.length > 0) {
         const tmpl = pick(eliteTemplates);
         const difficulty = tmpl.minDifficulty;
@@ -695,8 +717,8 @@ const generateCityQuests = (
     // 决定任务类型：前几个优先 HUNT（因为其他类型暂时只有描述没有完整玩法），但也有概率出其他类型
     const availableTypes: QuestType[] = ['HUNT'];
     if (biomeTemplates.PATROL) availableTypes.push('PATROL');
-    if ((biomeTemplates as any).ESCORT) availableTypes.push('ESCORT');
-    if ((biomeTemplates as any).DELIVERY) availableTypes.push('DELIVERY');
+    if (biomeTemplates.ESCORT) availableTypes.push('ESCORT');
+    if (biomeTemplates.DELIVERY) availableTypes.push('DELIVERY');
     
     // HUNT 权重更高（70%），其他类型平分剩余
     let questType: QuestType;
@@ -779,8 +801,8 @@ const generateCityQuests = (
         isCompleted: false,
         daysLeft: 5 + difficulty * 2,
       });
-    } else if (questType === 'ESCORT' && (biomeTemplates as any).ESCORT) {
-      const escortTemplates = (biomeTemplates as any).ESCORT;
+    } else if (questType === 'ESCORT' && biomeTemplates.ESCORT) {
+      const escortTemplates = biomeTemplates.ESCORT;
       const tmpl = pick(escortTemplates);
       const title = tmpl.titles(difficulty);
       const descFn = pick(tmpl.descs);
@@ -806,8 +828,8 @@ const generateCityQuests = (
         isCompleted: false,
         daysLeft: 8 + difficulty * 2,
       });
-    } else if (questType === 'DELIVERY' && (biomeTemplates as any).DELIVERY) {
-      const deliveryTemplates = (biomeTemplates as any).DELIVERY;
+    } else if (questType === 'DELIVERY' && biomeTemplates.DELIVERY) {
+      const deliveryTemplates = biomeTemplates.DELIVERY;
       const tmpl = pick(deliveryTemplates);
       const title = tmpl.titles(difficulty);
       const descFn = pick(tmpl.descs);

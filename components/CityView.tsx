@@ -1122,7 +1122,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                             ? 'border-red-900/50 text-red-500/80 bg-red-950/30'
                                                             : 'border-amber-600/50 text-amber-400 bg-amber-900/20'
                                                     }`}>
-                                                        {reputationLocked ? '声望不足' : '高级委托'}
+                                                        {reputationLocked ? `需声望 ${quest.requiredReputation}` : '高级委托'}
                                                     </div>
                                                 )}
                                                 
@@ -1199,8 +1199,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     </div>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-700">
-                                        <p className="text-lg tracking-widest">今日暂无委托</p>
-                                        <p className="text-xs mt-1 text-slate-800">不如喝一杯再走？</p>
+                                        <p className="text-lg tracking-widest">暂无可接委托</p>
+                                        <p className="text-xs mt-1 text-slate-800">过几日再来看看，也许会有新的任务</p>
                                     </div>
                                 )}
                             </div>

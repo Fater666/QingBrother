@@ -190,7 +190,9 @@ export interface City {
   recruits: Character[];
   quests: Quest[];
   lastMarketRefreshDay: number;  // 上次商店刷新的天数
+  lastQuestRefreshDay: number;   // 上次任务刷新的天数
   priceModifier: number;         // 该城市的价格浮动系数 (0.8 ~ 1.2)
+  biome: string;                 // 所在区域（用于任务刷新时重新生成）
 }
 
 export interface WorldTile {
