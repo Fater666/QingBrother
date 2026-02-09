@@ -515,8 +515,9 @@ const generateBattleResult = (
 
 // --- 难度曲线与装备系统（仿战场兄弟） ---
 
-/** 根据AI类型和价值上限为敌人分配合适装备（排除传世红装） */
-const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
+/** 根据AI类型、价值上限和难度阶段为敌人分配合适装备（排除传世红装）
+ *  tier 参数控制护甲/头盔价值上限和穿戴概率，使敌人强度随天数增长 */
+const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number = 0): {
   mainHand: Item | null; offHand: Item | null; armor: Item | null; helmet: Item | null;
 } => {
   const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -525,6 +526,53 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
   // 排除 UNIQUE 品质物品（红装只通过特殊掉落获得）
   const noUnique = (items: Item[]) => items.filter(i => i.rarity !== 'UNIQUE');
 
+  // --- 动态护甲/头盔价值上限（随 tier 增长，替代原有硬编码上限） ---
+  // 每个tier的基准值：初期廉价装备 → 末期可穿重甲
+  const TIER_ARMOR_BASE = [400, 800, 1500, 3000];
+  const TIER_HELMET_BASE = [250, 500, 1000, 2000];
+  const tierIdx = Math.min(tier, TIER_ARMOR_BASE.length - 1);
+
+  // AI类型系数：不同定位穿不同档次的护甲
+  const ARMOR_COEFF: Record<string, number> = {
+    BANDIT: 1.0, ARCHER: 0.4, BERSERKER: 0.35, SKIRMISHER: 0.3, ARMY: 1.2, TANK: 1.5,
+  };
+  const HELMET_COEFF: Record<string, number> = {
+    BANDIT: 0.7, ARCHER: 0.35, BERSERKER: 0.3, SKIRMISHER: 0.25, ARMY: 1.0, TANK: 1.0,
+  };
+
+  const armorCap = Math.min(valueLimit, Math.floor(TIER_ARMOR_BASE[tierIdx] * (ARMOR_COEFF[aiType] || 1.0)));
+  const helmetCap = Math.min(valueLimit, Math.floor(TIER_HELMET_BASE[tierIdx] * (HELMET_COEFF[aiType] || 1.0)));
+
+  // --- 穿戴概率（随 tier 提升，后期敌人更多穿甲） ---
+  const clampProb = (p: number) => Math.max(0, Math.min(0.95, p));
+
+  // [基础概率, 每tier增量]
+  const ARMOR_PROB: Record<string, [number, number]> = {
+    BANDIT: [0.55, 0.13],     // tier0=55% → tier3=94%
+    ARCHER: [0.55, 0.12],     // tier0=55% → tier3=91%
+    BERSERKER: [0.35, 0.12],  // tier0=35% → tier3=71%
+    SKIRMISHER: [0.30, 0.12], // tier0=30% → tier3=66%
+    ARMY: [1.0, 0],           // 军队始终穿甲
+    TANK: [1.0, 0],           // 盾卫始终穿甲
+  };
+  const HELMET_PROB: Record<string, [number, number]> = {
+    BANDIT: [0.35, 0.15],     // tier0=35% → tier3=80%
+    ARCHER: [0.30, 0.12],     // tier0=30% → tier3=66%
+    BERSERKER: [0.20, 0.12],  // tier0=20% → tier3=56%
+    SKIRMISHER: [0.20, 0.10], // tier0=20% → tier3=50%
+    ARMY: [0.55, 0.12],       // tier0=55% → tier3=91%
+    TANK: [1.0, 0],           // 盾卫始终戴盔
+  };
+  const SHIELD_PROB: Record<string, [number, number]> = {
+    BANDIT: [0.20, 0.08],     // tier0=20% → tier3=44%
+    ARMY: [0.50, 0.10],       // tier0=50% → tier3=80%
+    TANK: [1.0, 0],           // 盾卫始终持盾
+  };
+
+  const armorProb = clampProb((ARMOR_PROB[aiType]?.[0] ?? 0.5) + tier * (ARMOR_PROB[aiType]?.[1] ?? 0.1));
+  const helmetProb = clampProb((HELMET_PROB[aiType]?.[0] ?? 0.3) + tier * (HELMET_PROB[aiType]?.[1] ?? 0.1));
+  const shieldProb = clampProb((SHIELD_PROB[aiType]?.[0] ?? 0) + tier * (SHIELD_PROB[aiType]?.[1] ?? 0));
+
   switch (aiType) {
     case 'ARCHER': {
       // 弓手必须拿远程武器
@@ -532,13 +580,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
         (w.name.includes('弓') || w.name.includes('弩') || w.weaponClass === 'bow' || w.weaponClass === 'crossbow') && w.value <= valueLimit
       );
       const weapon = rangedWeapons.length > 0 ? pick(rangedWeapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_bow_3') || WEAPON_TEMPLATES.find(w => w.name.includes('弓'))!;
-      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.5, 300));
-      const lightHelmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= Math.min(valueLimit * 0.3, 200));
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap);
+      const lightHelmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: null,
-        armor: lightArmors.length > 0 && Math.random() > 0.3 ? cloneItem(pick(lightArmors)) : null,
-        helmet: lightHelmets.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightHelmets)) : null,
+        armor: lightArmors.length > 0 && Math.random() < armorProb ? cloneItem(pick(lightArmors)) : null,
+        helmet: lightHelmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(lightHelmets)) : null,
       };
     }
     case 'BANDIT': {
@@ -551,13 +599,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_sword_1')!;
       const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
-      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit, 600));
-      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= Math.min(valueLimit * 0.5, 400));
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap);
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
-        offHand: shields.length > 0 && Math.random() < 0.3 ? cloneItem(pick(shields)) : null,
-        armor: armors.length > 0 && Math.random() > 0.3 ? cloneItem(pick(armors)) : null,
-        helmet: helmets.length > 0 && Math.random() > 0.5 ? cloneItem(pick(helmets)) : null,
+        offHand: shields.length > 0 && Math.random() < shieldProb ? cloneItem(pick(shields)) : null,
+        armor: armors.length > 0 && Math.random() < armorProb ? cloneItem(pick(armors)) : null,
+        helmet: helmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(helmets)) : null,
       };
     }
     case 'ARMY': {
@@ -571,13 +619,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
       const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
-      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= valueLimit && a.value >= 80);
-      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= valueLimit);
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= 80);
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
-        offHand: shields.length > 0 && Math.random() < 0.6 ? cloneItem(pick(shields)) : null,
+        offHand: shields.length > 0 && Math.random() < shieldProb ? cloneItem(pick(shields)) : null,
         armor: armors.length > 0 ? cloneItem(pick(armors)) : null,
-        helmet: helmets.length > 0 && Math.random() > 0.3 ? cloneItem(pick(helmets)) : null,
+        helmet: helmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(helmets)) : null,
       };
     }
     case 'BERSERKER': {
@@ -590,12 +638,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
         w.value <= valueLimit && w.value >= 80
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_axe_1')!;
-      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap);
+      const lightHelmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: null,
-        armor: lightArmors.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightArmors)) : null,
-        helmet: Math.random() > 0.7 && HELMET_TEMPLATES.length > 0 ? cloneItem(HELMET_TEMPLATES[0]) : null,
+        armor: lightArmors.length > 0 && Math.random() < armorProb ? cloneItem(pick(lightArmors)) : null,
+        helmet: lightHelmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(lightHelmets)) : null,
       };
     }
     case 'TANK': {
@@ -611,8 +660,8 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
       const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
       const shield = shields.length > 0 ? pick(shields) : SHIELD_TEMPLATES[0];
-      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= valueLimit && a.value >= 80);
-      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= valueLimit);
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= 80);
+      const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: shield ? cloneItem(shield) : null, // 盾卫必有盾
@@ -632,12 +681,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number): {
         w.value <= valueLimit && w.value > 0
       );
       const weapon = throwWeapons.length > 0 ? pick(throwWeapons) : (lightMelee.length > 0 ? pick(lightMelee) : WEAPON_TEMPLATES.find(w => w.id === 'w_throw_1')!);
-      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= Math.min(valueLimit * 0.3, 300));
+      const lightArmors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap);
+      const lightHelmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: null,
-        armor: lightArmors.length > 0 && Math.random() > 0.5 ? cloneItem(pick(lightArmors)) : null,
-        helmet: Math.random() > 0.7 && HELMET_TEMPLATES.length > 0 ? cloneItem(HELMET_TEMPLATES[0]) : null,
+        armor: lightArmors.length > 0 && Math.random() < armorProb ? cloneItem(pick(lightArmors)) : null,
+        helmet: lightHelmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(lightHelmets)) : null,
       };
     }
     default: // BEAST 由单独逻辑处理
@@ -729,14 +779,19 @@ export const App: React.FC = () => {
       return merc;
     });
 
-    // 初始补给：5个金创药(20*5=100 medicine) + 3个修甲工具(50*3=150 repairSupplies)
-    // 消耗品不再放入背包，而是直接转为数值资源池
+    // 初始补给：2个金创药 + 1个修甲工具
+    const startingInventory: Item[] = [
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_1' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_med1')!, id: 'start_med_2' },
+      { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_1' },
+    ];
+
     setParty({
       x: mapData.cities[0].x, y: mapData.cities[0].y,
       targetX: null, targetY: null,
       gold: origin.gold, food: origin.food,
-      medicine: 100,          // 5个金创药 × 20 = 100
-      repairSupplies: 150,    // 3个修甲工具 × 50 = 150
+      medicine: 40,          // 2个金创药 × 20 = 40
+      repairSupplies: 50,    // 1个修甲工具 × 50 = 50
       mercenaries: mercs,
       inventory: [], day: 1.0, activeQuest: null,
       reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
@@ -996,8 +1051,8 @@ export const App: React.FC = () => {
           accessory: null,
         };
       } else {
-        // 非野兽敌人：根据AI类型和天数分配合适装备
-        const equip = getEquipmentForAIType(comp.aiType, valueLimit);
+        // 非野兽敌人：根据AI类型、天数和难度阶段分配合适装备
+        const equip = getEquipmentForAIType(comp.aiType, valueLimit, tier);
         baseChar.equipment = {
           mainHand: equip.mainHand,
           offHand: equip.offHand,
