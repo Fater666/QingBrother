@@ -36,16 +36,16 @@
 ## 3. 封面图 (Cover Art)
 
 ### 方案 A: 竖版封面 (Vertical Cover - 9:16)
-**设计意图**: 手机端竖屏封面，强调“伍”的概念（五人小队），展现团队多样性与史诗感。
-**画面描述**: 经典的三角构图，5名性格、体型各异的佣兵（重甲壮汉、轻甲斥候、持戟老兵等）站在山丘上，背对镜头，眺望远方燃烧的城池与黑云压城的战场。
+**设计意图**: 手机端竖屏封面，强调“伍”的概念（五人小队），展现全男性战团的史诗感。
+**画面描述**: 经典的三角构图，5名性格、体型各异的男性佣兵（重甲壮汉、轻甲斥候、持戟老兵等）站在山丘上，背对镜头，眺望远方燃烧的城池与黑云压城的战场。
 **Prompt**:
-> vertical cover art for a tactical RPG, a squad of 5 distinct Chinese Warring States mercenaries standing on a hill overlooking a burning ancient city battlefield, diverse body types (hulking, slender, old, young), unique weapons (halberd, heavy crossbow, massive shield, dual swords), dramatic back view, grim and gritty atmosphere, heavy rain, dark clouds, golden hour lighting, epic composition, masterpiece --ar 9:16 --stylize 300
+> vertical cover art for a tactical RPG, a squad of 5 distinct male Chinese Warring States mercenaries standing on a hill overlooking a burning ancient city battlefield, all men, diverse male body types (hulking brute, wiry scout, old veteran), unique weapons (halberd, heavy crossbow, massive shield), dramatic back view, grim and gritty atmosphere, heavy rain, dark clouds, golden hour lighting, epic composition, masterpiece --ar 9:16 --stylize 300
 
 ### 方案 B: 横版宣传封 (Horizontal Key Art - 16:9)
-**设计意图**: 适用于 PC 端或视频封面，展示激烈的战斗瞬间与角色配合。
-**画面描述**: 佣兵小队结成盾墙，每名成员分工明确（前排盾卫扛住冲击，后排弓手与长矛手输出），抵御敌军冲锋，画面充满动态张力。
+**设计意图**: 适用于 PC 端或视频封面，展示激烈的战斗瞬间与男性角色的力量感。
+**画面描述**: 佣兵小队结成盾墙，每名男性成员分工明确（前排盾卫扛住冲击，后排弓手与长矛手输出），抵御敌军冲锋，画面充满动态张力。
 **Prompt**:
-> horizontal key art for a hardcore tactical RPG, intense close-quarters combat scene in ancient China Warring States period, a diverse mercenary squad forming a shield wall, distinct roles (heavy shield bearer blocking charge, nimble archer firing behind cover, fierce spearman thrusting), dynamic action pose, flying arrows, mud and blood, cinematic lighting, volumetric fog, gritty realism, masterpiece --ar 16:9 --stylize 400
+> horizontal key art for a hardcore tactical RPG, intense close-quarters combat scene in ancient China Warring States period, a diverse all-male mercenary squad forming a shield wall, distinct roles (heavy male shield bearer, nimble male archer, fierce spearman), dynamic action pose, flying arrows, mud and blood, cinematic lighting, volumetric fog, gritty realism, masterpiece --ar 16:9 --stylize 400
 
 ---
 
@@ -135,13 +135,13 @@
 ## 7. 游戏库背景壁纸 (Game Library Wallpaper)
 
 ### 方案 A: 战场对峙 (Battlefield Standoff)
-**设计意图**: 超宽比例 (21:9)，主体靠右，左侧留白给 UI。展现小规模战团冲突，强调角色多样性。
-**画面描述**: 宽幅战场，右侧是五名造型各异的佣兵（体型、装备、年龄均不同：如壮汉持锤、老兵持矛、游侠持弩等），正与左侧远处的流寇小队对峙。背景是荒凉古道，夕阳拉出长影。
+**设计意图**: 超宽比例 (21:9)，主体靠右，左侧留白给 UI。展现小规模战团冲突，强调全男性硬核佣兵团。
+**画面描述**: 宽幅战场，右侧是五名造型各异的男性佣兵（皆为男性，体型、年龄不同：壮汉、老兵、光头暴徒等），正与左侧远处的流寇对峙。背景是荒凉古道，夕阳拉出长影，充满雄性荷尔蒙的肃杀感。
 **Prompt**:
-> ultrawide desktop wallpaper, panoramic ancient Chinese battlefield, small scale skirmish, right side foreground features 5 distinct mercenary characters with diverse body types and ages (a hulking brute with heavy armor, a slender archer, a scarred old veteran commander, a wild berserker with dual axes, a young recruit), detailed Warring States armor, distinct Asian faces, left side shows a rival bandit group in distance (negative space), dramatic sunset lighting, intense standoff, 8k resolution, masterpiece --ar 21:9
+> ultrawide desktop wallpaper, panoramic ancient Chinese battlefield, small scale skirmish, right side foreground features 5 male mercenary characters (all men, no women), diverse body types and ages (a hulking male brute with heavy armor, a slender male archer, a scarred old veteran commander, a wild male berserker with dual axes, a young male recruit), detailed Warring States armor, distinct Asian male faces, left side shows a rival bandit group in distance (negative space), dramatic sunset lighting, intense standoff, 8k resolution, masterpiece --ar 21:9
 
 ### 方案 B: 篝火夜话 (Campfire Tales)
-**设计意图**: 氛围感强的静态场景，右侧聚焦角色互动，通过面部特征和装备展现小队成员的个性差异。
-**画面描述**: 宽幅夜景，右侧是温暖的营火，五名性格迥异的角色围坐（有的在擦拭重盾，有的在磨剑，有的在饮酒），面孔沧桑且各有特色（络腮胡、独眼、清秀少年等），展现战国乱世的众生相。
+**设计意图**: 氛围感强的静态场景，右侧聚焦角色互动，通过面部特征和装备展现全男性战团的兄弟情谊。
+**画面描述**: 宽幅夜景，右侧是温暖的营火，五名男性角色围坐（有的在擦拭重盾，有的在磨剑，有的在饮酒），面孔沧桑且各有特色（络腮胡、独眼等），展现战国乱世的兄弟连。
 **Prompt**:
-> ultrawide wallpaper, night scene at a mercenary camp, right side features 5 diverse ancient Chinese characters sitting around a warm campfire, distinct personalities and appearances (a bearded heavy infantryman cleaning a shield, a sharp-eyed archer fletching arrows, a scarred veteran drinking wine, a young anxious recruit), authentic Asian faces, Warring States period clothing, detailed facial expressions, left side is dark forest (copy space), atmospheric lighting, fire particles, oil painting style, peaceful yet grim, 8k resolution --ar 21:9
+> ultrawide wallpaper, night scene at a mercenary camp, right side features 5 diverse ancient Chinese male soldiers sitting around a warm campfire (all men), distinct male personalities (a bearded heavy infantryman, a sharp-eyed male archer, a scarred veteran drinking wine, a young male recruit), authentic Asian male faces, Warring States period clothing, brotherhood atmosphere, left side is dark forest (copy space), atmospheric lighting, fire particles, oil painting style, peaceful yet grim, 8k resolution --ar 21:9
