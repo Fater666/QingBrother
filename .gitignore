@@ -28,3 +28,17 @@ scripts/.env
 scripts/api_key.txt
 
 release/*
+
+# Capacitor / Android local and build artifacts
+android/local.properties
+android/.gradle/
+android/captures/
+android/app/build/
+android/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.apk
+*.aab
+*.jks
+*.keystore
