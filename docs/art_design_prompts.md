@@ -36,16 +36,16 @@
 ## 3. 封面图 (Cover Art)
 
 ### 方案 A: 竖版封面 (Vertical Cover - 9:16)
-**设计意图**: 手机端竖屏封面，强调“伍”的概念（五人小队），展现团队感与史诗感。
-**画面描述**: 经典的三角构图，5名装备各异（戈、弩、剑、盾、长矛）的佣兵站在山丘上，背对镜头，眺望远方燃烧的城池与黑云压城的战场。
+**设计意图**: 手机端竖屏封面，强调“伍”的概念（五人小队），展现团队多样性与史诗感。
+**画面描述**: 经典的三角构图，5名性格、体型各异的佣兵（重甲壮汉、轻甲斥候、持戟老兵等）站在山丘上，背对镜头，眺望远方燃烧的城池与黑云压城的战场。
 **Prompt**:
-> vertical cover art for a tactical RPG, a squad of 5 Chinese Warring States mercenaries standing on a hill overlooking a burning ancient city battlefield, dramatic back view, diverse weapons (spear, crossbow, sword, shield), grim and gritty atmosphere, heavy rain, dark clouds, golden hour lighting, epic composition, oil painting style, detailed armor textures, masterpiece --ar 9:16 --stylize 300
+> vertical cover art for a tactical RPG, a squad of 5 distinct Chinese Warring States mercenaries standing on a hill overlooking a burning ancient city battlefield, diverse body types (hulking, slender, old, young), unique weapons (halberd, heavy crossbow, massive shield, dual swords), dramatic back view, grim and gritty atmosphere, heavy rain, dark clouds, golden hour lighting, epic composition, masterpiece --ar 9:16 --stylize 300
 
 ### 方案 B: 横版宣传封 (Horizontal Key Art - 16:9)
-**设计意图**: 适用于 PC 端或视频封面，展示激烈的战斗瞬间。
-**画面描述**: 佣兵小队结成盾墙，抵御敌军战车或流寇的冲击，画面充满动态张力，泥泞与血迹飞溅。
+**设计意图**: 适用于 PC 端或视频封面，展示激烈的战斗瞬间与角色配合。
+**画面描述**: 佣兵小队结成盾墙，每名成员分工明确（前排盾卫扛住冲击，后排弓手与长矛手输出），抵御敌军冲锋，画面充满动态张力。
 **Prompt**:
-> horizontal key art for a hardcore tactical RPG, intense close-quarters combat scene in ancient China Warring States period, a mercenary squad forming a shield wall against charging enemy chariots, dynamic action pose, flying arrows, mud and blood, cinematic lighting, volumetric fog, gritty realism, oil painting art style like Battle Brothers, masterpiece, 8k resolution --ar 16:9 --stylize 400
+> horizontal key art for a hardcore tactical RPG, intense close-quarters combat scene in ancient China Warring States period, a diverse mercenary squad forming a shield wall, distinct roles (heavy shield bearer blocking charge, nimble archer firing behind cover, fierce spearman thrusting), dynamic action pose, flying arrows, mud and blood, cinematic lighting, volumetric fog, gritty realism, masterpiece --ar 16:9 --stylize 400
 
 ---
 
@@ -84,12 +84,64 @@
 
 ### 方案 A: 中文书法标题 (Calligraphy Title)
 **设计意图**: 强烈的视觉冲击力，高对比度，适合叠加在宣传图上。包含“战国”与“与伍同行”字样。
-**画面描述**: 粗犷有力的中国书法字体设计，写着“战国”二字，笔触带有飞白和墨迹溅射效果，金色或青铜色质感，背景洁白以便抠图。
+**画面描述**: 粗犷有力的中国书法字体设计，写着“战国·与伍同行”全名，笔触带有飞白和墨迹溅射效果，金色或青铜色质感，背景洁白以便抠图。
 **Prompt**:
-> game logo typography design, ancient Chinese calligraphy characters "Warring States" (Zhanguo), powerful brush strokes with ink splatter, metallic bronze texture with gold highlights, sharp edges, high contrast, isolated on white background, vector style, professional logo design --ar 16:9
+> game logo typography design, full Chinese game title "战国·与伍同行" in ancient calligraphy style, powerful brush strokes with ink splatter, metallic bronze texture with gold highlights, sharp edges, high contrast, isolated on white background, vector style, professional logo design, no english text, chinese characters only --ar 16:9
 
 ### 方案 B: 兵器图腾组合 (Weapon Emblem)
 **设计意图**: 图形化 Logo，结合戈与盾的元素，象征攻守与战争。
 **画面描述**: 一个极简风格的青铜徽章，由一把戈和一面盾牌交叉组成，周围环绕着云纹，质感古朴明亮。
 **Prompt**:
-> game logo emblem, minimalist vector design of a crossed ancient Chinese dagger-axe (Ge) and a rectangular shield, bronze metal texture, clean lines, high brightness, ancient patterns, isolated on black background, esports logo style, professional game branding --ar 16:9
+> game logo emblem, minimalist vector design of a crossed ancient Chinese dagger-axe (Ge) and a rectangular shield, bronze metal texture, clean lines, high brightness, ancient patterns, isolated on black background, esports logo style, professional game branding, no english text --ar 16:9
+
+### 方案 C: 战国虎符 (Tiger Tally)
+**设计意图**: 以调兵虎符为原型，象征权威与策略，具有极高的历史辨识度。
+**画面描述**: 一个精美的青铜虎符特写，表面刻有金文铭文，虎身呈伏卧状，线条流畅有力，金色错金工艺，背景纯黑。
+**Prompt**:
+> game logo, a detailed ancient Chinese bronze Tiger Tally (Hu Fu) with gold inlay inscriptions, symbol of military command, powerful tiger shape, metallic texture, isolated on black background, high quality, historical artifact style, professional design, no english text --ar 16:9
+
+### 方案 D: 饕餮纹徽章 (Taotie Motif)
+**设计意图**: 抽象、神秘的青铜器纹饰，展现古老与威严。
+**画面描述**: 一个圆形的饕餮纹徽章，对称的兽面纹路，眼睛炯炯有神，青铜材质带有绿色铜锈，边缘锋利。
+**Prompt**:
+> game logo badge, circular ancient Chinese bronze Taotie mask motif, symmetrical beast face pattern, mysterious and ancient, green patina on bronze, sharp metallic edges, isolated on white background, vector art style, clean and bold, no english text --ar 16:9
+
+### 方案 E: 中文金属标题 (Metal Chinese Title)
+**设计意图**: 现代感强的金属字体，仅展示中文标题，无英文。
+**画面描述**: 重金属风格的中文标题“战国·与伍同行”，字体锐利如刀锋，带有金属光泽和划痕，火焰背景或纯黑背景。
+**Prompt**:
+> game logo text, full Chinese game title "战国·与伍同行" in heavy metal font style, sharp blade-like strokes, metallic silver texture with scratches and rust, dramatic lighting, isolated on black background, high readability, professional game logo, no english text, chinese characters only --ar 16:9
+
+### 方案 F: 错金铭文 (Gold Inlay Inscription)
+**设计意图**: 模仿战国青铜器上的错金银工艺，极具历史质感和贵气。
+**画面描述**: 青铜底色上镶嵌着金色的篆书/隶书变体文字“战国·与伍同行”，文字发光，边缘锐利，背景为深色青铜锈迹纹理。
+**Prompt**:
+> game logo typography, full Chinese game title "战国·与伍同行" in ancient seal script style, gold inlay on dark bronze background (Cuojin technology), glowing gold text, intricate bronze patterns, historical artifact texture, macro shot, high detail, no english text, chinese characters only --ar 16:9
+
+### 方案 G: 水墨山水字 (Ink Landscape Text)
+**设计意图**: 将文字与山水画结合，体现中国风的意境与战国的苍凉。
+**画面描述**: 巨大的水墨风格汉字“战国·与伍同行”，笔画由山脉、枯树和流水构成，黑白红三色为主，背景是留白的水墨晕染。
+**Prompt**:
+> game logo typography, artistic Chinese calligraphy "战国·与伍同行" formed by ink mountains and rivers, traditional Chinese ink wash painting style, black and white with red seal accents, splashes of ink, spiritual atmosphere, isolated on white background, no english text, chinese characters only --ar 16:9
+
+### 方案 H: 石刻印章 (Stone Seal Carving)
+**设计意图**: 模仿古代玉玺或石碑刻字，厚重且庄严。
+**画面描述**: 一方巨大的残破石碑或印章，上面阴刻或阳刻着“战国·与伍同行”，石质纹理清晰，带有岁月风化的痕迹，光影侧打。
+**Prompt**:
+> game logo design, ancient Chinese stone carving of the title "战国·与伍同行", weathered stone texture, deep engraving, dramatic side lighting to show depth, monumental scale, history and war theme, realistic texture, no english text, chinese characters only --ar 16:9
+
+---
+
+## 7. 游戏库背景壁纸 (Game Library Wallpaper)
+
+### 方案 A: 战场对峙 (Battlefield Standoff)
+**设计意图**: 超宽比例 (21:9)，主体靠右，左侧留白给 UI。展现小规模战团冲突，强调角色多样性。
+**画面描述**: 宽幅战场，右侧是五名造型各异的佣兵（体型、装备、年龄均不同：如壮汉持锤、老兵持矛、游侠持弩等），正与左侧远处的流寇小队对峙。背景是荒凉古道，夕阳拉出长影。
+**Prompt**:
+> ultrawide desktop wallpaper, panoramic ancient Chinese battlefield, small scale skirmish, right side foreground features 5 distinct mercenary characters with diverse body types and ages (a hulking brute with heavy armor, a slender archer, a scarred old veteran commander, a wild berserker with dual axes, a young recruit), detailed Warring States armor, distinct Asian faces, left side shows a rival bandit group in distance (negative space), dramatic sunset lighting, intense standoff, 8k resolution, masterpiece --ar 21:9
+
+### 方案 B: 篝火夜话 (Campfire Tales)
+**设计意图**: 氛围感强的静态场景，右侧聚焦角色互动，通过面部特征和装备展现小队成员的个性差异。
+**画面描述**: 宽幅夜景，右侧是温暖的营火，五名性格迥异的角色围坐（有的在擦拭重盾，有的在磨剑，有的在饮酒），面孔沧桑且各有特色（络腮胡、独眼、清秀少年等），展现战国乱世的众生相。
+**Prompt**:
+> ultrawide wallpaper, night scene at a mercenary camp, right side features 5 diverse ancient Chinese characters sitting around a warm campfire, distinct personalities and appearances (a bearded heavy infantryman cleaning a shield, a sharp-eyed archer fletching arrows, a scarred veteran drinking wine, a young anxious recruit), authentic Asian faces, Warring States period clothing, detailed facial expressions, left side is dark forest (copy space), atmospheric lighting, fire particles, oil painting style, peaceful yet grim, 8k resolution --ar 21:9

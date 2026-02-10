@@ -1908,27 +1908,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               </div>
             </div>
             
-            {/* 中间：天数 + 资源 */}
-            <div className="flex flex-col items-center gap-1">
+            {/* 中间：仅天数（金/粮/人在顶部导航栏显示） */}
+            <div className="flex flex-col items-center">
               <div className="text-3xl font-bold text-amber-600 font-serif tracking-widest"
                    style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
                 第 {Math.floor(party.day)} 天
-              </div>
-              <div className="flex items-center gap-4 text-xs">
-                <span className="font-mono">
-                  <span className="text-amber-500 font-bold">{party.gold}</span>
-                  <span className="text-amber-800 ml-0.5">金</span>
-                </span>
-                <span className="text-slate-700">|</span>
-                <span className="font-mono">
-                  <span className={`font-bold ${party.food <= party.mercenaries.length * 2 ? 'text-red-500' : 'text-emerald-500'}`}>{party.food}</span>
-                  <span className={`ml-0.5 ${party.food <= party.mercenaries.length * 2 ? 'text-red-800' : 'text-emerald-800'}`}>粮</span>
-                </span>
-                <span className="text-slate-700">|</span>
-                <span className="font-mono">
-                  <span className="text-slate-400">{party.mercenaries.length}</span>
-                  <span className="text-slate-600 ml-0.5">人</span>
-                </span>
               </div>
             </div>
             

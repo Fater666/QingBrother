@@ -105,10 +105,18 @@ def generate_image(client, prompt_data, dry_run=False):
     # Nano Banana Pro 使用 generate_content，不是 generate_images
     IMAGE_MODEL = "nano-banana-pro-preview"
     try:
+        # Check if we need higher resolution for wallpapers (e.g. 21:9)
+        # Note: image_size parameter caused validation error in current SDK version.
+        # Removing it for now. Default resolution will be used.
+        
         config = types.GenerateContentConfig(
             response_modalities=["TEXT", "IMAGE"],
-            image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio
+            ),
         )
+        # print(f"  Config: AR={aspect_ratio}") # Optional debug
+
         response = client.models.generate_content(
             model=IMAGE_MODEL,
             contents=clean_prompt,
