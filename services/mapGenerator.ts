@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -316,6 +316,23 @@ const createMercenary = (id: string): Character => {
   const weapon = weaponPool[Math.floor(Math.random() * weaponPool.length)];
   const armor = Math.random() > 0.4 ? ARMOR_TEMPLATES[Math.floor(Math.random() * 2)] : null;
 
+  // 计算薪资和雇佣费用
+  const salary = Math.floor(10 * bg.salaryMult);
+  // 基础雇佣费：薪资 * 25 (相比旧版大幅提升梯度)
+  const hireCostBase = salary * 25;
+  // 随机浮动 0.8 ~ 1.2
+  const randomFactor = 0.8 + Math.random() * 0.4;
+  let hireCost = Math.floor(hireCostBase * randomFactor);
+
+  // 特质价格修正：正面特质 +15%，负面特质 -10%
+  const traitPriceMod = traits.reduce((mod, t) => {
+    const tmpl = TRAIT_TEMPLATES[t];
+    if (!tmpl) return mod;
+    return mod + (tmpl.type === 'positive' ? 0.15 : -0.10);
+  }, 1.0);
+  hireCost = Math.floor(hireCost * traitPriceMod);
+  hireCost = Math.max(10, hireCost); // 保底
+
   return {
     id, name, background: bg.name, backgroundStory: bg.desc, level: 1, xp: 0,
     hp: baseHp, maxHp: baseHp, fatigue: 0, maxFatigue: baseFat,
@@ -324,7 +341,7 @@ const createMercenary = (id: string): Character => {
     stars,
     traits, perks: [], perkPoints: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet: null, ammo: null, accessory: null },
-    bag: [null, null, null, null], salary: Math.floor(10 * bg.salaryMult), formationIndex: null
+    bag: [null, null, null, null], salary, hireCost, formationIndex: null
   };
 };
 

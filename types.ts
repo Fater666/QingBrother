@@ -154,6 +154,7 @@ export interface Character {
   };
   bag: (Item | null)[]; 
   salary: number;
+  hireCost: number;
   formationIndex: number | null; 
 }
 

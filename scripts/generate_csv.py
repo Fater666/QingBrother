@@ -344,7 +344,7 @@ def prompt_backgrounds() -> tuple[str, str, int]:
 - id: 大写英文标识符，如 BLACKSMITH, BEGGAR
 - name: 中文名称（2~4字）
 - icon: 一个 emoji 图标
-- salaryMult: 薪资倍率（0.5~3.5，出身越好/越稀有越贵）
+- salaryMult: 薪资倍率（0.3~8.0，出身越好/越稀有越贵）
 - gearQuality: 初始装备品质（0=无装备/布衣, 1=皮甲级, 2=青铜级）
 - hpMod: 生命修正范围，格式"最小值,最大值"（如 -10,5）
 - fatigueMod: 体力修正范围
@@ -357,20 +357,16 @@ def prompt_backgrounds() -> tuple[str, str, int]:
 
 注意：所有 xxxMod 字段的格式必须是"数字,数字"（如 5,15 或 -10,0），代表随机范围。
 
-已有数据（共7个背景）：
+已有数据（共32个背景）：
 {csv_content}
 
-请生成以下新背景（约 10 个）：
-1. BLACKSMITH|铁匠 — 力量高(hp/fatigue正)、近战略强、远程弱、salaryMult 1.3
-2. PHYSICIAN|医者 — 胆识高、战斗弱、salaryMult 1.6
-3. BEGGAR|乞丐 — 最廉价(salaryMult 0.5)、属性差但hp尚可
-4. MERCHANT|商贩 — 有钱(salaryMult 2.0, gearQuality 1)、战斗弱、先手高
-5. ASSASSIN|刺客 — 先手极高、近战强、脆皮(hp低)、salaryMult 2.5
-6. LABORER|壮丁 — 体力极高、其余平庸、salaryMult 0.7
-7. FISHERMAN|渔夫 — 类似农夫但体力更好、salaryMult 0.9
-8. MINER|矿工 — hp高、体力高、灵活性差、salaryMult 1.0
-9. PERFORMER|伶人 — 先手高、胆识高、战斗极弱、salaryMult 1.2
-10. MOHIST|墨者 — 全能型稀有背景、salaryMult 3.5, gearQuality 2
+请生成 5~8 个新背景，填补职业多样性，例如：
+1. MASON|石匠 — 体力好、耐力高、salaryMult 1.1
+2. SCHOLAR|书生 — 胆识高（读书明理）、战斗弱、salaryMult 1.2
+3. SERVANT|仆役 — 比较平庸、salaryMult 0.6
+4. BRAWLER|拳师 — 近战强、无装备、salaryMult 1.5
+5. MESSENGER|信使 — 跑得快（先手/体力高）、salaryMult 1.0
+6. APPRENTICE|学徒 — 潜力股（初始弱但成长性好-需通过低数值体现）、salaryMult 0.8
 
 只输出 CSV 数据行，不要表头行，共 {col_count} 列，用 | 分隔。
 每行的 xxxMod 字段必须严格遵循"数字,数字"格式。"""

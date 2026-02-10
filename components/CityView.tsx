@@ -327,7 +327,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   const handleRecruit = (merc: Character, index: number) => {
-      const hireCost = Math.floor(merc.salary * 10);
+      const hireCost = merc.hireCost;
       if (party.mercenaries.length >= 20) { showNotification("战团人数已达上限！"); return; }
       if (party.gold >= hireCost) {
           // 检查当前已上阵人数是否未满 12 人 (正式满员为 12 人)
@@ -653,9 +653,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         }
 
                         return (
-                        <div className="flex-1 flex gap-4 overflow-hidden h-full">
+                        <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 物品名录 */}
-                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
+                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0 relative">
                                 {/* 购入/出售/修缮 标签切换 */}
                                 <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
                                     <div className="flex gap-1">
@@ -826,7 +826,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                             {/* 右侧: 物品详情面板 (修缮模式下隐藏) */}
                             {marketTab !== 'REPAIR' && (
-                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
+                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] min-h-0 relative">
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
@@ -957,9 +957,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                     {/* ===== 募兵 (Battle Brothers风格: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'RECRUIT' && (
-                        <div className="flex-1 flex gap-4 overflow-hidden h-full">
+                        <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 候选人名录 */}
-                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0">
+                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0 relative">
                                 <div className="flex justify-between items-center mb-2 pb-1 border-b border-amber-900/20 shrink-0">
                                     <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
                                     <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
@@ -968,7 +968,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     {city.recruits.length > 0 ? (
                                         <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                                 {city.recruits.map((merc, i) => {
-                                                const hireCost = Math.floor(merc.salary * 10);
+                                                const hireCost = merc.hireCost;
                                                 const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
                                                 const bgIcon = bgEntry?.icon || '?';
                                                 const isSelected = selectedRecruit === i;
@@ -1011,10 +1011,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             </div>
 
                             {/* 右侧: 选中角色详情面板 */}
-                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] h-full">
+                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] min-h-0 relative">
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
                                     const merc = city.recruits[selectedRecruit];
-                                    const hireCost = Math.floor(merc.salary * 10);
+                                    const hireCost = merc.hireCost;
                                     const role = getRoleRecommendation(merc);
                                     const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
                                     const bgIcon = bgEntry?.icon || '?';
@@ -1137,7 +1137,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                     {/* ===== 酒肆 ===== */}
                     {subView === 'TAVERN' && (
-                        <div className="h-full flex flex-col">
+                        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                             <div className="shrink-0 mb-4 text-center">
                                 <h2 className="text-lg font-bold text-amber-600 tracking-widest">契约公告</h2>
                                 <p className="text-xs text-slate-600 mt-1">在此处接取工作，赚取金币与声望</p>
@@ -1297,7 +1297,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                     {/* ===== 医馆 ===== */}
                     {subView === 'TEMPLE' && (
-                        <div className="h-full flex flex-col">
+                        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                             <div className="text-center mb-4 shrink-0">
                                 <h2 className="text-lg font-bold text-emerald-600 tracking-widest">医馆治疗</h2>
                                 <p className="text-slate-600 text-xs mt-1">支付费用治疗伤员，费用取决于伤势轻重</p>

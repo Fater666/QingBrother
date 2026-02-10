@@ -148,6 +148,21 @@ export const BG_TRAIT_WEIGHTS: Record<string, string[]> = {
     'MINER':      ['strong', 'iron_jaw'],
     'PERFORMER':  ['quick', 'fragile'],
     'MOHIST':     ['brave', 'iron_jaw'],
+    'REFUGEE':    ['craven', 'fragile'],
+    'GRAVEDIGGER': ['tough', 'hesitant'],
+    'CRIPPLE':    ['iron_jaw', 'asthmatic'],
+    'WOODCUTTER': ['strong', 'tough'],
+    'BUTCHER':    ['strong', 'brave'],
+    'HERDSMAN':   ['tough', 'eagle_eyes'],
+    'MILITIAMAN': ['brave', 'strong'],
+    'SCOUT':      ['quick', 'eagle_eyes'],
+    'SWORDSMAN':  ['natural_fighter', 'brave'],
+    'CAVALRYMAN': ['brave', 'quick'],
+    'DIVINER':    ['eagle_eyes', 'fragile'],
+    'KNIGHT_ERRANT': ['brave', 'natural_fighter'],
+    'VETERAN_OFFICER': ['brave', 'iron_jaw'],
+    'SWORDMASTER': ['natural_fighter', 'quick'],
+    'STRATEGIST': ['eagle_eyes', 'brave'],
 };
 
 /**

@@ -77,3 +77,19 @@
 **设计意图**: 展示带有 UI 元素的游戏画面，帮助玩家一眼看懂是 RPG。
 **Prompt**:
 > game screenshot concept, ancient Chinese hand-drawn world map with fog of war, UI panels with paper texture showing inventory and character stats, bronze rimmed interface, icons of cities and armies on map, tactical RPG interface, high fidelity, 4k, text descriptions in ancient chinese font --ar 16:9
+
+---
+
+## 6. 游戏 LOGO (Game Logo)
+
+### 方案 A: 中文书法标题 (Calligraphy Title)
+**设计意图**: 强烈的视觉冲击力，高对比度，适合叠加在宣传图上。包含“战国”与“与伍同行”字样。
+**画面描述**: 粗犷有力的中国书法字体设计，写着“战国”二字，笔触带有飞白和墨迹溅射效果，金色或青铜色质感，背景洁白以便抠图。
+**Prompt**:
+> game logo typography design, ancient Chinese calligraphy characters "Warring States" (Zhanguo), powerful brush strokes with ink splatter, metallic bronze texture with gold highlights, sharp edges, high contrast, isolated on white background, vector style, professional logo design --ar 16:9
+
+### 方案 B: 兵器图腾组合 (Weapon Emblem)
+**设计意图**: 图形化 Logo，结合戈与盾的元素，象征攻守与战争。
+**画面描述**: 一个极简风格的青铜徽章，由一把戈和一面盾牌交叉组成，周围环绕着云纹，质感古朴明亮。
+**Prompt**:
+> game logo emblem, minimalist vector design of a crossed ancient Chinese dagger-axe (Ge) and a rectangular shield, bronze metal texture, clean lines, high brightness, ancient patterns, isolated on black background, esports logo style, professional game branding --ar 16:9

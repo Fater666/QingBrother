@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS } from './constants';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -76,6 +76,20 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
   const armor = Math.random() > 0.4 ? ARMOR_TEMPLATES[Math.floor(Math.random() * 2)] : null;
   const helmet = Math.random() > 0.6 ? HELMET_TEMPLATES[Math.floor(Math.random() * 2)] : null;
 
+  // 计算薪资和雇佣费用
+  const salary = Math.floor(10 * bg.salaryMult);
+  const hireCostBase = salary * 25;
+  const randomFactor = 0.8 + Math.random() * 0.4;
+  let hireCost = Math.floor(hireCostBase * randomFactor);
+
+  const traitPriceMod = traits.reduce((mod, t) => {
+    const tmpl = TRAIT_TEMPLATES[t];
+    if (!tmpl) return mod;
+    return mod + (tmpl.type === 'positive' ? 0.15 : -0.10);
+  }, 1.0);
+  hireCost = Math.floor(hireCost * traitPriceMod);
+  hireCost = Math.max(10, hireCost);
+
   return {
     id, name, background: bg.name, backgroundStory: bg.desc, level: 1, xp: 0, hp: baseHp, maxHp: baseHp, fatigue: 0,
     maxFatigue: baseFat, morale: MoraleStatus.STEADY,
@@ -83,7 +97,7 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
     stars,
     traits, perks: [], perkPoints: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet, ammo: null, accessory: null },
-    bag: [null, null, null, null], salary: Math.floor(10 * bg.salaryMult), formationIndex
+    bag: [null, null, null, null], salary, hireCost, formationIndex
   };
 };
 
@@ -1632,7 +1646,7 @@ export const App: React.FC = () => {
           </nav>
       )}
 
-      <main className="flex-1 relative">
+      <main className="flex-1 relative overflow-hidden flex flex-col">
         {/* ===== 主菜单 ===== */}
         {view === 'MAIN_MENU' && (
           <MainMenu
