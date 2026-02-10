@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "qing-brother",
   "private": true,
   "version": "1.0.0",
-  "description": "战国·与伍同行 (Warring States: With the Five) - A hardcore tactical squad RPG set in the Warring States period",
+  "description": "鎴樺浗路涓庝紞鍚岃 (Warring States: With the Five) - A hardcore tactical squad RPG set in the Warring States period",
   "type": "module",
   "main": "electron/main.js",
   "author": "QingBrother Studio",
@@ -33,7 +33,7 @@
   },
   "build": {
     "appId": "com.qingbrother.warring-states",
-    "productName": "战国与伍同行",
+    "productName": "鎴樺浗涓庝紞鍚岃",
     "directories": {
       "output": "release"
     },
