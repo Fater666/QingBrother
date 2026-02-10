@@ -191,23 +191,23 @@ const STATE_FLAVOR: Record<City['state'], string> = {
 const WALL_STYLE: Record<City['type'], { border: string; size: string; hasTowers: boolean; gateSize: string; wallLabel: string }> = {
     'VILLAGE': {
         border: 'border-2 border-dashed border-amber-900/50',
-        size: 'w-[420px] h-[380px]',
+        size: 'w-[92vw] max-w-[420px] aspect-[21/19]',
         hasTowers: false,
-        gateSize: 'w-16',
+        gateSize: 'w-14 sm:w-16',
         wallLabel: '木栅',
     },
     'TOWN': {
         border: 'border-[3px] border-solid border-amber-800/60',
-        size: 'w-[500px] h-[440px]',
+        size: 'w-[94vw] max-w-[500px] aspect-[25/22]',
         hasTowers: true,
-        gateSize: 'w-20',
+        gateSize: 'w-16 sm:w-20',
         wallLabel: '土墙',
     },
     'CAPITAL': {
         border: 'border-4 border-double border-amber-600/70',
-        size: 'w-[580px] h-[500px]',
+        size: 'w-[95vw] max-w-[580px] aspect-[29/25]',
         hasTowers: true,
-        gateSize: 'w-24',
+        gateSize: 'w-20 sm:w-24',
         wallLabel: '城墙',
     },
 };
@@ -444,27 +444,27 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
         {subView === 'MAP' && (
             <div className="flex-1 flex flex-col relative z-10">
                 {/* 顶部信息栏 */}
-                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-8 shrink-0">
+                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-3 sm:px-8 shrink-0">
                     <div className="flex items-center gap-4">
-                        <h1 className="text-2xl font-bold text-amber-500 tracking-[0.2em]">{city.name}</h1>
-                        <div className="flex gap-2 text-[10px]">
+                        <h1 className="text-lg sm:text-2xl font-bold text-amber-500 tracking-[0.12em] sm:tracking-[0.2em]">{city.name}</h1>
+                        <div className="hidden sm:flex gap-2 text-[10px]">
                             <span className="text-amber-700 border border-amber-900/40 px-2 py-0.5">{cityTypeName}</span>
                             <span className="text-slate-500 border border-slate-800/40 px-2 py-0.5">{city.faction}</span>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
-                        <div className="flex gap-4 text-xs font-mono">
+                        <div className="flex gap-2 sm:gap-4 text-[10px] sm:text-xs font-mono">
                             <span className="text-amber-500">💰 {party.gold}</span>
                             <span className="text-emerald-500">🌾 {party.food}</span>
-                            <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
-                            <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`} title={`修甲材料 ${party.repairSupplies}`}>🔧 {party.repairSupplies}</span>
-                            <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
+                            <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'} hidden sm:inline`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
+                            <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'} hidden sm:inline`} title={`修甲材料 ${party.repairSupplies}`}>🔧 {party.repairSupplies}</span>
+                            <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
                         </div>
                     </div>
                 </div>
 
                 {/* 城市俯视地图主区域 */}
-                <div className="flex-1 flex items-center justify-center relative overflow-hidden">
+                <div className="flex-1 flex items-center justify-center relative overflow-auto px-2 pb-14 sm:pb-16">
                     {/* 地面纹理 */}
                     <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
                          style={{
@@ -530,7 +530,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     onMouseEnter={() => setHoveredBuilding(facility)}
                                     onMouseLeave={() => setHoveredBuilding(null)}
                                 >
-                                    <div className={`w-24 h-20 border-2 flex flex-col items-center justify-center gap-1 relative transition-all duration-200
+                                    <div className={`w-20 h-16 sm:w-24 sm:h-20 border-2 flex flex-col items-center justify-center gap-1 relative transition-all duration-200
                                         ${isHovered 
                                             ? 'bg-amber-900/30 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)]' 
                                             : 'bg-[#141210] border-amber-900/40 hover:border-amber-700/60 shadow-[0_0_10px_rgba(0,0,0,0.5)]'
@@ -541,8 +541,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             ${isHovered ? 'bg-amber-700/60' : 'bg-amber-900/30'}
                                         `} style={{ clipPath: 'polygon(10% 100%, 50% 0%, 90% 100%)' }} />
                                         
-                                        <span className="text-2xl leading-none mt-1">{config.icon}</span>
-                                        <span className={`text-xs font-bold tracking-[0.15em] transition-colors duration-200
+                                        <span className="text-lg sm:text-2xl leading-none mt-1">{config.icon}</span>
+                                        <span className={`text-[10px] sm:text-xs font-bold tracking-[0.1em] sm:tracking-[0.15em] transition-colors duration-200
                                             ${isHovered ? 'text-amber-300' : 'text-amber-600/80'}
                                         `}>{config.label}</span>
                                     </div>
@@ -598,21 +598,21 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
         {subView !== 'MAP' && (
             <div className="flex-1 flex flex-col relative z-10">
                 {/* 面板顶栏 */}
-                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-6 shrink-0">
-                    <div className="flex items-center gap-4">
+                <div className="bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between px-3 sm:px-6 py-2 gap-2 shrink-0">
+                    <div className="flex items-center gap-2 sm:gap-4">
                         <button
                             onClick={goBack}
-                            className="flex items-center gap-2 px-4 py-1.5 border border-amber-900/40 hover:border-amber-600 text-slate-400 hover:text-amber-500 transition-all text-xs tracking-widest"
+                            className="flex items-center gap-2 px-3 sm:px-4 py-1.5 border border-amber-900/40 hover:border-amber-600 text-slate-400 hover:text-amber-500 transition-all text-[11px] sm:text-xs tracking-widest"
                         >
                             <span className="text-sm">←</span>
                             <span>返回城镇</span>
                         </button>
-                        <div className="h-6 w-px bg-amber-900/30" />
+                        <div className="h-6 w-px bg-amber-900/30 hidden sm:block" />
                         <div className="flex items-center gap-2">
                             <span className="text-lg">{FACILITY_CONFIG[subView as CityFacility]?.icon}</span>
-                            <h2 className="text-lg font-bold text-amber-500 tracking-[0.15em]">{facilityLabel}</h2>
+                            <h2 className="text-base sm:text-lg font-bold text-amber-500 tracking-[0.1em] sm:tracking-[0.15em]">{facilityLabel}</h2>
                             <span className="text-xs text-slate-600">·</span>
-                            <span className="text-xs text-slate-500">{city.name}</span>
+                            <span className="text-[11px] sm:text-xs text-slate-500">{city.name}</span>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -621,7 +621,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                 </div>
 
                 {/* 面板内容区 */}
-                <div className="flex-1 overflow-hidden p-4 flex flex-col min-h-0">
+                <div className="flex-1 overflow-hidden p-2 sm:p-4 flex flex-col min-h-0">
                     {/* ===== 市集 (仿募兵面板: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'MARKET' && (() => {
                         const sourceItems = marketTab === 'BUY' ? city.market : party.inventory;
@@ -653,15 +653,15 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         }
 
                         return (
-                        <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
+                        <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 物品名录 */}
-                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0 relative">
+                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative">
                                 {/* 购入/出售/修缮 标签切换 */}
                                 <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
-                                    <div className="flex gap-1">
+                                    <div className="flex gap-1 overflow-x-auto">
                                         <button
                                             onClick={() => { setMarketTab('BUY'); setSelectedItem(null); }}
-                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                            className={`px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
                                                 marketTab === 'BUY'
                                                     ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
@@ -669,7 +669,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         >货物供应</button>
                                         <button
                                             onClick={() => { setMarketTab('SELL'); setSelectedItem(null); }}
-                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                            className={`px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
                                                 marketTab === 'SELL'
                                                     ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
@@ -677,14 +677,14 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         >出售物资</button>
                                         <button
                                             onClick={() => { setMarketTab('REPAIR'); setSelectedItem(null); }}
-                                            className={`px-4 py-1.5 text-xs tracking-[0.15em] font-bold transition-all border ${
+                                            className={`px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
                                                 marketTab === 'REPAIR'
                                                     ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
                                             }`}
                                         >修缮装备</button>
                                     </div>
-                                    <span className="text-[10px] text-slate-600">
+                                    <span className="text-[10px] text-slate-600 hidden sm:inline">
                                         {marketTab === 'BUY' ? `${city.market.length} 件货物` : marketTab === 'SELL' ? `背包 ${party.inventory.length} 件` : '修复损坏的装备'}
                                     </span>
                                 </div>
@@ -787,7 +787,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 {/* 物品卡片网格 */}
                                 <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                     {filteredItems.length > 0 ? (
-                                        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                                             {filteredItems.map((item, filteredIdx) => {
                                                 // 找到在原始数组中的真实index
                                                 const realIndex = sourceItems.indexOf(item);
@@ -826,7 +826,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                             {/* 右侧: 物品详情面板 (修缮模式下隐藏) */}
                             {marketTab !== 'REPAIR' && (
-                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] min-h-0 relative">
+                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative">
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
@@ -957,16 +957,16 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                     {/* ===== 募兵 (Battle Brothers风格: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'RECRUIT' && (
-                        <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
+                        <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 候选人名录 */}
-                            <div className="flex-[3] bg-black/40 border border-amber-900/30 p-3 flex flex-col min-h-0 relative">
+                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative">
                                 <div className="flex justify-between items-center mb-2 pb-1 border-b border-amber-900/20 shrink-0">
                                     <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
                                     <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
                                 </div>
                                 <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                     {city.recruits.length > 0 ? (
-                                        <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                                 {city.recruits.map((merc, i) => {
                                                 const hireCost = merc.hireCost;
                                                 const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
@@ -1011,7 +1011,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             </div>
 
                             {/* 右侧: 选中角色详情面板 */}
-                            <div className="flex-[2] bg-[#0d0b08] border border-amber-900/30 p-5 flex flex-col shadow-xl min-w-[300px] min-h-0 relative">
+                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative">
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
                                     const merc = city.recruits[selectedRecruit];
                                     const hireCost = merc.hireCost;

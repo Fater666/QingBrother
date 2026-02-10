@@ -1,0 +1,104 @@
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Invoke-ExternalCommand {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter()]
+        [string[]]$Arguments = @()
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        $argText = if ($Arguments.Count -gt 0) { " $($Arguments -join ' ')" } else { "" }
+        throw "命令执行失败: $FilePath$argText (exit code: $LASTEXITCODE)"
+    }
+}
+
+function Convert-ToUtf8NoBom {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $content = [System.IO.File]::ReadAllText($Path)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($Path, $content, $utf8NoBom)
+        Write-Host "已移除 BOM: $Path" -ForegroundColor Yellow
+    }
+}
+
+function Invoke-Step {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Action
+    )
+
+    Write-Host ""
+    Write-Host "==> $Name" -ForegroundColor Cyan
+    & $Action
+}
+
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$androidDir = Join-Path $projectRoot "android"
+$apkPath = Join-Path $androidDir "app\build\outputs\apk\debug\app-debug.apk"
+$buildStartTime = Get-Date
+
+if (-not (Test-Path $androidDir)) {
+    throw "未找到 android 目录，请先执行：npx cap add android"
+}
+
+Push-Location $projectRoot
+try {
+    Invoke-Step "Normalize potential BOM files" {
+        Convert-ToUtf8NoBom (Join-Path $androidDir "gradlew.bat")
+        Convert-ToUtf8NoBom (Join-Path $androidDir "app\build.gradle")
+    }
+
+    Invoke-Step "Build web assets (Vite)" {
+        Invoke-ExternalCommand "npm.cmd" @("run", "build")
+    }
+
+    Invoke-Step "Sync Capacitor android project" {
+        Invoke-ExternalCommand "npx.cmd" @("cap", "sync", "android")
+    }
+
+    Invoke-Step "Normalize generated Gradle files" {
+        Convert-ToUtf8NoBom (Join-Path $androidDir "app\build.gradle")
+    }
+
+    Invoke-Step "Assemble Android debug APK" {
+        if (Test-Path $apkPath) {
+            Remove-Item $apkPath -Force
+        }
+
+        Push-Location $androidDir
+        try {
+            Invoke-ExternalCommand ".\gradlew.bat" @("assembleDebug")
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+finally {
+    Pop-Location
+}
+
+if ((Test-Path $apkPath) -and ((Get-Item $apkPath).LastWriteTime -ge $buildStartTime)) {
+    Write-Host ""
+    Write-Host "打包成功" -ForegroundColor Green
+    Write-Host "APK 路径: $apkPath"
+}
+else {
+    throw "构建未产出新的 APK，请检查上方错误日志：$apkPath"
+}

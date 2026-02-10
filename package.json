@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "qing-brother",
   "private": true,
   "version": "1.0.0",
@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "android:package": "powershell -ExecutionPolicy Bypass -File .\\scripts\\package-android.ps1",
     "preview": "vite preview",
     "electron:dev": "NODE_ENV=development electron .",
     "electron:build": "vite build && electron-builder --win",
