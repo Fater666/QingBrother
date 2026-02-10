@@ -1615,69 +1615,66 @@ export const App: React.FC = () => {
     <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
       {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && (
-          <nav className="h-14 bg-black border-b border-amber-900/40 flex items-center justify-between px-6 z-50">
-             <div className="flex gap-4 items-center">
-                <span className="text-amber-500 font-bold tracking-widest text-lg uppercase italic">战国·与伍同行</span>
-                <div className="h-6 w-px bg-amber-900/40" />
+          <nav className="bg-black border-b border-amber-900/40 px-3 sm:px-6 py-2 sm:py-0 sm:h-14 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+             <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                <span className="text-amber-500 font-bold tracking-[0.12em] sm:tracking-widest text-sm sm:text-lg uppercase italic">战国·与伍同行</span>
+                <div className="h-5 w-px bg-amber-900/40 hidden sm:block" />
                 <button 
                     onClick={() => setView(view === 'CAMP' ? 'WORLD_MAP' : 'CAMP')}
-                    className={`px-4 py-1 text-xs font-bold transition-all border ${view === 'CAMP' ? 'bg-amber-600 text-white border-amber-500' : 'text-amber-500 border-amber-900/40 hover:border-amber-500'}`}
+                    className={`px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border ${view === 'CAMP' ? 'bg-amber-600 text-white border-amber-500' : 'text-amber-500 border-amber-900/40 hover:border-amber-500'}`}
                 >
                     战团营地
                 </button>
-                <div className="flex gap-2 ml-4">
-                    <button onClick={() => setSaveLoadMode('SAVE')} className="px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
-                    <button onClick={() => setSaveLoadMode('LOAD')} className="px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
+                <div className="flex gap-2 sm:ml-2">
+                    <button onClick={() => setSaveLoadMode('SAVE')} className="px-2.5 sm:px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
+                    <button onClick={() => setSaveLoadMode('LOAD')} className="px-2.5 sm:px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
                 </div>
              </div>
 
              {/* 当前野心（可点击取消） */}
              {party.ambitionState.currentAmbition && (
-               <div className="flex items-center gap-2 ml-4">
-                 <div className="h-6 w-px bg-amber-900/40" />
-                 <span className="text-[9px] text-amber-700 uppercase tracking-widest">志向</span>
+               <div className="flex items-center gap-2 text-xs">
+                 <span className="text-[9px] text-amber-700 uppercase tracking-widest hidden sm:inline">志向</span>
                  <button
                    onClick={handleAmbitionCancel}
-                   className="px-2.5 py-0.5 text-xs text-amber-400 border border-amber-900/40 hover:border-red-500/60 hover:text-red-400 transition-all group relative"
+                   className="px-2 py-0.5 text-[11px] sm:text-xs text-amber-400 border border-amber-900/40 hover:border-red-500/60 hover:text-red-400 transition-all group relative max-w-full truncate"
                    title="点击取消当前志向（会降低全员士气）"
                  >
                    {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon} {party.ambitionState.currentAmbition.name}
                    {(() => {
                      const progress = getAmbitionProgress(party);
-                     return progress ? <span className="ml-1.5 text-[10px] text-amber-600">({progress})</span> : null;
+                     return progress ? <span className="ml-1 text-[10px] text-amber-600">({progress})</span> : null;
                    })()}
-                   <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                   <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap hidden sm:block">
                      点击放弃
                    </span>
                  </button>
                </div>
              )}
 
-             <div className="flex gap-8 items-center">
+             <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6">
                  {/* 资源显示 + 每日消耗悬浮面板 */}
-                 <div className="relative group/costs cursor-default">
-                   <div className="flex gap-4 text-xs font-mono items-center">
+                 <div className="relative group/costs cursor-default min-w-0">
+                   <div className="flex gap-2 sm:gap-4 text-[11px] sm:text-xs font-mono items-center whitespace-nowrap overflow-x-auto max-w-[72vw] sm:max-w-none">
                      <span className="text-amber-500">
                        💰 {party.gold}
-                       {dailyCosts.wages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyCosts.wages}</span>}
+                       {dailyCosts.wages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5 hidden sm:inline">-{dailyCosts.wages}</span>}
                      </span>
                      <span className="text-emerald-500">
                        🌾 {party.food}
-                       <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyCosts.food}</span>
+                       <span className="text-red-400/70 text-[10px] ml-0.5 hidden sm:inline">-{dailyCosts.food}</span>
                      </span>
                      <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`}>
                        💊 {party.medicine}
-                       {dailyCosts.medicineEst > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyCosts.medicineEst}</span>}
                      </span>
                      <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`}>
                        🔧 {party.repairSupplies}
-                       {dailyCosts.repairEst > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyCosts.repairEst}</span>}
                      </span>
-                     <span className="text-slate-400">伍: {party.mercenaries.length}人</span>
+                     <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
                      <span className="text-yellow-600">望: {party.reputation}</span>
                    </div>
-                   {/* 悬浮详细面板 - 战场兄弟风格 */}
-                   <div className="absolute top-full right-0 mt-1.5 w-64 bg-slate-950/95 border border-amber-900/50 rounded shadow-xl shadow-black/50 opacity-0 group-hover/costs:opacity-100 pointer-events-none group-hover/costs:pointer-events-auto transition-opacity duration-150 z-[100] p-3">
+                   {/* 悬浮详细面板 - 战场兄弟风格（桌面端） */}
+                   <div className="hidden sm:block absolute top-full right-0 mt-1.5 w-64 bg-slate-950/95 border border-amber-900/50 rounded shadow-xl shadow-black/50 opacity-0 group-hover/costs:opacity-100 pointer-events-none group-hover/costs:pointer-events-auto transition-opacity duration-150 z-[100] p-3">
                      <div className="text-[10px] text-amber-600 uppercase tracking-widest mb-2 border-b border-amber-900/30 pb-1.5">每日消耗预估</div>
                      <div className="space-y-1.5 text-[11px] font-mono">
                        {/* 工资 */}
@@ -1737,9 +1734,9 @@ export const App: React.FC = () => {
                      </div>
                    </div>
                  </div>
-                 <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1">
+                 <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1 shrink-0">
                      {[0, 1, 2].map(s => (
-                         <button key={s} onClick={() => setTimeScale(s)} className={`w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                         <button key={s} onClick={() => setTimeScale(s)} className={`w-7 sm:w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
                              {s === 0 ? '⏸' : s === 1 ? '▶' : '▶▶'}
                          </button>
                      ))}
