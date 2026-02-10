@@ -14,19 +14,25 @@
     "electron:dev": "NODE_ENV=development electron .",
     "electron:build": "vite build && electron-builder --win",
     "electron:build:dir": "vite build && electron-builder --win --dir",
-    "pack:win": "vite build && electron-builder --win --x64"
+    "pack:win": "vite build && electron-builder --win --x64",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
+    "android:build": "vite build && npx cap sync android"
   },
   "dependencies": {
-    "react-dom": "^19.2.4",
-    "react": "^19.2.4"
+    "@capacitor/android": "^8.0.2",
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/core": "^8.0.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   },
   "build": {
     "appId": "com.qingbrother.warring-states",
@@ -42,7 +48,9 @@
       "target": [
         {
           "target": "dir",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.png"
