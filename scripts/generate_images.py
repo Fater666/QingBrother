@@ -102,27 +102,41 @@ def generate_image(client, prompt_data, dry_run=False):
         print("  [Dry Run] Would call API now.")
         return
 
+    # Nano Banana Pro 使用 generate_content，不是 generate_images
+    IMAGE_MODEL = "nano-banana-pro-preview"
     try:
-        # Using Imagen 3 model
-        # Note: The model name might vary. 'imagen-3.0-generate-001' is a common endpoint.
-        # Ensure your API key has access.
-        response = client.models.generate_images(
-            model='imagen-3.0-generate-001',
-            prompt=clean_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=aspect_ratio
-            )
+        config = types.GenerateContentConfig(
+            response_modalities=["TEXT", "IMAGE"],
+            image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
         )
-        
-        if response.generated_images:
-            image_bytes = response.generated_images[0].image.image_bytes
-            image = Image.open(io.BytesIO(image_bytes))
-            image.save(output_path)
-            print(f"  Saved to {output_path}")
-        else:
-            print(f"  No image generated for {name}")
-            
+        response = client.models.generate_content(
+            model=IMAGE_MODEL,
+            contents=clean_prompt,
+            config=config,
+        )
+        # 从 response.parts 或 candidates[0].content.parts 取图
+        parts = response.candidates[0].content.parts if response.candidates else []
+        saved = False
+        for part in parts:
+            if hasattr(part, "as_image"):
+                img = part.as_image()
+                if img is not None:
+                    img.save(output_path)
+                    print(f"  Saved to {output_path}")
+                    saved = True
+                    break
+            if getattr(part, "inline_data", None) is not None:
+                data = getattr(part.inline_data, "data", None) or getattr(
+                    part.inline_data, "image_bytes", None
+                )
+                if data:
+                    image = Image.open(io.BytesIO(data))
+                    image.save(output_path)
+                    print(f"  Saved to {output_path}")
+                    saved = True
+                    break
+        if not saved:
+            print(f"  No image in response for {name}")
     except Exception as e:
         print(f"  Error generating {name}: {e}")
 

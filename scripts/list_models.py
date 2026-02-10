@@ -15,17 +15,24 @@ def load_api_key():
 
 def list_models():
     api_key = load_api_key()
-    if not api_key:
-        print("No API key found")
-        return
-
     client = genai.Client(api_key=api_key)
     try:
         print("Listing models...")
+        # The SDK returns an iterator of Model objects
         for m in client.models.list():
-            print(f"{m.name}")
+            print(f"Name: {m.name}")
+            # Try to print other useful attributes if they exist
+            if hasattr(m, 'display_name'):
+                print(f"  Display Name: {m.display_name}")
+            if hasattr(m, 'supported_generation_methods'):
+                 print(f"  Supported Methods: {m.supported_generation_methods}")
+            print("-" * 20)
+            
     except Exception as e:
         print(f"Error listing models: {e}")
+        # Print dir(m) if we failed inside loop to see what attributes exist
+        # But we can't access 'm' here easily if it failed before loop or we don't know which one.
+        # Let's just catch the error.
 
 if __name__ == "__main__":
     list_models()

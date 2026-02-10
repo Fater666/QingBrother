@@ -691,7 +691,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                                 {/* === 修缮模式面板 === */}
                                 {marketTab === 'REPAIR' ? (
-                                    <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                    <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                         {repairableItems.length === 0 && repairableInvItems.length === 0 ? (
                                             <div className="h-full flex flex-col items-center justify-center text-slate-700">
                                                 <p className="text-lg tracking-widest">装备完好无损</p>
@@ -785,7 +785,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 </div>
 
                                 {/* 物品卡片网格 */}
-                                <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                     {filteredItems.length > 0 ? (
                                         <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
                                             {filteredItems.map((item, filteredIdx) => {
@@ -964,7 +964,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
                                     <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
                                 </div>
-                                <div className="overflow-y-auto flex-1 custom-scrollbar">
+                                <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                     {city.recruits.length > 0 ? (
                                         <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                                 {city.recruits.map((merc, i) => {
@@ -1152,7 +1152,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     </div>
                                 )}
                             </div>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
                                 {/* ===== 已完成任务交付面板（仿战场兄弟：返回接取城市交付） ===== */}
                                 {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id && (
                                     <div className="mb-5 border-2 border-emerald-700/60 bg-emerald-950/20 p-5 relative animate-pulse-slow">
@@ -1302,7 +1302,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 <h2 className="text-lg font-bold text-emerald-600 tracking-widest">医馆治疗</h2>
                                 <p className="text-slate-600 text-xs mt-1">支付费用治疗伤员，费用取决于伤势轻重</p>
                             </div>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                     {party.mercenaries.map((merc, i) => {
                                         const missingHp = merc.maxHp - merc.hp;
