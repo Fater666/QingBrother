@@ -1932,29 +1932,68 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     touchMovedDistRef.current = 0;
   };
 
-  const performAttack = () => {
-    const hoveredHex = hoveredHexRef.current;
-    if (!hoveredHex || !activeUnit || !isPlayerTurn || !selectedAbility) return;
-    
+  const performAttack = (overrideAbility?: Ability) => {
+    const ability = overrideAbility ?? selectedAbility;
+    if (!activeUnit || !isPlayerTurn || !ability) return;
+
     // 检查玩家单位是否在逃跑状态
     if (activeUnit.morale === MoraleStatus.FLEEING) {
       addToLog(`${activeUnit.name} 正在逃跑，无法行动！`, 'flee');
       return;
     }
-    
+
+    // ==================== 无需选择目标的自身技能（盾墙、矛墙等）：点击即用 ====================
+    if (ability.targetType === 'SELF' && ability.range[0] === 0 && ability.range[1] === 0) {
+      const hoveredHex = hoveredHexRef.current;
+      if (hoveredHex || overrideAbility) {
+        if (ability.id === 'SHIELDWALL') {
+          if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+          if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === activeUnit.id
+                ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isShieldWall: true }
+                : u
+            )
+          }));
+          addToLog(`🛡️ ${activeUnit.name} 架起盾墙！`, 'skill');
+          if (!overrideAbility) setSelectedAbility(null);
+          return;
+        }
+        if (ability.id === 'SPEARWALL') {
+          if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === activeUnit.id
+                ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isHalberdWall: true }
+                : u
+            )
+          }));
+          addToLog(`🚧 ${activeUnit.name} 架起矛墙！`, 'skill');
+          if (!overrideAbility) setSelectedAbility(null);
+          return;
+        }
+      }
+    }
+
+    const hoveredHex = hoveredHexRef.current;
+    if (!hoveredHex) return;
+
     const isVisible = visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`);
     if (!isVisible) return;
 
     // ==================== 自身目标技能处理 ====================
     // 调息 (recover): 清除50%疲劳
-    if (selectedAbility.id === 'RECOVER_SKILL') {
-      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+    if (ability.id === 'RECOVER_SKILL') {
+      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
           if (u.id === activeUnit.id) {
             const fatigueReduction = Math.floor(u.fatigue * 0.5);
-            return { ...u, currentAP: u.currentAP - selectedAbility.apCost, fatigue: u.fatigue - fatigueReduction };
+            return { ...u, currentAP: u.currentAP - ability.apCost, fatigue: u.fatigue - fatigueReduction };
           }
           return u;
         })
@@ -1965,16 +2004,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     // 血勇 (adrenaline): 下回合行动顺序提前至最先
-    if (selectedAbility.id === 'ADRENALINE_SKILL') {
-      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+    if (ability.id === 'ADRENALINE_SKILL') {
+      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
           if (u.id === activeUnit.id) {
             return {
               ...u,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost),
               adrenalineActive: true,
             };
           }
@@ -1987,8 +2026,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     // 振军 (rally): 提高范围内盟友士气
-    if (selectedAbility.id === 'RALLY_SKILL') {
-      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+    if (ability.id === 'RALLY_SKILL') {
+      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
       setState(prev => {
         // 提升自身和周围4格内盟友的士气
         const affectedAllies = prev.units.filter(u =>
@@ -2000,8 +2039,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           if (u.id === activeUnit.id) {
             return {
               ...u,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost),
             };
           }
           // 提升盟友士气
@@ -2028,16 +2067,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     // 挑衅 (taunt): 迫使周围敌人攻击自己
-    if (selectedAbility.id === 'TAUNT_SKILL') {
-      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+    if (ability.id === 'TAUNT_SKILL') {
+      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
           if (u.id === activeUnit.id) {
             return {
               ...u,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost),
               taunting: true,
             };
           }
@@ -2050,16 +2089,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     // 不屈 (indomitable): 受到伤害减半1回合
-    if (selectedAbility.id === 'INDOMITABLE_SKILL') {
-      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+    if (ability.id === 'INDOMITABLE_SKILL') {
+      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
           if (u.id === activeUnit.id) {
             return {
               ...u,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost),
               isIndomitable: true,
             };
           }
@@ -2072,7 +2111,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
 
     // ==================== 脱身技能处理 ====================
-    if (selectedAbility.id === 'FOOTWORK_SKILL') {
+    if (ability.id === 'FOOTWORK_SKILL') {
       const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
       
       // 脱身只能移动1格
@@ -2082,7 +2121,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       }
       
       // 检查AP和疲劳是否足够
-      if (activeUnit.currentAP < selectedAbility.apCost) {
+      if (activeUnit.currentAP < ability.apCost) {
         addToLog('AP不足！');
         return;
       }
@@ -2101,8 +2140,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             return {
               ...u,
               combatPos: hoveredHex,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost)
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost)
             };
           }
           return u;
@@ -2115,7 +2154,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     // ==================== 换位技能处理 ====================
-    if (selectedAbility.id === 'ROTATION_SKILL') {
+    if (ability.id === 'ROTATION_SKILL') {
       const allyTarget = state.units.find(u =>
         !u.isDead && u.team === 'PLAYER' && u.id !== activeUnit.id &&
         u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r
@@ -2129,7 +2168,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         addToLog('换位只能选择相邻的盟友！');
         return;
       }
-      if (activeUnit.currentAP < selectedAbility.apCost) {
+      if (activeUnit.currentAP < ability.apCost) {
         addToLog('AP不足！');
         return;
       }
@@ -2143,8 +2182,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             return {
               ...u,
               combatPos: allyPos,
-              currentAP: u.currentAP - selectedAbility.apCost,
-              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost)
+              currentAP: u.currentAP - ability.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + ability.fatCost)
             };
           }
           if (u.id === allyTarget.id) {
@@ -2166,18 +2205,18 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         
         // === 武器精通：射程修正 ===
         const masteryEffects = getWeaponMasteryEffects(activeUnit);
-        let effectiveMaxRange = selectedAbility.range[1];
+        let effectiveMaxRange = ability.range[1];
         if (masteryEffects.bowRangeBonus) {
           effectiveMaxRange += masteryEffects.bowRangeBonus;
         }
         
-        if (dist >= selectedAbility.range[0] && dist <= effectiveMaxRange) {
+        if (dist >= ability.range[0] && dist <= effectiveMaxRange) {
             // === 武器精通：AP消耗修正 ===
-            let apCost = selectedAbility.apCost || 4;
+            let apCost = ability.apCost || 4;
             if (masteryEffects.reducedApCost) {
               apCost = Math.min(apCost, masteryEffects.reducedApCost);
             }
-            if (masteryEffects.daggerReducedAp && selectedAbility.type === 'ATTACK') {
+            if (masteryEffects.daggerReducedAp && ability.type === 'ATTACK') {
               apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
             }
             
@@ -2185,7 +2224,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             
             // === 武器精通：疲劳消耗修正 ===
             const fatigueMult = getWeaponMasteryFatigueMultiplier(activeUnit);
-            const effectiveFatCost = Math.floor((selectedAbility.fatCost || 0) * fatigueMult);
+            const effectiveFatCost = Math.floor((ability.fatCost || 0) * fatigueMult);
             
             // ==================== 命中判定（含合围加成） ====================
             const attackerTerrain = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`);
@@ -2229,7 +2268,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 size: 'md' as const,
               }]);
               triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#475569');
-              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)${hasPerk(activeUnit, 'fast_adaptation') ? ` 🎯临机+${(activeUnit.fastAdaptationStacks || 0) + 1}0%` : ''}`, 'info');
+              addToLog(`${activeUnit.name}「${weaponName}」${ability.name} → ${target.name}，未命中！(${hitInfo.final}%)${hasPerk(activeUnit, 'fast_adaptation') ? ` 🎯临机+${(activeUnit.fastAdaptationStacks || 0) + 1}0%` : ''}`, 'info');
               setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
               return;
             }
@@ -2313,7 +2352,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             triggerScreenShake(dmgResult.isCritical || dmgResult.willKill ? 'heavy' : 'light');
             
             // 详细播报（含护甲信息）
-            const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, selectedAbility.name, dmgResult);
+            const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, ability.name, dmgResult);
             addToLog(logMsg, 'attack');
             
             if (dmgResult.isCritical) {
@@ -2936,7 +2975,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => (
             <button 
               key={skill.id} 
-              onClick={() => setSelectedAbility(skill)} 
+              onClick={() => {
+                // 盾墙、矛墙等自身技能无需选目标，点击即用
+                if (skill.targetType === 'SELF' && skill.range[0] === 0 && skill.range[1] === 0) {
+                  performAttack(skill);
+                } else {
+                  setSelectedAbility(skill);
+                }
+              }} 
               onMouseEnter={() => setHoveredSkill(skill)} 
               onMouseLeave={() => setHoveredSkill(null)} 
               className={`${isMobile ? 'w-16 h-16' : 'w-14 h-14'} border-2 transition-all flex flex-col items-center justify-center relative

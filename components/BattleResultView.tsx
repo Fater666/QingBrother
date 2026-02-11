@@ -1,8 +1,7 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BattleResult, Item, Party } from '../types.ts';
 import { MAX_INVENTORY_SIZE } from '../constants';
-import { Portrait } from './Portrait.tsx';
 import { ItemIcon } from './ItemIcon.tsx';
 
 interface BattleResultViewProps {
@@ -118,14 +117,6 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
     window.location.reload();
   };
 
-  // 构造 survivor 的 Character-like 对象用于 Portrait
-  const survivorCharacters = useMemo(() => {
-    return result.survivors.map(s => {
-      const merc = party.mercenaries.find(m => m.id === s.id);
-      return merc || null;
-    });
-  }, [result.survivors, party.mercenaries]);
-
   // ============================== 阶段一：战斗报告 ==============================
   const renderReport = () => {
     const allEntries = [
@@ -136,14 +127,14 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
     return (
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center animate-fadeIn">
         {/* 标题区域 */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-4">
           {result.victory ? (
             <>
-              <div className="text-5xl mb-3">&#9876;</div>
-              <h1 className="text-3xl font-bold text-amber-400 tracking-[0.3em] mb-2">
+              <div className="text-4xl mb-2">&#9876;</div>
+              <h1 className="text-2xl font-bold text-amber-400 tracking-[0.3em] mb-2">
                 战 斗 胜 利
               </h1>
-              <p className="text-lg text-amber-600/80 italic">
+              <p className="text-base text-amber-600/80 italic">
                 击败了 {result.enemyName}
               </p>
               {/* 任务目标完成提示 */}
@@ -159,11 +150,11 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             </>
           ) : (
             <>
-              <div className="text-5xl mb-3">&#9760;</div>
-              <h1 className="text-3xl font-bold text-red-500 tracking-[0.3em] mb-2">
+              <div className="text-4xl mb-2">&#9760;</div>
+              <h1 className="text-2xl font-bold text-red-500 tracking-[0.3em] mb-2">
                 全 军 覆 没
               </h1>
-              <p className="text-lg text-red-400/80 italic">
+              <p className="text-base text-red-400/80 italic">
                 败于 {result.enemyName} 之手
               </p>
             </>
@@ -171,7 +162,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         </div>
 
         {/* 战斗统计 */}
-        <div className={`flex gap-8 mb-8 text-sm transition-all duration-500 ${visibleRows >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className={`flex gap-8 mb-4 text-sm transition-all duration-500 ${visibleRows >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <div className="flex items-center gap-2">
             <span className="text-slate-500">持续</span>
             <span className="text-amber-400 font-bold">{result.roundsTotal}</span>
@@ -194,7 +185,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         </div>
 
         {/* 分隔线 */}
-        <div className="w-full flex items-center gap-4 mb-6">
+        <div className="w-full flex items-center gap-4 mb-4">
           <div className="flex-1 h-px bg-gradient-to-r from-transparent to-amber-900/40" />
           <span className="text-xs text-amber-700/60 tracking-[0.3em]">己方伤亡</span>
           <div className="flex-1 h-px bg-gradient-to-l from-transparent to-amber-900/40" />
@@ -208,14 +199,10 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             return (
               <div
                 key={`cas-${i}`}
-                className={`flex items-center gap-4 px-4 py-3 bg-red-950/20 border border-red-900/30 transition-all duration-500 ${
+                className={`flex items-center gap-3 px-3 py-2 bg-red-950/20 border border-red-900/30 transition-all duration-500 ${
                   visibleRows >= rowIndex + 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
                 }`}
               >
-                {/* 骷髅标记代替头像 */}
-                <div className="w-12 h-12 bg-black/60 border border-red-800/50 flex items-center justify-center rounded-sm">
-                  <span className="text-2xl text-red-600">&#9760;</span>
-                </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-red-400 font-bold">{c.name}</span>
@@ -234,8 +221,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             const hpPercent = Math.round((s.hpAfter / s.maxHp) * 100);
             const isInjured = s.hpAfter < s.maxHp;
             const isCritical = hpPercent < 30;
-            const merc = survivorCharacters[i];
-            
+
             const statusText = !isInjured ? '无恙' : isCritical ? '重伤' : '轻伤';
             const statusColor = !isInjured ? 'text-emerald-400' : isCritical ? 'text-red-400' : 'text-yellow-400';
             const borderColor = !isInjured ? 'border-emerald-900/30' : isCritical ? 'border-red-900/30' : 'border-yellow-900/30';
@@ -244,18 +230,10 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             return (
               <div
                 key={`sur-${i}`}
-                className={`flex items-center gap-4 px-4 py-3 ${bgColor} border ${borderColor} transition-all duration-500 ${
+                className={`flex items-center gap-3 px-3 py-2 ${bgColor} border ${borderColor} transition-all duration-500 ${
                   visibleRows >= rowIndex + 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
                 }`}
               >
-                {/* 头像 */}
-                <div className="w-12 h-12">
-                  {merc ? <Portrait character={merc} size="sm" className="w-12 h-12" /> : (
-                    <div className="w-12 h-12 bg-black/60 border border-slate-700 flex items-center justify-center rounded-sm">
-                      <span className="text-slate-500">?</span>
-                    </div>
-                  )}
-                </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-200 font-bold">{s.name}</span>
@@ -283,7 +261,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         </div>
 
         {/* 按钮 */}
-        <div className="mt-10">
+        <div className="mt-6">
           {result.victory ? (
             <button
               onClick={() => {
@@ -317,7 +295,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
     return (
       <div className="w-full max-w-3xl mx-auto flex flex-col items-center animate-fadeIn">
         {/* 标题 */}
-        <div className="w-full flex items-center justify-between mb-6">
+        <div className="w-full flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-2xl">&#128176;</span>
             <h2 className="text-2xl font-bold text-amber-400 tracking-[0.2em]">缴获战利品</h2>
@@ -358,7 +336,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
 
         {/* 战利品网格 */}
         {result.lootItems.length > 0 ? (
-          <div className="w-full grid grid-cols-5 gap-3 mb-8">
+          <div className="w-full grid grid-cols-5 gap-3 mb-6">
             {result.lootItems.map((item, i) => {
               const isSelected = selectedItems.has(i);
               const qualityColor = getItemQualityColor(item.value, item.rarity);
@@ -481,7 +459,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(139,69,19,0.3) 2px, rgba(139,69,19,0.3) 4px)' }}
       />
 
-      <div className="relative z-10 w-full px-8 py-12">
+      <div className="relative z-10 w-full px-6 py-6">
         {phase === 'REPORT' ? renderReport() : renderLoot()}
       </div>
 
