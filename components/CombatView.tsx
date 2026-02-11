@@ -373,6 +373,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const cameraRef = useRef({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(0.8);
   const [hoveredHex, setHoveredHex] = useState<{q:number, r:number} | null>(null);
+  const hoveredHexRef = useRef<{q:number, r:number} | null>(null);
   const [hoveredSkill, setHoveredSkill] = useState<Ability | null>(null);
   const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
 
@@ -393,8 +394,37 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
 
+  // ==================== 移动端触控支持 ====================
+  const [isMobile, setIsMobile] = useState(false);
+  // 触控相关 refs（避免高频 re-render）
+  const touchStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
+  const touchStartCameraRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isTouchDraggingRef = useRef(false);
+  const touchMovedDistRef = useRef(0);
+  // 双指缩放 refs
+  const pinchStartDistRef = useRef(0);
+  const pinchStartZoomRef = useRef(0.8);
+  const isPinchingRef = useRef(false);
+  const pinchMidpointRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
+
+  // 移动端检测（兼容模拟器 / Capacitor / 真机）
+  useEffect(() => {
+    const detect = () => {
+      const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+      const narrowScreen = window.innerWidth < 1024;
+      const ua = navigator.userAgent.toLowerCase();
+      const isMobileUA = /android|iphone|ipad|ipod|mobile/i.test(ua);
+      const isCapacitor = !!(window as any).Capacitor;
+      const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setIsMobile(coarsePointer || narrowScreen || isMobileUA || isCapacitor || (hasTouchScreen && isMobileUA));
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    return () => window.removeEventListener('resize', detect);
+  }, []);
 
   // ==================== 特效触发函数 ====================
   
@@ -1757,12 +1787,149 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const worldY = (e.clientY - rect.top - rect.height / 2) / zoom - cameraRef.current.y;
     const r = Math.round(worldY / (HEX_SIZE * 1.5));
     const q = Math.round((worldX - HEX_SIZE * (Math.sqrt(3) / 2) * r) / (HEX_SIZE * Math.sqrt(3)));
-    if (hoveredHex?.q !== q || hoveredHex?.r !== r) setHoveredHex({ q, r });
+    if (hoveredHex?.q !== q || hoveredHex?.r !== r) {
+      hoveredHexRef.current = { q, r };
+      setHoveredHex({ q, r });
+    }
     setMousePos({ x: e.clientX, y: e.clientY });
   };
   const handleMouseUp = () => isDraggingRef.current = false;
 
+  // ==================== 触控手势处理 ====================
+  // 注意：不使用 useCallback，避免捕获到 performAttack/performMove 的过期闭包
+  const handleTouchTapRef = useRef<(clientX: number, clientY: number) => void>(() => {});
+  handleTouchTapRef.current = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const worldX = (clientX - rect.left - rect.width / 2) / zoom - cameraRef.current.x;
+    const worldY = (clientY - rect.top - rect.height / 2) / zoom - cameraRef.current.y;
+    const r = Math.round(worldY / (HEX_SIZE * 1.5));
+    const q = Math.round((worldX - HEX_SIZE * (Math.sqrt(3) / 2) * r) / (HEX_SIZE * Math.sqrt(3)));
+
+    // 更新 hoveredHex（高亮显示+后续逻辑用）
+    hoveredHexRef.current = { q, r };
+    setHoveredHex({ q, r });
+    setMousePos({ x: clientX, y: clientY });
+
+    if (!activeUnit || !isPlayerTurn) return;
+    if (!visibleSet.has(`${q},${r}`)) return;
+
+    // 判断目标格内容
+    const isOccupied = state.units.some(
+      u => !u.isDead && u.combatPos.q === q && u.combatPos.r === r
+    );
+
+    // A) 已选技能 → 攻击逻辑处理（含自身技能、敌人攻击等）
+    if (selectedAbility) {
+      performAttack();
+      return;
+    }
+    // B) 无技能选中 + 空格子 → 移动
+    if (!isOccupied) {
+      performMove();
+      return;
+    }
+    // C) 点击己方单位 → 居中镜头
+    const targetAlly = state.units.find(
+      u => !u.isDead && u.team === 'PLAYER' && u.id !== activeUnit.id &&
+        u.combatPos.q === q && u.combatPos.r === r
+    );
+    if (targetAlly) {
+      const pos = getPixelPos(targetAlly.combatPos.q, targetAlly.combatPos.r);
+      cameraRef.current.x = -pos.x;
+      cameraRef.current.y = -pos.y;
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      // 双指：进入 pinch 模式
+      isPinchingRef.current = true;
+      isTouchDraggingRef.current = false;
+      const [t0, t1] = [e.touches[0], e.touches[1]];
+      const dx = t1.clientX - t0.clientX;
+      const dy = t1.clientY - t0.clientY;
+      pinchStartDistRef.current = Math.sqrt(dx * dx + dy * dy);
+      pinchStartZoomRef.current = zoom;
+      pinchMidpointRef.current = {
+        x: (t0.clientX + t1.clientX) / 2,
+        y: (t0.clientY + t1.clientY) / 2,
+      };
+    } else if (e.touches.length === 1) {
+      // 单指：记录起始位置
+      const t = e.touches[0];
+      touchStartRef.current = { x: t.clientX, y: t.clientY, time: performance.now() };
+      touchStartCameraRef.current = { x: cameraRef.current.x, y: cameraRef.current.y };
+      isTouchDraggingRef.current = false;
+      touchMovedDistRef.current = 0;
+      isPinchingRef.current = false;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && isPinchingRef.current) {
+      // 双指缩放
+      const [t0, t1] = [e.touches[0], e.touches[1]];
+      const dx = t1.clientX - t0.clientX;
+      const dy = t1.clientY - t0.clientY;
+      const currentDist = Math.sqrt(dx * dx + dy * dy);
+      const scaleFactor = currentDist / pinchStartDistRef.current;
+      const newZoom = Math.max(0.4, Math.min(2.0, pinchStartZoomRef.current * scaleFactor));
+      setZoom(newZoom);
+      // 同时跟踪中点位移进行平移
+      const newMid = {
+        x: (t0.clientX + t1.clientX) / 2,
+        y: (t0.clientY + t1.clientY) / 2,
+      };
+      cameraRef.current.x += (newMid.x - pinchMidpointRef.current.x) / newZoom;
+      cameraRef.current.y += (newMid.y - pinchMidpointRef.current.y) / newZoom;
+      pinchMidpointRef.current = newMid;
+      return;
+    }
+    if (e.touches.length === 1 && !isPinchingRef.current) {
+      // 单指平移
+      const t = e.touches[0];
+      const dx = t.clientX - touchStartRef.current.x;
+      const dy = t.clientY - touchStartRef.current.y;
+      const movedDist = Math.sqrt(dx * dx + dy * dy);
+      touchMovedDistRef.current = Math.max(touchMovedDistRef.current, movedDist);
+      const DRAG_THRESHOLD = 10;
+      if (touchMovedDistRef.current > DRAG_THRESHOLD) {
+        isTouchDraggingRef.current = true;
+        cameraRef.current.x = touchStartCameraRef.current.x + dx / zoom;
+        cameraRef.current.y = touchStartCameraRef.current.y + dy / zoom;
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length > 0) {
+      // 还有手指剩余（双指→单指过渡）
+      isPinchingRef.current = false;
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        touchStartRef.current = { x: t.clientX, y: t.clientY, time: performance.now() };
+        touchStartCameraRef.current = { x: cameraRef.current.x, y: cameraRef.current.y };
+        touchMovedDistRef.current = 0;
+        isTouchDraggingRef.current = false;
+      }
+      return;
+    }
+    // 所有手指松开
+    const wasPinching = isPinchingRef.current;
+    isPinchingRef.current = false;
+    // Tap 检测：移动距离 < 10px 且时长 < 300ms
+    const elapsed = performance.now() - touchStartRef.current.time;
+    if (!wasPinching && touchMovedDistRef.current < 10 && elapsed < 300) {
+      handleTouchTapRef.current(touchStartRef.current.x, touchStartRef.current.y);
+    }
+    isTouchDraggingRef.current = false;
+    touchMovedDistRef.current = 0;
+  };
+
   const performAttack = () => {
+    const hoveredHex = hoveredHexRef.current;
     if (!hoveredHex || !activeUnit || !isPlayerTurn || !selectedAbility) return;
     
     // 检查玩家单位是否在逃跑状态
@@ -2200,8 +2367,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
   };
 
-  const performMove = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const performMove = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    const hoveredHex = hoveredHexRef.current;
     if (!hoveredHex || !activeUnit || !isPlayerTurn) return;
     
     // 检查玩家单位是否在逃跑状态
@@ -2383,6 +2551,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const combatEndedRef = useRef(false);
   
+  // 阻止浏览器默认触控行为（弹性滚动、页面缩放等）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const preventDefault = (e: TouchEvent) => {
+      if (e.touches.length >= 1) e.preventDefault();
+    };
+    container.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => container.removeEventListener('touchmove', preventDefault);
+  }, []);
+
   useEffect(() => {
     // 防止重复触发
     if (combatEndedRef.current) return;
@@ -2552,8 +2731,22 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })}
       </div>
 
-      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))}>
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={performAttack} onContextMenu={performMove} />
+      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={isMobile ? undefined : performAttack} onContextMenu={isMobile ? undefined : performMove} />
+
+        {/* 移动端操作提示 */}
+        {isMobile && isPlayerTurn && activeUnit && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-black/80 border border-amber-900/40 px-4 py-1.5 rounded-full text-xs text-amber-400 flex items-center gap-2 pointer-events-auto">
+            {selectedAbility
+              ? <>
+                  <span className="text-base">{selectedAbility.icon}</span>
+                  <span>{selectedAbility.name} - 点击目标</span>
+                  <button onClick={() => setSelectedAbility(null)} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
+                </>
+              : <span>点击地面移动 | 选择技能后点击敌人攻击</span>
+            }
+          </div>
+        )}
         
         <div className="absolute inset-0 pointer-events-none">
           {state.units.map(u => {
@@ -2601,7 +2794,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           })}
         </div>
 
-        {hoveredHex && isPlayerTurn && activeUnit && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`) && (() => {
+        {!isMobile && hoveredHex && isPlayerTurn && activeUnit && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`) && (() => {
           const terrainAtHover = terrainData.get(`${hoveredHex.q},${hoveredHex.r}`);
           const terrainInfo = terrainAtHover ? TERRAIN_TYPES[terrainAtHover.type] : null;
           const heightDiff = terrainAtHover ? terrainAtHover.height - (terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0) : 0;
@@ -2704,7 +2897,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })()}
       </div>
 
-      <div className="h-32 bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center px-10 justify-between shrink-0 shadow-2xl">
+      <div className={`${isMobile ? 'h-28 px-3' : 'h-32 px-10'} bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center justify-between shrink-0 shadow-2xl`}>
         <div className="flex items-center gap-4 w-72">
           {activeUnit && (
             <>
@@ -2742,7 +2935,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               onClick={() => setSelectedAbility(skill)} 
               onMouseEnter={() => setHoveredSkill(skill)} 
               onMouseLeave={() => setHoveredSkill(null)} 
-              className={`w-14 h-14 border-2 transition-all flex flex-col items-center justify-center relative
+              className={`${isMobile ? 'w-16 h-16' : 'w-14 h-14'} border-2 transition-all flex flex-col items-center justify-center relative
                 ${selectedAbility?.id === skill.id 
                   ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-2 shadow-lg shadow-amber-500/30' 
                   : 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20'
@@ -2751,9 +2944,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               style={{ boxShadow: selectedAbility?.id === skill.id ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
             >
               {/* 快捷键提示 */}
+              {!isMobile && (
               <span className="absolute -top-2 -left-1 w-4 h-4 bg-amber-700 text-[9px] font-bold text-white rounded flex items-center justify-center shadow">
                 {index + 1}
               </span>
+              )}
               <span className="text-2xl drop-shadow-md">{skill.icon}</span>
               <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-500">{skill.apCost}</span>
             </button>
@@ -2774,7 +2969,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 disabled={activeUnit ? activeUnit.waitCount >= 1 : false}
               >
                 ⏳ 等待 {activeUnit && activeUnit.waitCount >= 1 ? '(已用)' : ''}
-                <span className="text-[9px] bg-slate-700/60 px-1.5 py-0.5 rounded text-slate-300">Space</span>
+                {!isMobile && <span className="text-[9px] bg-slate-700/60 px-1.5 py-0.5 rounded text-slate-300">Space</span>}
               </button>
               <button 
                 onClick={nextTurn} 
@@ -2782,7 +2977,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
               >
                 结束回合
-                <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">F</span>
+                {!isMobile && <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">F</span>}
               </button>
             </>
           ) : (
@@ -2813,7 +3008,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       )}
 
       {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
-      <div className="fixed left-3 top-20 w-72 max-h-[45vh] z-[60] pointer-events-none">
+      <div className={`fixed ${isMobile ? 'left-1 top-14 w-48 max-h-[25vh]' : 'left-3 top-20 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}>
         <div className="bg-gradient-to-b from-black/85 to-black/70 border border-amber-900/30 rounded-sm overflow-hidden backdrop-blur-sm">
           {/* 日志标题 */}
           <div className="px-3 py-1.5 border-b border-amber-900/30 flex items-center gap-2">
@@ -2873,6 +3068,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       )}
 
       {/* 快捷键帮助面板 */}
+      {!isMobile && (
       <div className="fixed bottom-2 left-2 text-[8px] text-slate-600 z-50 bg-black/50 px-2 py-1 rounded">
         <span className="text-slate-500">快捷键:</span>
         <span className="ml-2"><b className="text-slate-400">1-9</b> 技能</span>
@@ -2883,6 +3079,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <span className="ml-2"><b className="text-slate-400">Shift/R</b> 聚焦人物</span>
         <span className="ml-2"><b className="text-slate-400">Esc</b> 取消</span>
       </div>
+      )}
     </div>
   );
 };
