@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.0.2",
+    "@csstools/postcss-oklab-function": "^5.0.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
