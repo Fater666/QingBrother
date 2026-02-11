@@ -136,6 +136,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' }}
       />
 
+      {/* 版本信息：固定左下角，不参与布局、不挡按钮 */}
+      <div className={`fixed bottom-4 left-4 z-10 flex flex-col items-start gap-1 transition-all duration-[2000ms] delay-[2500ms] ${showButtons ? 'opacity-40' : 'opacity-0'} pointer-events-none`}>
+        <p className="text-[10px] text-slate-600 tracking-[0.3em] uppercase">Version 1.0.0 — 战国项目组</p>
+      </div>
+
       {/* 主内容区 */}
       <div className="relative z-20 flex flex-col items-center justify-center h-full px-8">
         
@@ -224,17 +229,6 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
             <span className="relative text-amber-700/60 group-hover:text-amber-500/80 text-sm tracking-[0.3em] transition-colors duration-300">
               联 系 开 发 者
             </span>
-          </button>
-        </div>
-
-        {/* 版本信息：左下角，不挡按钮 */}
-        <div className={`absolute bottom-4 left-4 flex flex-col items-start gap-1 transition-all duration-[2000ms] delay-[2500ms] ${showButtons ? 'opacity-40' : 'opacity-0'}`}>
-          <p className="text-[10px] text-slate-600 tracking-[0.3em] uppercase">Version 1.0.0 — 战国项目组</p>
-          <button 
-            onClick={() => setShowContact(true)}
-            className="text-[10px] text-amber-700/60 hover:text-amber-600 tracking-[0.2em] transition-colors"
-          >
-            联系开发者
           </button>
         </div>
       </div>
