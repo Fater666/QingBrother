@@ -325,6 +325,13 @@ export interface CombatUnit extends Character {
   // --- 专精被动战斗状态 ---
   nineLivesUsed?: boolean;         // 命不该绝是否已触发
   fastAdaptationStacks?: number;   // 临机应变叠加层数
+  headHunterActive?: boolean;      // 索首：下次攻击必定命中头部
+  killingFrenzyTurns?: number;     // 杀意：击杀后剩余的加成回合数
+  overwhelmStacks?: number;        // 压制（被施加）：被命中/格挡次数，下回合攻击力 ×(1-N×10%)
+  reachAdvantageBonus?: number;    // 兵势：本回合累积的近战防御加成
+  isIndomitable?: boolean;         // 不屈：受到伤害减半，持续到下回合
+  adrenalineActive?: boolean;      // 血勇：下回合行动顺序提前至最先
+  taunting?: boolean;              // 挑衅：迫使周围敌人攻击自己
 }
 
 export interface CombatState {

@@ -10,10 +10,37 @@
  * 4. 若护甲耐久被击穿(<=0)，溢出部分追加到 HP 伤害
  * 5. 无护甲时伤害全部作用于 HP
  * 6. 命中必伤（最低 1 HP）
+ * 
+ * 集成技能：
+ * - 铁额 (steel_brow): 头部不暴击
+ * - 致残击 (crippling_strikes): 降低暴击判定阈值
+ * - 补刀手 (executioner): 对重伤敌人+20%伤害
+ * - 轻甲流 (nimble): 减少HP伤害
+ * - 重甲流 (battle_forged): 减少护甲伤害
+ * - 独胆宗师 (duelist): 副手空时忽略25%护甲
+ * - 杀意 (killing_frenzy): 击杀后+25%伤害
+ * - 索首 (head_hunter): 命中身体后下次打头
+ * - 不屈 (indomitable): 受伤减半
+ * - 压制 (overwhelm): 命中后削弱目标
+ * - 武器精通: 各种特殊效果
  */
 
 import { CombatUnit, Item, MoraleStatus } from '../types';
 import { getMoraleEffects } from './moraleService';
+import {
+  hasPerk,
+  getCritThresholdMult,
+  getExecutionerMultiplier,
+  getNimbleDamageReduction,
+  getBattleForgedReduction,
+  getDuelistArmorIgnore,
+  getKillingFrenzyMultiplier,
+  hasSteelBrow,
+  getIndomitableDamageMultiplier,
+  getWeaponMasteryEffects,
+  getThrowingDistanceMultiplier,
+  getOverwhelmPenalty,
+} from './perkService';
 
 // ==================== 常量 ====================
 
@@ -145,11 +172,43 @@ export const calculateDamage = (
     baseDamage += options.bonusDamage;
   }
   
+  // === 补刀手 (executioner): 对重伤敌人+20%伤害 ===
+  const executionerMult = getExecutionerMultiplier(attacker, target);
+  if (executionerMult > 1) {
+    baseDamage = Math.floor(baseDamage * executionerMult);
+  }
+  
+  // === 杀意 (killing_frenzy): 击杀后+25%伤害 ===
+  const killingFrenzyMult = getKillingFrenzyMultiplier(attacker);
+  if (killingFrenzyMult > 1) {
+    baseDamage = Math.floor(baseDamage * killingFrenzyMult);
+  }
+  
+  // === 压制 (overwhelm) 被动效果：被压制后攻击力降低 ===
+  if ((attacker.overwhelmStacks || 0) > 0) {
+    const penalty = getOverwhelmPenalty(attacker.overwhelmStacks || 0);
+    baseDamage = Math.floor(baseDamage * penalty);
+  }
+  
+  // === 投掷精通: 近距离伤害加成 ===
+  const throwMult = getThrowingDistanceMultiplier(attacker, target);
+  if (throwMult > 1) {
+    baseDamage = Math.floor(baseDamage * throwMult);
+  }
+  
   // 确保最低1点伤害
   baseDamage = Math.max(1, baseDamage);
   
   // 2. 判定击中部位
-  const hitLocation = options?.forceHitLocation || rollHitLocation();
+  let hitLocation: HitLocation;
+  if (options?.forceHitLocation) {
+    hitLocation = options.forceHitLocation;
+  } else if (attacker.headHunterActive && hasPerk(attacker, 'head_hunter')) {
+    // === 索首 (head_hunter): 命中身体后下次必定打头 ===
+    hitLocation = 'HEAD';
+  } else {
+    hitLocation = rollHitLocation();
+  }
   
   // 3. 获取对应部位的护甲
   const armorItem = hitLocation === 'HEAD' ? target.equipment.helmet : target.equipment.armor;
@@ -157,8 +216,25 @@ export const calculateDamage = (
   const armorType = hitLocation === 'HEAD' ? 'HELMET' : 'ARMOR';
   
   // 4. 获取武器穿甲/破甲属性
-  const armorPen = getArmorPen(weapon);
-  const armorDmgMult = getArmorDmg(weapon);
+  let armorPen = getArmorPen(weapon);
+  let armorDmgMult = getArmorDmg(weapon);
+  
+  // === 独胆宗师 (duelist): 副手空时穿甲+25% ===
+  const duelistBonus = getDuelistArmorIgnore(attacker);
+  if (duelistBonus > 0) {
+    armorPen += duelistBonus;
+  }
+  
+  // === 武器精通特殊效果 ===
+  const masteryEffects = getWeaponMasteryEffects(attacker);
+  // 弩术精通：穿甲+20%
+  if (masteryEffects.crossbowArmorPenBonus) {
+    armorPen += masteryEffects.crossbowArmorPenBonus;
+  }
+  // 重锤精通：破甲效率+33%
+  if (masteryEffects.hammerArmorDmgBonus) {
+    armorDmgMult += masteryEffects.hammerArmorDmgBonus;
+  }
   
   let armorDamageDealt = 0;
   let hpDamageDealt = 0;
@@ -172,12 +248,21 @@ export const calculateDamage = (
     armorDamageDealt = Math.floor(baseDamage * armorDmgMult);
     armorDamageDealt = Math.max(1, armorDamageDealt); // 至少1点护甲伤害
     
+    // === 重甲流 (battle_forged): 护甲伤害减免 ===
+    const bfReduction = getBattleForgedReduction(target, hitLocation);
+    if (bfReduction > 0) {
+      armorDamageDealt = Math.max(1, armorDamageDealt - bfReduction);
+    }
+    
     // 穿甲HP伤害 = 基础伤害 × 穿甲率
     hpDamageDealt = Math.floor(baseDamage * armorPen);
     
     // 头部命中时HP伤害额外加成
     if (hitLocation === 'HEAD') {
-      hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+      // === 铁额 (steel_brow): 头部不再有暴击伤害加成 ===
+      if (!hasSteelBrow(target)) {
+        hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+      }
     }
     
     // 检查护甲是否被击穿
@@ -195,16 +280,33 @@ export const calculateDamage = (
     
     // 头部无盔加成
     if (hitLocation === 'HEAD') {
-      hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+      if (!hasSteelBrow(target)) {
+        hpDamageDealt = Math.floor(hpDamageDealt * HEADSHOT_DAMAGE_MULT);
+      }
     }
+  }
+  
+  // === 轻甲流 (nimble): HP伤害减免 ===
+  const nimbleMult = getNimbleDamageReduction(target);
+  if (nimbleMult < 1) {
+    hpDamageDealt = Math.max(1, Math.floor(hpDamageDealt * nimbleMult));
+  }
+  
+  // === 不屈 (indomitable): 受到伤害减半 ===
+  const indomitableMult = getIndomitableDamageMultiplier(target);
+  if (indomitableMult < 1) {
+    hpDamageDealt = Math.max(1, Math.floor(hpDamageDealt * indomitableMult));
+    armorDamageDealt = Math.max(1, Math.floor(armorDamageDealt * indomitableMult));
   }
   
   // 7. 命中必伤（至少1HP）
   hpDamageDealt = Math.max(1, hpDamageDealt);
   
-  // 判定暴击（伤害超过武器最大伤害的80%）
+  // 判定暴击（伤害超过武器最大伤害的 critThreshold）
   const maxDmg = weapon?.damage ? weapon.damage[1] : UNARMED_DAMAGE[1];
-  const isCritical = baseDamage >= maxDmg * 0.8;
+  // === 致残击 (crippling_strikes): 降低暴击阈值 ===
+  const critThreshold = getCritThresholdMult(attacker.perks || []);
+  const isCritical = baseDamage >= maxDmg * critThreshold;
   
   // 判定是否击杀
   const willKill = target.hp - hpDamageDealt <= 0;

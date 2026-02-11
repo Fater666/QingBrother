@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp } from './constants';
-import { applyStudentXPBonus, applyColossus, applyFortifiedMind } from './services/perkService';
+import { applyStudentXPBonus, applyColossus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -1122,6 +1122,7 @@ export const App: React.FC = () => {
         // === 入场被动：应用专精效果 ===
         unit = applyColossus(unit);       // 强体：+25% HP
         unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
+        unit = applyBrawny(unit);         // 负重者：减少护甲疲劳惩罚
         return unit;
     });
     const allUnits = [...playerUnits, ...enemies];

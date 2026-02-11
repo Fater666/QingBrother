@@ -59,6 +59,14 @@ const getMoraleIndex = (morale: MoraleStatus): number => {
 const calculateThreat = (target: CombatUnit, attacker?: CombatUnit, state?: CombatState): number => {
   let threat = 0;
   
+  // === 挑衅 (taunt): 正在挑衅的目标威胁值大幅提升 ===
+  if (target.taunting && attacker) {
+    const dist = attacker ? getHexDistance(attacker.combatPos, target.combatPos) : 999;
+    if (dist <= 3) {
+      threat += 200; // 大幅提升优先级
+    }
+  }
+  
   // 低血量目标优先
   const hpPercent = target.hp / target.maxHp;
   threat += (1 - hpPercent) * 30;
