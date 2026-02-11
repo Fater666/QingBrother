@@ -45,3 +45,4 @@ android/app/src/main/assets/capacitor.plugins.json
 *.keystore
 
 nul
+录屏/
