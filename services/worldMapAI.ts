@@ -392,19 +392,26 @@ const executeArmyBehavior = (
     ? { x: linkedCity.x, y: linkedCity.y } 
     : { x: entity.homeX, y: entity.homeY };
   
-  // 1. 检测附近是否有土匪
+  // 1. 检测附近是否有土匪（忽略在营地附近的敌人，避免巡防军去打营地）
+  const CAMP_SAFE_RADIUS = 6;
   const nearbyBandit = findHostileEntity(entities, entity.x, entity.y, entity.alertRadius, entity.id);
-  
+
   if (nearbyBandit) {
-    const distToBandit = getDistance(entity.x, entity.y, nearbyBandit.x, nearbyBandit.y);
-    
-    // 追击土匪
-    if (distToBandit <= entity.chaseRadius) {
-      newEntity.aiState = 'CHASE';
-      newEntity.targetX = nearbyBandit.x;
-      newEntity.targetY = nearbyBandit.y;
-      newEntity.targetEntityId = nearbyBandit.id;
-      return moveEntity(newEntity, dt);
+    // 如果敌人在自己的营地附近，不去追击
+    const isNearCamp = nearbyBandit.campId &&
+      getDistance(nearbyBandit.x, nearbyBandit.y, nearbyBandit.homeX, nearbyBandit.homeY) < CAMP_SAFE_RADIUS;
+
+    if (!isNearCamp) {
+      const distToBandit = getDistance(entity.x, entity.y, nearbyBandit.x, nearbyBandit.y);
+
+      // 追击土匪
+      if (distToBandit <= entity.chaseRadius) {
+        newEntity.aiState = 'CHASE';
+        newEntity.targetX = nearbyBandit.x;
+        newEntity.targetY = nearbyBandit.y;
+        newEntity.targetEntityId = nearbyBandit.id;
+        return moveEntity(newEntity, dt);
+      }
     }
   }
   
@@ -412,11 +419,15 @@ const executeArmyBehavior = (
   if (entity.aiState === 'CHASE' && entity.targetEntityId) {
     const targetBandit = entities.find(e => e.id === entity.targetEntityId);
     if (targetBandit) {
+      // 如果目标退回到营地附近，放弃追击
+      const targetNearCamp = targetBandit.campId &&
+        getDistance(targetBandit.x, targetBandit.y, targetBandit.homeX, targetBandit.homeY) < CAMP_SAFE_RADIUS;
+
       const distToTarget = getDistance(entity.x, entity.y, targetBandit.x, targetBandit.y);
       const distFromPatrolCenter = getDistance(entity.x, entity.y, patrolCenter.x, patrolCenter.y);
-      
-      // 不要追太远离开巡逻区域
-      if (distToTarget <= entity.chaseRadius && distFromPatrolCenter < entity.chaseRadius * 1.5) {
+
+      // 不要追太远离开巡逻区域，也不要追进营地
+      if (!targetNearCamp && distToTarget <= entity.chaseRadius && distFromPatrolCenter < entity.chaseRadius * 1.5) {
         newEntity.targetX = targetBandit.x;
         newEntity.targetY = targetBandit.y;
         return moveEntity(newEntity, dt);

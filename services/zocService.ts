@@ -16,14 +16,14 @@ import { calculateDamage, DamageResult } from './damageService';
 
 // ==================== 截击系统常量 ====================
 
-/** 截击攻击命中率修正（比正常攻击低） */
-export const FREE_ATTACK_HIT_PENALTY = -15;
+/** 截击攻击命中率加成（比正常攻击更高，符合“转身脱离更易被砍”的设计，参考《战场兄弟》） */
+export const FREE_ATTACK_HIT_BONUS = 10;
 
 /** 截击攻击伤害系数（正常伤害的百分比） */
 export const FREE_ATTACK_DAMAGE_MULT = 0.8;
 
 /** 基础移动阻止概率（截击命中后） */
-export const BASE_MOVEMENT_BLOCK_CHANCE = 0.5;
+export const BASE_MOVEMENT_BLOCK_CHANCE = 0.6;
 
 /** 脱身技能的AP消耗 */
 export const FOOTWORK_AP_COST = 3;
@@ -74,8 +74,8 @@ export const calculateFreeAttackHitChance = (
   // 减去目标近战防御
   hitChance -= target.stats.meleeDefense;
   
-  // 截击命中率惩罚
-  hitChance += FREE_ATTACK_HIT_PENALTY;
+  // 截击命中率加成（目标在脱离控制区，更易被命中）
+  hitChance += FREE_ATTACK_HIT_BONUS;
   
   // 武器命中修正
   const weapon = attacker.equipment.mainHand;

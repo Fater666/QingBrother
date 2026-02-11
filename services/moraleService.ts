@@ -140,7 +140,7 @@ export const calculateMoraleModifier = (
   
   // 2. 伤亡比例修正
   const casualtyRate = deadAllies.length / totalAllies.length;
-  modifier += Math.floor(casualtyRate * 30);
+  modifier += Math.floor(casualtyRate * 20);
   
   // 3. 自身血量修正
   const hpPercent = unit.hp / unit.maxHp;
@@ -166,7 +166,7 @@ export const calculateMoraleModifier = (
       modifier += 15;
       break;
     case 'MASS_CASUALTY':
-      modifier += 20;
+      modifier += 15;
       break;
     case 'ALLY_FLEEING':
       modifier += 15;
@@ -231,9 +231,10 @@ export const performMoraleCheck = (
     };
   }
   
-  // 计算检定值：胆识 + 随机(0-30)
+  // 计算检定值：胆识 + 随机(0-30)，AI单位获得+5韧性加成
   const resolve = unit.stats.resolve;
-  const roll = resolve + Math.floor(Math.random() * 31);
+  const resolveBonus = unit.team === 'ENEMY' ? 5 : 0;
+  const roll = resolve + resolveBonus + Math.floor(Math.random() * 31);
   
   // 计算难度值
   const modifier = calculateMoraleModifier(unit, state, trigger);

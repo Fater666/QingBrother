@@ -544,8 +544,8 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 
   // --- 动态护甲/头盔价值上限（随 tier 增长，替代原有硬编码上限） ---
   // 每个tier的基准值：初期廉价装备 → 末期可穿重甲
-  const TIER_ARMOR_BASE = [400, 800, 1500, 3000];
-  const TIER_HELMET_BASE = [250, 500, 1000, 2000];
+  const TIER_ARMOR_BASE = [500, 1000, 2000, 3500];
+  const TIER_HELMET_BASE = [300, 650, 1200, 2200];
   const tierIdx = Math.min(tier, TIER_ARMOR_BASE.length - 1);
 
   // AI类型系数：不同定位穿不同档次的护甲
@@ -564,24 +564,24 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 
   // [基础概率, 每tier增量]
   const ARMOR_PROB: Record<string, [number, number]> = {
-    BANDIT: [0.55, 0.13],     // tier0=55% → tier3=94%
-    ARCHER: [0.55, 0.12],     // tier0=55% → tier3=91%
-    BERSERKER: [0.35, 0.12],  // tier0=35% → tier3=71%
-    SKIRMISHER: [0.30, 0.12], // tier0=30% → tier3=66%
+    BANDIT: [0.75, 0.08],     // tier0=75% → tier3=99%
+    ARCHER: [0.70, 0.08],     // tier0=70% → tier3=94%
+    BERSERKER: [0.50, 0.12],  // tier0=50% → tier3=86%
+    SKIRMISHER: [0.45, 0.12], // tier0=45% → tier3=81%
     ARMY: [1.0, 0],           // 军队始终穿甲
     TANK: [1.0, 0],           // 盾卫始终穿甲
   };
   const HELMET_PROB: Record<string, [number, number]> = {
-    BANDIT: [0.35, 0.15],     // tier0=35% → tier3=80%
-    ARCHER: [0.30, 0.12],     // tier0=30% → tier3=66%
-    BERSERKER: [0.20, 0.12],  // tier0=20% → tier3=56%
+    BANDIT: [0.50, 0.15],     // tier0=50% → tier3=95%
+    ARCHER: [0.45, 0.12],     // tier0=45% → tier3=81%
+    BERSERKER: [0.35, 0.15],  // tier0=35% → tier3=80%
     SKIRMISHER: [0.20, 0.10], // tier0=20% → tier3=50%
-    ARMY: [0.55, 0.12],       // tier0=55% → tier3=91%
+    ARMY: [0.70, 0.10],       // tier0=70% → tier3=95% (接近全员戴盔)
     TANK: [1.0, 0],           // 盾卫始终戴盔
   };
   const SHIELD_PROB: Record<string, [number, number]> = {
-    BANDIT: [0.20, 0.08],     // tier0=20% → tier3=44%
-    ARMY: [0.50, 0.10],       // tier0=50% → tier3=80%
+    BANDIT: [0.30, 0.10],     // tier0=30% → tier3=60%
+    ARMY: [0.60, 0.12],       // tier0=60% → tier3=96%
     TANK: [1.0, 0],           // 盾卫始终持盾
   };
 
@@ -1134,6 +1134,16 @@ export const App: React.FC = () => {
         baseChar.stats.resolve = Math.floor(baseChar.stats.resolve * effectiveMult);
       }
       
+      // --- 敌人开场士气：根据tier和AI类型决定 ---
+      let enemyStartMorale = MoraleStatus.STEADY;
+      const confidentBaseChance = [0, 0.15, 0.30, 0.50][tier] || 0;
+      const confidentBonus = (comp.aiType === 'ARMY' || comp.aiType === 'TANK') ? 0.20 : 0;
+      if (comp.aiType === 'BERSERKER') {
+        enemyStartMorale = MoraleStatus.CONFIDENT;
+      } else if (Math.random() < confidentBaseChance + confidentBonus) {
+        enemyStartMorale = MoraleStatus.CONFIDENT;
+      }
+
       return {
         ...baseChar,
         team: 'ENEMY' as const,
@@ -1146,7 +1156,8 @@ export const App: React.FC = () => {
         waitCount: 0,
         freeSwapUsed: false,
         hasUsedFreeAttack: false,
-        aiType: comp.aiType
+        aiType: comp.aiType,
+        morale: enemyStartMorale
       };
     });
     

@@ -255,14 +255,14 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   const enemies = getEnemies(unit, state);
   const allies = getAllies(unit, state);
   
-  // 血量低于30%或士气动摇时，有逃跑倾向
+  // 血量极低且士气动摇，或士气崩溃时，才有逃跑倾向
   const hpPercent = unit.hp / unit.maxHp;
   const moraleIndex = getMoraleIndex(unit.morale);
-  const shouldConsiderFleeing = hpPercent < 0.3 || moraleIndex >= 2; // WAVERING或更差
-  
+  const shouldConsiderFleeing = (hpPercent < 0.25 && moraleIndex >= 2) || moraleIndex >= 3;
+
   if (shouldConsiderFleeing && allies.length < enemies.length) {
     // 士气越低越容易逃跑
-    const fleeChance = moraleIndex >= 3 ? 0.7 : (moraleIndex >= 2 ? 0.4 : 0.2);
+    const fleeChance = moraleIndex >= 3 ? 0.45 : 0.15;
     if (Math.random() < fleeChance) {
       let fleePos = findFleePosition(unit, enemies, state);
       if (fleePos) {
@@ -806,10 +806,10 @@ const executeSkirmisherBehavior = (unit: CombatUnit, state: CombatState): AIActi
   const moraleIndex = getMoraleIndex(unit.morale);
   const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
   
-  // 游击手血量低或士气低时容易逃跑（比匪徒更容易跑）
-  const shouldConsiderFleeing = hpPercent < 0.4 || moraleIndex >= 2;
+  // 游击手血量极低且士气动摇，或士气崩溃时才逃跑
+  const shouldConsiderFleeing = (hpPercent < 0.3 && moraleIndex >= 2) || moraleIndex >= 3;
   if (shouldConsiderFleeing) {
-    const fleeChance = moraleIndex >= 3 ? 0.8 : (moraleIndex >= 2 ? 0.5 : 0.3);
+    const fleeChance = moraleIndex >= 3 ? 0.55 : 0.20;
     if (Math.random() < fleeChance) {
       const fleePos = findFleePosition(unit, enemies, state);
       if (fleePos) {
@@ -989,9 +989,9 @@ export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction =>
     const enemies = getEnemies(unit, state);
     const allies = getAllies(unit, state);
     
-    // 如果数量劣势明显，更容易选择逃跑
-    if (enemies.length > allies.length + 1) {
-      const fleeChance = 0.3 + (enemies.length - allies.length) * 0.1;
+    // 如果数量劣势非常明显，才考虑逃跑
+    if (enemies.length > allies.length + 2) {
+      const fleeChance = 0.15 + (enemies.length - allies.length) * 0.08;
       if (Math.random() < fleeChance) {
         const fleePos = findFleePosition(unit, enemies, state);
         if (fleePos) {
