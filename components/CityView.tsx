@@ -655,7 +655,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         return (
                         <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 物品名录 */}
-                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative">
+                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden">
                                 {/* 购入/出售/修缮 标签切换 */}
                                 <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
                                     <div className="flex gap-1 overflow-x-auto">
@@ -826,7 +826,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                             {/* 右侧: 物品详情面板 (修缮模式下隐藏) */}
                             {marketTab !== 'REPAIR' && (
-                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative">
+                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative overflow-hidden">
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
@@ -959,7 +959,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     {subView === 'RECRUIT' && (
                         <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
                             {/* 左侧: 候选人名录 */}
-                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative">
+                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden">
                                 <div className="flex justify-between items-center mb-2 pb-1 border-b border-amber-900/20 shrink-0">
                                     <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
                                     <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
@@ -1011,7 +1011,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             </div>
 
                             {/* 右侧: 选中角色详情面板 */}
-                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative">
+                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative overflow-hidden">
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
                                     const merc = city.recruits[selectedRecruit];
                                     const hireCost = merc.hireCost;
