@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Party, Character, Item, Perk } from '../types.ts';
-import { BACKGROUNDS, PERK_TREE, TRAIT_TEMPLATES } from '../constants';
+import { BACKGROUNDS, PERK_TREE, TRAIT_TEMPLATES, getXPForNextLevel } from '../constants';
 
 interface SquadManagementProps {
   party: Party;
@@ -182,6 +182,28 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const handleRemoveFromFormation = (char: Character) => {
       const newMercs = party.mercenaries.map(m => m.id === char.id ? { ...m, formationIndex: null } : m);
       onUpdateParty({ ...party, mercenaries: newMercs });
+  };
+
+  // --- 学习专精 ---
+  const handleLearnPerk = (perkId: string) => {
+    if (!selectedMerc) return;
+    const perk = PERK_TREE[perkId];
+    if (!perk) return;
+    if (selectedMerc.perks.includes(perkId)) return;
+    if (selectedMerc.perkPoints <= 0) return;
+    if (selectedMerc.level < perk.tier) return;
+    
+    const newMercs = party.mercenaries.map(m => {
+      if (m.id !== selectedMerc.id) return m;
+      return {
+        ...m,
+        perks: [...m.perks, perkId],
+        perkPoints: m.perkPoints - 1,
+      };
+    });
+    const updatedParty = { ...party, mercenaries: newMercs };
+    onUpdateParty(updatedParty);
+    setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
   };
 
   // 医药和修甲材料现在是数值资源池（类似粮食），每天自动消耗
@@ -609,34 +631,61 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 <h3 className="text-amber-600 font-bold tracking-[0.2em] mb-1">专精技能树</h3>
                                 <p className="text-[10px] text-slate-600">升级获得点数以解锁战斗加成</p>
                                 {selectedMerc && (
-                                    <p className="text-xs text-amber-500 mt-2">
-                                        可用点数: <span className="font-bold font-mono">{selectedMerc.perkPoints}</span>
-                                    </p>
+                                    <div className="mt-2 space-y-1.5">
+                                        <div className="flex items-center justify-center gap-4">
+                                            <span className="text-xs text-slate-500">
+                                                Lv.<span className="text-amber-400 font-bold font-mono">{selectedMerc.level}</span>
+                                            </span>
+                                            <span className="text-xs text-amber-500">
+                                                可用点数: <span className="font-bold font-mono text-amber-400">{selectedMerc.perkPoints}</span>
+                                            </span>
+                                        </div>
+                                        {/* XP 经验条 */}
+                                        <div className="max-w-xs mx-auto">
+                                            <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                                                <span>经验值</span>
+                                                <span className="font-mono">{selectedMerc.xp} / {getXPForNextLevel(selectedMerc.level)}</span>
+                                            </div>
+                                            <div className="h-1.5 bg-black/60 border border-white/10 overflow-hidden">
+                                                <div 
+                                                    className="h-full bg-amber-700 transition-all duration-300" 
+                                                    style={{ width: `${Math.min(100, (selectedMerc.xp / getXPForNextLevel(selectedMerc.level)) * 100)}%` }} 
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* 已学专精数量 */}
+                                        <p className="text-[10px] text-slate-600">
+                                            已学: {selectedMerc.perks.length} 个专精
+                                        </p>
+                                    </div>
                                 )}
                             </div>
                             {perkTreeTiers.map((tierPerks, idx) => (
                                 <div key={idx} className="flex items-stretch gap-3">
                                     <div className="w-12 shrink-0 flex flex-col items-center justify-center border border-amber-900/20 bg-black/30 text-[10px] text-slate-600">
                                         <span className="text-amber-700 font-bold">第{idx + 1}阶</span>
+                                        <span className="text-[8px] text-slate-700 mt-0.5">Lv{idx + 1}+</span>
                                     </div>
                                     <div className="flex-1 flex flex-wrap gap-2">
                                         {tierPerks.map(perk => {
                                             const isLearned = selectedMerc?.perks.includes(perk.id);
-                                            const canLearn = selectedMerc && selectedMerc.perkPoints > 0 && selectedMerc.level >= perk.tier;
+                                            const canLearn = selectedMerc && !isLearned && selectedMerc.perkPoints > 0 && selectedMerc.level >= perk.tier;
                                             return (
                                                 <div 
                                                     key={perk.id}
+                                                    onClick={() => canLearn ? handleLearnPerk(perk.id) : undefined}
                                                     onMouseEnter={() => setHoveredPerk(perk)}
                                                     onMouseLeave={() => setHoveredPerk(null)}
-                                                    className={`px-3 py-2 border transition-all cursor-help text-xs ${
+                                                    className={`px-3 py-2 border transition-all text-xs ${
                                                         isLearned 
-                                                            ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-lg' 
+                                                            ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-lg cursor-default' 
                                                             : canLearn
-                                                                ? 'bg-black/30 border-slate-700 text-slate-400 hover:border-amber-700 hover:text-amber-600'
-                                                                : 'bg-black/20 border-slate-800/50 text-slate-700'
+                                                                ? 'bg-black/30 border-emerald-700/60 text-emerald-400 hover:border-emerald-500 hover:bg-emerald-950/20 cursor-pointer'
+                                                                : 'bg-black/20 border-slate-800/50 text-slate-700 cursor-not-allowed'
                                                     }`}
                                                 >
-                                                    {perk.name}
+                                                    <span className="mr-1">{perk.icon}</span>{perk.name}
+                                                    {isLearned && <span className="ml-1 text-[9px] text-amber-600">✓</span>}
                                                 </div>
                                             );
                                         })}
@@ -842,10 +891,23 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               style={{ left: Math.min(mousePos.x + 20, window.innerWidth - 340), top: Math.min(mousePos.y, window.innerHeight - 150) }}
           >
               <div className="border-b border-amber-900/30 pb-2 mb-3">
-                  <h4 className="text-amber-500 font-bold text-base">{hoveredPerk.name}</h4>
-                  <span className="text-[10px] text-slate-600">第 {hoveredPerk.tier} 阶专精</span>
+                  <h4 className="text-amber-500 font-bold text-base">{hoveredPerk.icon} {hoveredPerk.name}</h4>
+                  <span className="text-[10px] text-slate-600">第 {hoveredPerk.tier} 阶专精 · 需要 Lv.{hoveredPerk.tier}</span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">{hoveredPerk.description}</p>
+              {selectedMerc && (() => {
+                  const isLearned = selectedMerc.perks.includes(hoveredPerk.id);
+                  const canLearn = !isLearned && selectedMerc.perkPoints > 0 && selectedMerc.level >= hoveredPerk.tier;
+                  const levelLocked = !isLearned && selectedMerc.level < hoveredPerk.tier;
+                  return (
+                      <div className="mt-3 pt-2 border-t border-amber-900/20 text-[11px]">
+                          {isLearned && <span className="text-amber-400">✓ 已习得</span>}
+                          {canLearn && <span className="text-emerald-400">▶ 点击学习（消耗 1 技能点）</span>}
+                          {levelLocked && <span className="text-red-400/70">🔒 需要等级 {hoveredPerk.tier}</span>}
+                          {!isLearned && !canLearn && !levelLocked && <span className="text-slate-600">无可用技能点</span>}
+                      </div>
+                  );
+              })()}
           </div>
       )}
     </div>

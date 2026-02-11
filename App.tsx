@@ -1,7 +1,8 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp } from './constants';
+import { applyStudentXPBonus, applyColossus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -1117,7 +1118,12 @@ export const App: React.FC = () => {
         const col = m.formationIndex! % 9;
         const q = -2 - row;
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
-        return { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        // === 入场被动：应用专精效果 ===
+        unit = applyColossus(unit);       // 强体：+25% HP
+        unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
+        unit = applyBrawny(unit);         // 负重者：减少护甲疲劳惩罚
+        return unit;
     });
     const allUnits = [...playerUnits, ...enemies];
     
@@ -1960,8 +1966,13 @@ export const App: React.FC = () => {
                       const updatedMercs = p.mercenaries
                         .filter(m => !deadIds.has(m.id))
                         .map(m => {
-                          const xp = xpMap[m.id] || 0;
-                          return { ...m, xp: m.xp + xp };
+                          const baseXp = xpMap[m.id] || 0;
+                          // 学徒(student) XP 加成
+                          const xp = applyStudentXPBonus(baseXp, m.perks);
+                          const withXp = { ...m, xp: m.xp + xp };
+                          // 自动检测升级（可能连升多级）
+                          const { char: leveled } = checkLevelUp(withXp);
+                          return leveled;
                         });
 
                       return {

@@ -25,6 +25,8 @@ import CAMP_TEMPLATES_CSV from './csv/camp_templates.csv?raw';
 import BOSS_CAMPS_CSV from './csv/boss_camps.csv?raw';
 import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
 import AMBITIONS_CSV from './csv/ambitions.csv?raw';
+import LEVEL_CONFIG_CSV from './csv/level_config.csv?raw';
+import PERK_EFFECTS_CSV from './csv/perk_effects.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -322,10 +324,13 @@ export const getUnitAbilities = (char: Character): Ability[] => {
     } else { skills.push({ ...ABILITIES['SLASH'], name: '拳击', icon: '✊' }); }
     if (off && off.type === 'SHIELD') { skills.push(ABILITIES['SHIELDWALL']); skills.push(ABILITIES['KNOCK_BACK']); }
     if (char.perks) {
-        if (char.perks.includes('recover')) skills.push({ id: 'RECOVER_SKILL', name: '调息', description: '恢复疲劳。', apCost: 9, fatCost: 0, range: [0,0], icon: '😤', type: 'SKILL', targetType: 'SELF' });
-        if (char.perks.includes('adrenaline')) skills.push({ id: 'ADRENALINE_SKILL', name: '血勇', description: '下回合先动。', apCost: 1, fatCost: 20, range: [0,0], icon: '💉', type: 'SKILL', targetType: 'SELF' });
-        if (char.perks.includes('rotation')) skills.push({ id: 'ROTATION_SKILL', name: '换位', description: '与盟友换位。', apCost: 3, fatCost: 25, range: [1,1], icon: '🔄', type: 'UTILITY', targetType: 'ALLY' });
+        if (char.perks.includes('recover')) skills.push({ id: 'RECOVER_SKILL', name: '调息', description: '清除当前疲劳值的50%。', apCost: 9, fatCost: 0, range: [0,0], icon: '😤', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('adrenaline')) skills.push({ id: 'ADRENALINE_SKILL', name: '血勇', description: '下回合行动顺序提前至最先。', apCost: 1, fatCost: 20, range: [0,0], icon: '💉', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('rotation')) skills.push({ id: 'ROTATION_SKILL', name: '换位', description: '与相邻盟友交换位置。', apCost: 3, fatCost: 25, range: [1,1], icon: '🔄', type: 'UTILITY', targetType: 'ALLY' });
         if (char.perks.includes('footwork')) skills.push({ id: 'FOOTWORK_SKILL', name: '脱身', description: '无视敌人控制区移动一格。', apCost: 3, fatCost: 15, range: [1,1], icon: '💨', type: 'UTILITY', targetType: 'GROUND' });
+        if (char.perks.includes('rally')) skills.push({ id: 'RALLY_SKILL', name: '振军', description: '提高范围内盟友的士气。', apCost: 4, fatCost: 25, range: [0,0], icon: '📢', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('taunt')) skills.push({ id: 'TAUNT_SKILL', name: '挑衅', description: '迫使周围敌人优先攻击自己（1回合）。', apCost: 3, fatCost: 15, range: [0,0], icon: '🤬', type: 'SKILL', targetType: 'SELF' });
+        if (char.perks.includes('indomitable')) skills.push({ id: 'INDOMITABLE_SKILL', name: '不屈', description: '受到伤害减半，持续1回合。', apCost: 5, fatCost: 25, range: [0,0], icon: '🗿', type: 'SKILL', targetType: 'SELF' });
     }
     skills.push(ABILITIES['WAIT']);
     return skills;
@@ -464,6 +469,65 @@ export const VIEWPORT_HEIGHT = 14;
 export const MAX_SQUAD_SIZE = 12;
 export const VISION_RADIUS = 6;
 export const MAX_INVENTORY_SIZE = 30;
+
+// ==================== 等级与经验值系统（from level_config.csv） ====================
+
+/** 各等级所需经验值（从 CSV 加载） */
+const _levelConfigData = parseCSV(LEVEL_CONFIG_CSV);
+export const XP_PER_LEVEL: number[] = _levelConfigData.map((row: any) => row.xpRequired as number);
+
+/** 获取从 level 升到 level+1 所需的 XP */
+export const getXPForNextLevel = (level: number): number => {
+  if (level <= 0) return XP_PER_LEVEL[0];
+  if (level <= XP_PER_LEVEL.length) return XP_PER_LEVEL[level - 1];
+  // 超出表格范围：最后一级 + 每级额外 500
+  return XP_PER_LEVEL[XP_PER_LEVEL.length - 1] + (level - XP_PER_LEVEL.length) * 500;
+};
+
+/**
+ * 检查并执行连续升级（可能一次获得大量XP跳多级）
+ * 每升一级：perkPoints +1
+ * 学徒(student)在 Lv11 时自动返还技能点
+ * @returns 升级后的角色（level/perkPoints/xp 已更新）
+ */
+export const checkLevelUp = (char: Character): { char: Character; levelsGained: number } => {
+  let updated = { ...char };
+  let levelsGained = 0;
+  const studentReturnLv = getPerkEffect('student', 'returnLevel') || 11;
+  while (true) {
+    const xpNeeded = getXPForNextLevel(updated.level);
+    if (updated.xp >= xpNeeded) {
+      updated.xp -= xpNeeded;
+      updated.level += 1;
+      updated.perkPoints += 1;
+      levelsGained += 1;
+      // 学徒在指定等级返还技能点
+      if (updated.level === studentReturnLv && updated.perks.includes('student')) {
+        updated.perkPoints += 1;
+      }
+    } else {
+      break;
+    }
+  }
+  return { char: updated, levelsGained };
+};
+
+// ==================== 专精效果数值表（from perk_effects.csv） ====================
+
+/**
+ * 专精效果配置：perkId → { effectKey → value }
+ * 所有被动/数值效果的参数均从此表读取，代码中不硬编码
+ */
+export const PERK_EFFECTS: Record<string, Record<string, number>> = {};
+parseCSV(PERK_EFFECTS_CSV).forEach((row: any) => {
+  if (!PERK_EFFECTS[row.perkId]) PERK_EFFECTS[row.perkId] = {};
+  PERK_EFFECTS[row.perkId][row.effectKey] = row.value;
+});
+
+/** 便捷取值：获取某个 perk 的某项效果数值，不存在则返回 defaultVal */
+export const getPerkEffect = (perkId: string, effectKey: string, defaultVal: number = 0): number => {
+  return PERK_EFFECTS[perkId]?.[effectKey] ?? defaultVal;
+};
 
 // ==================== 任务描述模板池 ====================
 // NPC 姓名池
@@ -875,6 +939,12 @@ export const getHexDistance = (a: {q:number, r:number}, b: {q:number, r:number})
 
 import { CombatUnit, CombatState, MoraleStatus } from './types.ts';
 import { getMoraleEffects } from './services/moraleService';
+import {
+  getDodgeDefenseBonus, getFastAdaptationBonus,
+  getBackstabberMultiplier, getAnticipationBonus, getShieldExpertBonus,
+  hasUnderdog, isLoneWolfActive, getLoneWolfMultiplier,
+  getWeaponMasteryEffects, hasPerk,
+} from './services/perkService';
 
 /**
  * 获取单位的控制区格子（周围6个相邻格）
@@ -963,16 +1033,23 @@ export const SURROUND_BONUS_MAX = 25;
  * 统计目标周围与攻击者同阵营的存活单位数（不含攻击者自身），
  * 每个额外单位 +5% 命中率，最多 +25%。
  * 
+ * 技能影响：
+ * - 合围(backstabber)：攻击者的合围加成翻倍
+ * - 破围(underdog)：目标不受合围加成影响
+ * 
  * @param attacker 攻击者
  * @param target 目标
  * @param state 战斗状态
- * @returns 合围加成百分比（0~25）
+ * @returns 合围加成百分比（0~25+）
  */
 export const getSurroundingBonus = (
   attacker: CombatUnit,
   target: CombatUnit,
   state: CombatState
 ): number => {
+  // === 破围 (underdog): 目标不受合围加成影响 ===
+  if (hasUnderdog(target)) return 0;
+  
   // 统计目标周围1格内与攻击者同阵营的存活单位数（不含攻击者）
   const adjacentAllies = state.units.filter(u =>
     !u.isDead &&
@@ -980,8 +1057,16 @@ export const getSurroundingBonus = (
     u.id !== attacker.id &&
     getHexDistance(u.combatPos, target.combatPos) === 1
   );
-  const bonus = adjacentAllies.length * SURROUND_BONUS_PER_UNIT;
-  return Math.min(bonus, SURROUND_BONUS_MAX);
+  let bonus = adjacentAllies.length * SURROUND_BONUS_PER_UNIT;
+  bonus = Math.min(bonus, SURROUND_BONUS_MAX);
+  
+  // === 合围 (backstabber): 攻击者的合围加成翻倍 ===
+  const backstabberMult = getBackstabberMultiplier(attacker);
+  if (backstabberMult > 1) {
+    bonus = Math.floor(bonus * backstabberMult);
+  }
+  
+  return bonus;
 };
 
 // ==================== 统一命中率计算 ====================
@@ -1005,6 +1090,10 @@ export interface HitChanceBreakdown {
   heightMod: number;
   /** 合围加成 */
   surroundBonus: number;
+  /** 身法(dodge)防御加成 */
+  dodgeDef: number;
+  /** 临机应变(fast_adaptation)命中加成 */
+  adaptationBonus: number;
 }
 
 /**
@@ -1028,19 +1117,42 @@ export const calculateHitChance = (
     : false;
   // 对远程武器的判定：检查主手武器是否为弓/弩类
   const weaponName = attacker.equipment.mainHand?.name || '';
+  const weaponClass = attacker.equipment.mainHand?.weaponClass || '';
   const isRangedByName = weaponName.includes('弓') || weaponName.includes('弩') ||
     weaponName.includes('飞石') || weaponName.includes('飞蝗') ||
-    weaponName.includes('标枪') || weaponName.includes('投矛') || weaponName.includes('飞斧');
+    weaponName.includes('标枪') || weaponName.includes('投矛') || weaponName.includes('飞斧') ||
+    weaponClass === 'bow' || weaponClass === 'crossbow' || weaponClass === 'throw';
 
   // 基础技能
-  const baseSkill = isRangedByName
+  let baseSkill = isRangedByName
     ? attacker.stats.rangedSkill
     : attacker.stats.meleeSkill;
 
+  // === 独胆 (lone_wolf): 全属性+15% ===
+  if (isLoneWolfActive(attacker, state)) {
+    baseSkill = Math.floor(baseSkill * getLoneWolfMultiplier());
+  }
+
   // 目标防御
-  const targetDefense = isRangedByName
+  let baseTargetDefense = isRangedByName
     ? target.stats.rangedDefense
     : target.stats.meleeDefense;
+
+  // === 独胆 (lone_wolf): 目标如果有独胆，防御也+15% ===
+  if (isLoneWolfActive(target, state)) {
+    baseTargetDefense = Math.floor(baseTargetDefense * getLoneWolfMultiplier());
+  }
+
+  // 身法(dodge)防御加成：基于当前先手值
+  const dodgeDef = getDodgeDefenseBonus(target);
+  
+  // === 预判 (anticipation): 被远程攻击时额外防御 ===
+  const anticipationDef = isRangedByName ? getAnticipationBonus(target) : 0;
+  
+  // === 兵势 (reach_advantage): 双手武器命中累积的近战防御 ===
+  const reachAdvDef = (target.reachAdvantageBonus || 0);
+  
+  const targetDefense = baseTargetDefense + dodgeDef + anticipationDef + reachAdvDef;
 
   // 武器命中修正
   const weapon = attacker.equipment.mainHand;
@@ -1052,9 +1164,19 @@ export const calculateHitChance = (
 
   // 盾牌防御
   const targetShield = target.equipment.offHand;
-  const shieldDef = (targetShield?.type === 'SHIELD' && targetShield.defenseBonus)
+  let shieldDef = (targetShield?.type === 'SHIELD' && targetShield.defenseBonus)
     ? targetShield.defenseBonus
     : 0;
+
+  // === 盾法精通 (shield_expert): 盾牌防御+25% ===
+  const shieldExpertBonus = getShieldExpertBonus(target);
+  shieldDef += shieldExpertBonus;
+  
+  // === 连枷精通 (flail_mastery): 无视盾牌防御 ===
+  const masteryEffects = getWeaponMasteryEffects(attacker);
+  if (masteryEffects.ignoreShieldDef) {
+    shieldDef = 0;
+  }
 
   // 盾墙额外防御
   const shieldWallDef = (target.isShieldWall && targetShield?.type === 'SHIELD') ? 15 : 0;
@@ -1067,8 +1189,11 @@ export const calculateHitChance = (
   // 合围加成
   const surroundBonus = getSurroundingBonus(attacker, target, state);
 
+  // 临机应变(fast_adaptation)命中加成
+  const adaptationBonus = getFastAdaptationBonus(attacker);
+
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus;
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus;
   final = Math.max(5, Math.min(95, final));
 
   return {
@@ -1081,6 +1206,8 @@ export const calculateHitChance = (
     shieldWallDef,
     heightMod,
     surroundBonus,
+    dodgeDef,
+    adaptationBonus,
   };
 };
 

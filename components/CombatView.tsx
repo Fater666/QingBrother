@@ -3,6 +3,14 @@ import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.t
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus } from '../constants';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {
+  getMovementCost, checkNineLives, hasPerk,
+  getBerserkAPRecovery, hasHeadHunter, getKillingFrenzyMultiplier,
+  getOverwhelmStacks, getReachAdvantageBonus, hasFearsome,
+  resetTurnStartStates, applyAdrenalineTurnOrder,
+  getWeaponMasteryFatigueMultiplier, getWeaponMasteryEffects,
+  isLoneWolfActive, getLoneWolfMultiplier,
+} from '../services/perkService';
+import {
   handleAllyDeath,
   handleHeavyDamage,
   handleEnemyKilled,
@@ -1074,13 +1082,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const attacker = prev.units.find(u => u.id === attackerId);
       if (!target) return prev;
       
+      // === 命不该绝 (nine_lives) ===
+      let finalDamage = hpDamage;
+      let nineLivesTriggered = false;
+      const nlCheck = checkNineLives(target, hpDamage);
+      if (nlCheck.triggered) {
+        finalDamage = nlCheck.adjustedDamage;
+        nineLivesTriggered = true;
+      }
+      
       const previousHp = target.hp;
-      const newHp = Math.max(0, target.hp - hpDamage);
+      const newHp = Math.max(0, target.hp - finalDamage);
       const isDead = newHp <= 0;
       
       let updatedUnits = prev.units.map(u => {
         if (u.id === targetId) {
           const updated: any = { ...u, hp: newHp, isDead };
+          
+          // 命不该绝触发标记
+          if (nineLivesTriggered) {
+            updated.nineLivesUsed = true;
+          }
           
           // 如果有护甲伤害结果，更新护甲耐久
           if (damageResult && damageResult.armorType) {
@@ -1110,6 +1132,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       const newState = { ...prev, units: updatedUnits };
       const allResults: MoraleCheckResult[] = [];
+      
+      // 命不该绝日志
+      if (nineLivesTriggered) {
+        addToLog(`🐈 ${target.name} 命不该绝！致命伤害被化解，HP 保留 ${newHp}！`, 'skill');
+      }
       
       // 1. 如果目标死亡，触发友军士气检定
       if (isDead) {
@@ -1263,20 +1290,44 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       const isNewRound = nextIdx === 0;
       
+      // === 血勇 (adrenaline): 新回合开始时调整回合顺序 ===
+      let newTurnOrder = prev.turnOrder;
+      if (isNewRound) {
+        newTurnOrder = applyAdrenalineTurnOrder(prev.turnOrder, prev.units);
+        // 重新查找 nextIdx（血勇可能改变了顺序）
+        nextIdx = 0;
+        let retries = 0;
+        while (retries < newTurnOrder.length) {
+          const u = prev.units.find(uu => uu.id === newTurnOrder[nextIdx]);
+          if (u && !u.isDead) break;
+          nextIdx = (nextIdx + 1) % newTurnOrder.length;
+          retries++;
+        }
+      }
+      
       return { 
-        ...prev, 
+        ...prev,
+        turnOrder: newTurnOrder,
         currentUnitIndex: nextIdx,
         round: isNewRound ? prev.round + 1 : prev.round,
         units: prev.units.map(u => {
-          // 新回合开始时重置所有单位的截击使用状态和等待计数
+          // 新回合开始时重置所有单位的各种状态
           if (isNewRound) {
-            if (u.id === prev.turnOrder[nextIdx]) {
-              return { ...u, currentAP: 9, hasUsedFreeAttack: false, waitCount: 0 };
+            let updated = { ...u, hasUsedFreeAttack: false, waitCount: 0 };
+            // === 重置专精回合状态 ===
+            updated = resetTurnStartStates(updated);
+            // 重置血勇标记
+            if (updated.adrenalineActive) updated.adrenalineActive = false;
+            // 重置挑衅标记
+            if (updated.taunting) updated.taunting = false;
+            
+            if (u.id === newTurnOrder[nextIdx]) {
+              return { ...updated, currentAP: 9 };
             }
-            return { ...u, hasUsedFreeAttack: false, waitCount: 0 };
+            return updated;
           }
           // 当前单位回合开始时恢复AP
-          if (u.id === prev.turnOrder[nextIdx]) {
+          if (u.id === newTurnOrder[nextIdx]) {
             return { ...u, currentAP: 9 };
           }
           return u;
@@ -1723,6 +1774,132 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const isVisible = visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`);
     if (!isVisible) return;
 
+    // ==================== 自身目标技能处理 ====================
+    // 调息 (recover): 清除50%疲劳
+    if (selectedAbility.id === 'RECOVER_SKILL') {
+      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            const fatigueReduction = Math.floor(u.fatigue * 0.5);
+            return { ...u, currentAP: u.currentAP - selectedAbility.apCost, fatigue: u.fatigue - fatigueReduction };
+          }
+          return u;
+        })
+      }));
+      addToLog(`😤 ${activeUnit.name} 使用调息，恢复了疲劳！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
+    
+    // 血勇 (adrenaline): 下回合行动顺序提前至最先
+    if (selectedAbility.id === 'ADRENALINE_SKILL') {
+      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              adrenalineActive: true,
+            };
+          }
+          return u;
+        })
+      }));
+      addToLog(`💉 ${activeUnit.name} 使用血勇，下回合将最先行动！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
+    
+    // 振军 (rally): 提高范围内盟友士气
+    if (selectedAbility.id === 'RALLY_SKILL') {
+      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+      setState(prev => {
+        // 提升自身和周围4格内盟友的士气
+        const affectedAllies = prev.units.filter(u =>
+          !u.isDead && u.team === activeUnit.team &&
+          getHexDistance(u.combatPos, activeUnit.combatPos) <= 4
+        );
+        const rallyNames: string[] = [];
+        const updatedUnits = prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+            };
+          }
+          // 提升盟友士气
+          if (affectedAllies.some(a => a.id === u.id) && u.morale !== MoraleStatus.CONFIDENT) {
+            const MORALE_UPGRADE: Record<string, MoraleStatus> = {
+              [MoraleStatus.FLEEING]: MoraleStatus.BREAKING,
+              [MoraleStatus.BREAKING]: MoraleStatus.WAVERING,
+              [MoraleStatus.WAVERING]: MoraleStatus.STEADY,
+              [MoraleStatus.STEADY]: MoraleStatus.CONFIDENT,
+            };
+            const newMorale = MORALE_UPGRADE[u.morale];
+            if (newMorale) {
+              rallyNames.push(u.name);
+              return { ...u, morale: newMorale };
+            }
+          }
+          return u;
+        });
+        return { ...prev, units: updatedUnits };
+      });
+      addToLog(`📢 ${activeUnit.name} 振军鼓舞！周围盟友士气提升！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
+    
+    // 挑衅 (taunt): 迫使周围敌人攻击自己
+    if (selectedAbility.id === 'TAUNT_SKILL') {
+      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              taunting: true,
+            };
+          }
+          return u;
+        })
+      }));
+      addToLog(`🤬 ${activeUnit.name} 使用挑衅！周围敌人将优先攻击自己！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
+    
+    // 不屈 (indomitable): 受到伤害减半1回合
+    if (selectedAbility.id === 'INDOMITABLE_SKILL') {
+      if (activeUnit.currentAP < selectedAbility.apCost) { addToLog('AP不足！'); return; }
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost),
+              isIndomitable: true,
+            };
+          }
+          return u;
+        })
+      }));
+      addToLog(`🗿 ${activeUnit.name} 使用不屈！受到的伤害将减半！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
+
     // ==================== 脱身技能处理 ====================
     if (selectedAbility.id === 'FOOTWORK_SKILL') {
       const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
@@ -1765,12 +1942,79 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       setSelectedAbility(null);
       return;
     }
+    
+    // ==================== 换位技能处理 ====================
+    if (selectedAbility.id === 'ROTATION_SKILL') {
+      const allyTarget = state.units.find(u =>
+        !u.isDead && u.team === 'PLAYER' && u.id !== activeUnit.id &&
+        u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r
+      );
+      if (!allyTarget) {
+        addToLog('需要选择一个相邻的盟友！');
+        return;
+      }
+      const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+      if (dist !== 1) {
+        addToLog('换位只能选择相邻的盟友！');
+        return;
+      }
+      if (activeUnit.currentAP < selectedAbility.apCost) {
+        addToLog('AP不足！');
+        return;
+      }
+      
+      const myPos = { ...activeUnit.combatPos };
+      const allyPos = { ...allyTarget.combatPos };
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => {
+          if (u.id === activeUnit.id) {
+            return {
+              ...u,
+              combatPos: allyPos,
+              currentAP: u.currentAP - selectedAbility.apCost,
+              fatigue: Math.min(u.maxFatigue, u.fatigue + selectedAbility.fatCost)
+            };
+          }
+          if (u.id === allyTarget.id) {
+            return { ...u, combatPos: myPos };
+          }
+          return u;
+        })
+      }));
+      
+      addToLog(`🔄 ${activeUnit.name} 与 ${allyTarget.name} 交换了位置！`, 'skill');
+      setSelectedAbility(null);
+      return;
+    }
 
+    // ==================== 攻击处理 ====================
     const target = state.units.find(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
     if (target && target.team === 'ENEMY') {
         const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-        if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
-            if (activeUnit.currentAP < selectedAbility.apCost) return;
+        
+        // === 武器精通：射程修正 ===
+        const masteryEffects = getWeaponMasteryEffects(activeUnit);
+        let effectiveMaxRange = selectedAbility.range[1];
+        if (masteryEffects.bowRangeBonus) {
+          effectiveMaxRange += masteryEffects.bowRangeBonus;
+        }
+        
+        if (dist >= selectedAbility.range[0] && dist <= effectiveMaxRange) {
+            // === 武器精通：AP消耗修正 ===
+            let apCost = selectedAbility.apCost || 4;
+            if (masteryEffects.reducedApCost) {
+              apCost = Math.min(apCost, masteryEffects.reducedApCost);
+            }
+            if (masteryEffects.daggerReducedAp && selectedAbility.type === 'ATTACK') {
+              apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
+            }
+            
+            if (activeUnit.currentAP < apCost) return;
+            
+            // === 武器精通：疲劳消耗修正 ===
+            const fatigueMult = getWeaponMasteryFatigueMultiplier(activeUnit);
+            const effectiveFatCost = Math.floor((selectedAbility.fatCost || 0) * fatigueMult);
             
             // ==================== 命中判定（含合围加成） ====================
             const attackerTerrain = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`);
@@ -1779,11 +2023,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff);
             const isHit = rollHitCheck(hitInfo.final);
             
-            // 先扣除 AP（无论命中与否）
+            // 先扣除 AP 和疲劳（无论命中与否）
             setState(prev => ({
                 ...prev,
                 units: prev.units.map(u => {
-                    if (u.id === activeUnit.id) return { ...u, currentAP: u.currentAP - (selectedAbility.apCost || 4) };
+                    if (u.id === activeUnit.id) return {
+                      ...u,
+                      currentAP: u.currentAP - apCost,
+                      fatigue: Math.min(u.maxFatigue, u.fatigue + effectiveFatCost),
+                    };
                     return u;
                 })
             }));
@@ -1791,6 +2039,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             if (!isHit) {
               // ==================== 未命中 ====================
               const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+              // 临机应变(fast_adaptation)：未命中叠层 +1
+              if (hasPerk(activeUnit, 'fast_adaptation')) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u => u.id === activeUnit.id
+                    ? { ...u, fastAdaptationStacks: (u.fastAdaptationStacks || 0) + 1 }
+                    : u)
+                }));
+              }
               setFloatingTexts(prev => [...prev, {
                 id: Date.now(),
                 text: 'MISS',
@@ -1801,14 +2058,55 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 size: 'md' as const,
               }]);
               triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#475569');
-              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)`, 'info');
+              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)${hasPerk(activeUnit, 'fast_adaptation') ? ` 🎯临机+${(activeUnit.fastAdaptationStacks || 0) + 1}0%` : ''}`, 'info');
               setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
               return;
             }
             
             // ==================== 命中：使用护甲伤害系统 ====================
+            // 临机应变(fast_adaptation)：命中时重置叠层
+            if (hasPerk(activeUnit, 'fast_adaptation') && (activeUnit.fastAdaptationStacks || 0) > 0) {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u => u.id === activeUnit.id
+                  ? { ...u, fastAdaptationStacks: 0 }
+                  : u)
+              }));
+            }
             const dmgResult = calculateDamage(activeUnit, target);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+            
+            // === 命中后的专精效果 ===
+            setState(prev => ({
+              ...prev,
+              units: prev.units.map(u => {
+                // 攻击者效果
+                if (u.id === activeUnit.id) {
+                  const updates: any = {};
+                  // 索首 (head_hunter): 命中身体后下次打头，命中头部后重置
+                  if (hasHeadHunter(u)) {
+                    updates.headHunterActive = dmgResult.hitLocation === 'BODY';
+                  }
+                  // 兵势 (reach_advantage): 双手武器命中+5近战防御
+                  const reachBonus = getReachAdvantageBonus(u);
+                  if (reachBonus > 0) {
+                    updates.reachAdvantageBonus = (u.reachAdvantageBonus || 0) + reachBonus;
+                  }
+                  return Object.keys(updates).length > 0 ? { ...u, ...updates } : u;
+                }
+                // 目标效果
+                if (u.id === target.id) {
+                  const updates: any = {};
+                  // 压制 (overwhelm): 被命中后累加压制层
+                  const overwhelmAdd = getOverwhelmStacks(activeUnit);
+                  if (overwhelmAdd > 0) {
+                    updates.overwhelmStacks = (u.overwhelmStacks || 0) + overwhelmAdd;
+                  }
+                  return Object.keys(updates).length > 0 ? { ...u, ...updates } : u;
+                }
+                return u;
+              })
+            }));
             
             // 构建浮动伤害文字（护甲伤害+HP伤害）
             const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
@@ -1860,11 +2158,43 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             // 处理伤害和士气检定（传入完整伤害结果）
             processDamageWithMorale(target.id, dmgResult.hpDamageDealt, activeUnit.id, dmgResult);
             
-            // 击杀特效
+            // 击杀特效和击杀奖励
             if (dmgResult.willKill) {
               triggerDeathEffect(target.combatPos.q, target.combatPos.r);
               showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
               addToLog(`💀 ${target.name} 阵亡！`, 'kill');
+              
+              // === 狂战 (berserk): 击杀回复AP ===
+              const berserkAP = getBerserkAPRecovery(activeUnit);
+              if (berserkAP > 0) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u => u.id === activeUnit.id
+                    ? { ...u, currentAP: Math.min(9, u.currentAP + berserkAP) }
+                    : u)
+                }));
+                addToLog(`😡 ${activeUnit.name} 狂战发动！回复 ${berserkAP} AP！`, 'skill');
+              }
+              
+              // === 杀意 (killing_frenzy): 击杀后伤害加成 ===
+              if (hasPerk(activeUnit, 'killing_frenzy')) {
+                const duration = 2;
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u => u.id === activeUnit.id
+                    ? { ...u, killingFrenzyTurns: duration }
+                    : u)
+                }));
+                addToLog(`🩸 ${activeUnit.name} 杀意激发！伤害提升25%，持续${duration}回合！`, 'skill');
+              }
+            }
+            
+            // === 威压 (fearsome): 任何造成伤害的攻击触发士气检定 ===
+            if (hasFearsome(activeUnit) && dmgResult.hpDamageDealt >= 1 && !dmgResult.willKill) {
+              // 士气检定已在 processDamageWithMorale 中处理（handleHeavyDamage）
+              // 威压的特殊效果是：即使伤害不够"重伤"标准也会触发检定
+              // 额外触发一次轻微士气检定
+              addToLog(`👻 ${activeUnit.name} 的威压令 ${target.name} 心生畏惧！`, 'morale');
             }
         }
     }
@@ -1883,7 +2213,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
     
     const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-    const apCost = dist * 2;
+    // 识途(pathfinder)：移动 AP 消耗减少
+    const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
+    const apCost = moveCost.apCost;
     
     // 检查AP是否足够且目标位置未被占用
     if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
@@ -2339,7 +2671,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
                 </div>
               )}
-              <div className="font-bold">移动消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</div>
+              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, hoveredHex), hasPerk(activeUnit, 'pathfinder')).apCost} AP{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
               
               {/* 控制区警告 */}
               {willTriggerZoC && (
