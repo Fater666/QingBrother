@@ -31,7 +31,6 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
   const [showContent, setShowContent] = useState(false);
   const [showButtons, setShowButtons] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [showContact, setShowContact] = useState(false);
   const [quoteIndex] = useState(() => Math.floor(Math.random() * QUOTES.length));
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -216,14 +215,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
             )}
           </button>
 
-          {/* 选项 */}
+          {/* 联系开发者 */}
           <button 
-            onClick={() => setShowSettings(true)}
+            onClick={() => setShowContact(true)}
             className="group relative w-72 py-3 text-center overflow-hidden"
           >
             <div className="absolute inset-0 border border-amber-900/20 group-hover:border-amber-700/40 transition-all duration-500" />
             <span className="relative text-amber-700/60 group-hover:text-amber-500/80 text-sm tracking-[0.3em] transition-colors duration-300">
-              选 项
+              联 系 开 发 者
             </span>
           </button>
         </div>
@@ -243,88 +242,6 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
       {/* 联系开发者面板 */}
       {showContact && (
         <ContactModal onClose={() => setShowContact(false)} />
-      )}
-
-      {/* 选项面板 */}
-      {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
-        >
-          <div className="w-full max-w-lg bg-[#0d0906] border border-amber-900/40 shadow-2xl relative overflow-hidden">
-            {/* 竹简纹理背景 */}
-            <div className="absolute inset-0 opacity-[0.04]" 
-              style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(139,69,19,0.5) 3px, rgba(139,69,19,0.5) 4px)' }} 
-            />
-            
-            {/* 标题 */}
-            <div className="relative px-8 pt-8 pb-4 border-b border-amber-900/20">
-              <h3 className="text-xl text-amber-500 tracking-[0.4em] font-bold text-center">选 项</h3>
-            </div>
-
-            {/* 设置内容 */}
-            <div className="relative px-8 py-6 space-y-6">
-              
-              {/* 难度选择 */}
-              <div>
-                <label className="block text-amber-600/80 text-sm tracking-widest mb-3">战局难度</label>
-                <div className="flex gap-2">
-                  {[
-                    { label: '初入乱世', desc: '适合新手', active: false },
-                    { label: '百战沙场', desc: '标准体验', active: true },
-                    { label: '修罗战场', desc: '极限挑战', active: false },
-                  ].map((d, i) => (
-                    <button key={i}
-                      className={`flex-1 py-3 px-2 border text-center transition-all ${
-                        d.active 
-                          ? 'border-amber-600/60 bg-amber-900/20 text-amber-400' 
-                          : 'border-slate-800/40 text-slate-500 hover:border-slate-700/60 hover:text-slate-400'
-                      }`}
-                    >
-                      <div className="text-xs tracking-wider">{d.label}</div>
-                      <div className="text-[10px] mt-1 opacity-50">{d.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 自动存档 */}
-              <div className="flex items-center justify-between">
-                <label className="text-amber-600/80 text-sm tracking-widest">自动记录战况</label>
-                <div className="w-10 h-5 rounded-full bg-amber-900/40 border border-amber-700/30 relative cursor-pointer">
-                  <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-amber-600 transition-transform translate-x-5" />
-                </div>
-              </div>
-
-              {/* 战斗动画速度 */}
-              <div>
-                <label className="block text-amber-600/80 text-sm tracking-widest mb-3">战斗行军速</label>
-                <div className="flex gap-2">
-                  {['慢', '常', '快'].map((s, i) => (
-                    <button key={s}
-                      className={`flex-1 py-2 border text-xs tracking-wider transition-all ${
-                        i === 1 
-                          ? 'border-amber-600/60 bg-amber-900/20 text-amber-400' 
-                          : 'border-slate-800/40 text-slate-500 hover:border-slate-700/60'
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* 关闭按钮 */}
-            <div className="relative px-8 py-6 border-t border-amber-900/20">
-              <button 
-                onClick={() => setShowSettings(false)}
-                className="w-full py-3 border border-amber-800/40 hover:border-amber-600/60 text-amber-600/80 hover:text-amber-400 text-sm tracking-[0.3em] transition-all hover:bg-amber-900/10"
-              >
-                返 回
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
