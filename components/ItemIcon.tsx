@@ -208,7 +208,7 @@ export const ItemIcon: React.FC<ItemIconProps> = ({ item, className = "", showBa
     <div className={`relative ${className} select-none overflow-hidden`}>
        {/* Background Noise Texture */}
        {showBackground && <div className="absolute inset-0 bg-[#1c1917] opacity-100" />}
-       {showBackground && <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/p6.png')]" />}
+       {showBackground && <div className="absolute inset-0 opacity-10 bg-[url('/images/p6.png')]" />}
        
        <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md">
            {renderIcon()}
