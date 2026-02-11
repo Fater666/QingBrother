@@ -19,7 +19,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ onClose }) => {
         
         {/* 标题 */}
         <div className="relative px-8 pt-8 pb-4 border-b border-amber-900/20">
-          <h3 className="text-xl text-amber-500 tracking-[0.4em] font-bold text-center">联 系 我 们</h3>
+          <h3 className="text-xl text-amber-500 tracking-[0.2em] font-bold text-center">联 系 开 发 者</h3>
           <p className="text-xs text-amber-700/50 tracking-widest text-center mt-2">与伍同行，共话战国</p>
         </div>
 

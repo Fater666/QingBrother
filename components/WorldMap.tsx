@@ -1654,6 +1654,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   const playerBiome = getBiome(playerTileY, MAP_SIZE);
   const playerBiomeName = BIOME_CONFIGS[playerBiome].name;
   const playerTerrainName = playerTile ? (TERRAIN_NAMES[playerTile.type] || playerTile.type) : '未知';
+  const dailyWages = party.mercenaries.reduce((sum, m) => sum + m.salary, 0);
+  const dailyFood = party.mercenaries.length;
   
   // 缩放等级
   const zoomPercent = Math.round((1 - (viewportWidth - 10) / (MAP_SIZE - 10)) * 100);
@@ -1908,11 +1910,29 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               </div>
             </div>
             
-            {/* 中间：仅天数（金/粮/人在顶部导航栏显示） */}
-            <div className="flex flex-col items-center">
+            {/* 中间：天数 + 资源/每日补给 */}
+            <div className="flex flex-col items-center gap-1.5">
               <div className="text-3xl font-bold text-amber-600 font-serif tracking-widest"
                    style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
                 第 {Math.floor(party.day)} 天
+              </div>
+              <div className="flex gap-2 sm:gap-3 text-[11px] sm:text-xs font-mono items-center whitespace-nowrap">
+                <span className="text-amber-500">
+                  💰 {party.gold}
+                  {dailyWages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyWages}</span>}
+                </span>
+                <span className="text-emerald-500">
+                  🌾 {party.food}
+                  {dailyFood > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyFood}</span>}
+                </span>
+                <span className={party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}>
+                  💊 {party.medicine}
+                </span>
+                <span className={party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}>
+                  🔧 {party.repairSupplies}
+                </span>
+                <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
+                <span className="text-yellow-600">望: {party.reputation}</span>
               </div>
             </div>
             

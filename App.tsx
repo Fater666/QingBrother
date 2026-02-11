@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp } from './constants';
 import { applyStudentXPBonus, applyColossus, applyFortifiedMind, applyBrawny } from './services/perkService';
@@ -744,6 +744,8 @@ export const App: React.FC = () => {
   const [hasSave, setHasSave] = useState<boolean>(hasAnySaveData());
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
   const [showContact, setShowContact] = useState(false);
+  const [showSystemMenu, setShowSystemMenu] = useState(false);
+  const systemMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 每日消耗/恢复追踪
   const lastProcessedDayRef = useRef<number>(1);
@@ -1636,27 +1638,16 @@ export const App: React.FC = () => {
   // 是否是游戏前的菜单/叙事阶段
   const isPreGameView = view === 'MAIN_MENU' || view === 'PROLOGUE' || view === 'ORIGIN_SELECT' || view === 'INTRO_STORY';
 
-  // === 每日消耗预估计算 ===
-  const dailyCosts = useMemo(() => {
-    const wages = party.mercenaries.reduce((sum, m) => sum + m.salary, 0);
-    const food = party.mercenaries.length; // 每人每天消耗1份粮食
-    const injuredCount = party.mercenaries.filter(m => m.hp < m.maxHp).length;
-    const medicineEst = injuredCount * 5; // 每位伤员消耗5点医药
-    let damagedEquipCount = 0;
-    party.mercenaries.forEach(m => {
-      (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof typeof m.equipment)[]).forEach(slot => {
-        const item = m.equipment[slot];
-        if (item && item.maxDurability > 0 && item.durability < item.maxDurability) damagedEquipCount++;
-      });
-    });
-    party.inventory.forEach(item => {
-      if (item.type !== 'CONSUMABLE' && item.maxDurability > 0 && item.durability < item.maxDurability) damagedEquipCount++;
-    });
-    const repairEst = damagedEquipCount * 3; // 每件受损装备消耗3点修甲材料
-    const goldDaysLeft = wages > 0 ? Math.floor(party.gold / wages) : Infinity;
-    const foodDaysLeft = food > 0 ? Math.floor(party.food / food) : Infinity;
-    return { wages, food, medicineEst, repairEst, injuredCount, damagedEquipCount, goldDaysLeft, foodDaysLeft };
-  }, [party]);
+  useEffect(() => {
+    if (!showSystemMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (systemMenuRef.current && !systemMenuRef.current.contains(event.target as Node)) {
+        setShowSystemMenu(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, [showSystemMenu]);
 
   return (
     <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
@@ -1664,18 +1655,60 @@ export const App: React.FC = () => {
       {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && (
           <nav className="bg-black border-b border-amber-900/40 px-3 sm:px-6 py-2 sm:py-0 sm:h-14 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-                <span className="text-amber-500 font-bold tracking-[0.12em] sm:tracking-widest text-sm sm:text-lg uppercase italic">战国·与伍同行</span>
-                <div className="h-5 w-px bg-amber-900/40 hidden sm:block" />
-                <button 
-                    onClick={() => setView(view === 'CAMP' ? 'WORLD_MAP' : 'CAMP')}
-                    className={`px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border ${view === 'CAMP' ? 'bg-amber-600 text-white border-amber-500' : 'text-amber-500 border-amber-900/40 hover:border-amber-500'}`}
+                <button
+                  onClick={() => setView('CAMP')}
+                  className="px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
                 >
-                    战团营地
+                  战团营地
                 </button>
-                <div className="flex gap-2 sm:ml-2">
-                    <button onClick={() => setSaveLoadMode('SAVE')} className="px-2.5 sm:px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
-                    <button onClick={() => setSaveLoadMode('LOAD')} className="px-2.5 sm:px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
-                    <button onClick={() => setShowContact(true)} className="px-2.5 sm:px-3 py-1 text-[10px] text-amber-500 border border-amber-900/40 hover:bg-amber-900/20 transition-all uppercase">联系</button>
+                <button
+                  onClick={() => setView('WORLD_MAP')}
+                  className="px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
+                >
+                  返回地图
+                </button>
+                <div className="relative sm:ml-2" ref={systemMenuRef}>
+                  <button
+                    onClick={() => setShowSystemMenu(v => !v)}
+                    className={`px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border uppercase tracking-[0.25em] ${
+                      showSystemMenu
+                        ? 'bg-amber-600 text-white border-amber-500'
+                        : 'text-amber-500 border-amber-700/60 hover:border-amber-500 hover:bg-amber-900/20'
+                    }`}
+                  >
+                    系统
+                  </button>
+                  {showSystemMenu && (
+                    <div className="absolute top-full left-0 mt-2 min-w-40 bg-[#120d09]/95 border border-amber-900/50 shadow-2xl z-[120] p-1.5 flex flex-col gap-1">
+                      <button
+                        onClick={() => {
+                          setSaveLoadMode('SAVE');
+                          setShowSystemMenu(false);
+                        }}
+                        className="px-3 py-1.5 text-left text-[11px] text-emerald-400 border border-transparent hover:border-emerald-700/50 hover:bg-emerald-900/20 transition-all"
+                      >
+                        存档
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSaveLoadMode('LOAD');
+                          setShowSystemMenu(false);
+                        }}
+                        className="px-3 py-1.5 text-left text-[11px] text-blue-400 border border-transparent hover:border-blue-700/50 hover:bg-blue-900/20 transition-all"
+                      >
+                        读档
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowContact(true);
+                          setShowSystemMenu(false);
+                        }}
+                        className="px-3 py-1.5 text-left text-[11px] text-amber-400 border border-transparent hover:border-amber-700/50 hover:bg-amber-900/20 transition-all"
+                      >
+                        联系开发者
+                      </button>
+                    </div>
+                  )}
                 </div>
              </div>
 
@@ -1707,88 +1740,7 @@ export const App: React.FC = () => {
                </div>
              )}
 
-             <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6">
-                 {/* 资源显示 + 每日消耗悬浮面板 */}
-                 <div className="relative group/costs cursor-default min-w-0">
-                   <div className="flex gap-2 sm:gap-4 text-[11px] sm:text-xs font-mono items-center whitespace-nowrap overflow-x-auto max-w-[72vw] sm:max-w-none">
-                     <span className="text-amber-500">
-                       💰 {party.gold}
-                       {dailyCosts.wages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5 hidden sm:inline">-{dailyCosts.wages}</span>}
-                     </span>
-                     <span className="text-emerald-500">
-                       🌾 {party.food}
-                       <span className="text-red-400/70 text-[10px] ml-0.5 hidden sm:inline">-{dailyCosts.food}</span>
-                     </span>
-                     <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`}>
-                       💊 {party.medicine}
-                     </span>
-                     <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`}>
-                       🔧 {party.repairSupplies}
-                     </span>
-                     <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
-                     <span className="text-yellow-600">望: {party.reputation}</span>
-                   </div>
-                   {/* 悬浮详细面板 - 战场兄弟风格（桌面端） */}
-                   <div className="hidden sm:block absolute top-full right-0 mt-1.5 w-64 bg-slate-950/95 border border-amber-900/50 rounded shadow-xl shadow-black/50 opacity-0 group-hover/costs:opacity-100 pointer-events-none group-hover/costs:pointer-events-auto transition-opacity duration-150 z-[100] p-3">
-                     <div className="text-[10px] text-amber-600 uppercase tracking-widest mb-2 border-b border-amber-900/30 pb-1.5">每日消耗预估</div>
-                     <div className="space-y-1.5 text-[11px] font-mono">
-                       {/* 工资 */}
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-400">💰 每日工资</span>
-                         <span className={dailyCosts.wages > 0 ? 'text-red-400' : 'text-slate-600'}>-{dailyCosts.wages} 金</span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-500 text-[10px] pl-4">可支撑</span>
-                         <span className={`text-[10px] ${dailyCosts.goldDaysLeft <= 3 ? 'text-red-400' : dailyCosts.goldDaysLeft <= 7 ? 'text-amber-400' : 'text-slate-500'}`}>
-                           {dailyCosts.goldDaysLeft === Infinity ? '∞' : `${dailyCosts.goldDaysLeft} 天`}
-                         </span>
-                       </div>
-                       {/* 分隔线 */}
-                       <div className="border-t border-slate-800/60 my-1" />
-                       {/* 粮食 */}
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-400">🌾 每日粮食</span>
-                         <span className="text-red-400">-{dailyCosts.food} 份</span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-500 text-[10px] pl-4">可支撑</span>
-                         <span className={`text-[10px] ${dailyCosts.foodDaysLeft <= 3 ? 'text-red-400' : dailyCosts.foodDaysLeft <= 7 ? 'text-amber-400' : 'text-slate-500'}`}>
-                           {dailyCosts.foodDaysLeft === Infinity ? '∞' : `${dailyCosts.foodDaysLeft} 天`}
-                         </span>
-                       </div>
-                       {/* 分隔线 */}
-                       <div className="border-t border-slate-800/60 my-1" />
-                       {/* 医药 */}
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-400">💊 医药消耗</span>
-                         <span className={dailyCosts.medicineEst > 0 ? 'text-red-400' : 'text-slate-600'}>
-                           {dailyCosts.medicineEst > 0 ? `-${dailyCosts.medicineEst} 点` : '无需'}
-                         </span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-500 text-[10px] pl-4">当前伤员</span>
-                         <span className={`text-[10px] ${dailyCosts.injuredCount > 0 ? 'text-sky-400' : 'text-slate-600'}`}>
-                           {dailyCosts.injuredCount} 人
-                         </span>
-                       </div>
-                       {/* 分隔线 */}
-                       <div className="border-t border-slate-800/60 my-1" />
-                       {/* 修甲 */}
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-400">🔧 修甲消耗</span>
-                         <span className={dailyCosts.repairEst > 0 ? 'text-red-400' : 'text-slate-600'}>
-                           {dailyCosts.repairEst > 0 ? `-${dailyCosts.repairEst} 点` : '无需'}
-                         </span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                         <span className="text-slate-500 text-[10px] pl-4">受损装备</span>
-                         <span className={`text-[10px] ${dailyCosts.damagedEquipCount > 0 ? 'text-orange-400' : 'text-slate-600'}`}>
-                           {dailyCosts.damagedEquipCount} 件
-                         </span>
-                       </div>
-                     </div>
-                   </div>
-                 </div>
+             <div className="flex items-center justify-end gap-3 sm:gap-6">
                  <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1 shrink-0">
                      {[0, 1, 2].map(s => (
                          <button key={s} onClick={() => setTimeScale(s)} className={`w-7 sm:w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
