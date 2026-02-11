@@ -322,6 +322,9 @@ export interface CombatUnit extends Character {
   freeSwapUsed: boolean;
   hasUsedFreeAttack: boolean; // 本回合是否已使用过截击（控制区机制）
   aiType?: AIType; // 敌人AI行为类型
+  // --- 专精被动战斗状态 ---
+  nineLivesUsed?: boolean;         // 命不该绝是否已触发
+  fastAdaptationStacks?: number;   // 临机应变叠加层数
 }
 
 export interface CombatState {

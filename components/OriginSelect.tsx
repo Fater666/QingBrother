@@ -178,7 +178,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
       />
 
       {/* 标题区域 */}
-      <div className="shrink-0 pt-6 sm:pt-8 lg:pt-10 pb-4 sm:pb-6 text-center relative z-10 px-4">
+      <div className="shrink-0 pt-4 sm:pt-6 lg:pt-8 pb-3 sm:pb-4 text-center relative z-10 px-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-amber-600 tracking-[0.25em] sm:tracking-[0.4em] font-serif"
           style={{ textShadow: '0 0 30px rgba(217, 119, 6, 0.2)' }}>
           选择你的来历
@@ -190,21 +190,22 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
       </div>
 
       {/* 卡片区域 */}
-      <div className="flex-1 flex flex-col lg:flex-row items-center lg:items-start justify-start lg:justify-center gap-4 lg:gap-5 px-4 sm:px-6 lg:px-8 pb-4 relative z-10 overflow-y-auto overflow-x-hidden">
+      <div className="flex-1 min-h-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-4 relative z-10 overflow-y-auto">
+        <div className="mx-auto grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 max-w-[1580px]">
         {ORIGIN_CONFIGS.map((origin) => {
           const isSelected = selectedId === origin.id;
           return (
             <div
               key={origin.id}
               onClick={() => handleSelect(origin.id)}
-              className={`relative w-full max-w-md lg:w-72 shrink-0 cursor-pointer transition-all duration-500 group
+              className={`relative w-full cursor-pointer transition-all duration-500 group
                 ${isSelected
-                  ? 'scale-[1.02]'
-                  : 'hover:scale-[1.01] opacity-80 hover:opacity-100'
+                  ? 'scale-[1.01]'
+                  : 'hover:scale-[1.005] opacity-80 hover:opacity-100'
                 }`}
             >
               {/* 卡片主体 */}
-              <div className={`border p-4 sm:p-6 transition-all duration-500 bg-gradient-to-b from-[#141210] to-[#0a0908]
+              <div className={`border p-3 sm:p-4 lg:p-5 transition-all duration-500 bg-gradient-to-b from-[#141210] to-[#0a0908] h-full
                 ${isSelected
                   ? 'border-amber-600/80 shadow-[0_0_30px_rgba(217,119,6,0.15)]'
                   : 'border-amber-900/30 hover:border-amber-800/50'
@@ -216,14 +217,14 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                 </div>
 
                 {/* 名称 */}
-                <h2 className={`text-xl sm:text-2xl font-bold tracking-[0.15em] sm:tracking-[0.2em] font-serif mb-3 sm:mb-4 transition-colors duration-300
+                <h2 className={`text-lg sm:text-xl lg:text-2xl font-bold tracking-[0.15em] sm:tracking-[0.2em] font-serif mb-2 sm:mb-3 transition-colors duration-300
                   ${isSelected ? 'text-amber-400' : 'text-amber-100/70'}`}
                   style={isSelected ? { textShadow: '0 0 15px rgba(217, 119, 6, 0.3)' } : {}}>
                   {origin.name}
                 </h2>
 
                 {/* 描述 */}
-                <p className="text-xs text-slate-500 leading-relaxed mb-4 sm:mb-5 min-h-[5rem] sm:min-h-[6rem]">
+                <p className="text-xs text-slate-500 leading-relaxed mb-3 sm:mb-4 min-h-[4.5rem] sm:min-h-[5rem] max-h-[6.2rem] overflow-hidden">
                   {origin.description}
                 </p>
 
@@ -255,7 +256,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                 </div>
 
                 {/* 成员构成 */}
-                <div className="mt-4 pt-3 border-t border-white/5">
+                <div className="mt-3 pt-2 border-t border-white/5">
                   <div className="text-[10px] text-slate-700 uppercase tracking-widest mb-2">起始成员</div>
                   <div className="flex flex-wrap gap-1">
                     {origin.mercenaries.map((m, i) => (
@@ -276,6 +277,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
             </div>
           );
         })}
+        </div>
       </div>
 
       {/* 底部：命名 & 确认 */}

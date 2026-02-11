@@ -25,6 +25,8 @@ import CAMP_TEMPLATES_CSV from './csv/camp_templates.csv?raw';
 import BOSS_CAMPS_CSV from './csv/boss_camps.csv?raw';
 import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
 import AMBITIONS_CSV from './csv/ambitions.csv?raw';
+import LEVEL_CONFIG_CSV from './csv/level_config.csv?raw';
+import PERK_EFFECTS_CSV from './csv/perk_effects.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -465,6 +467,65 @@ export const MAX_SQUAD_SIZE = 12;
 export const VISION_RADIUS = 6;
 export const MAX_INVENTORY_SIZE = 30;
 
+// ==================== 等级与经验值系统（from level_config.csv） ====================
+
+/** 各等级所需经验值（从 CSV 加载） */
+const _levelConfigData = parseCSV(LEVEL_CONFIG_CSV);
+export const XP_PER_LEVEL: number[] = _levelConfigData.map((row: any) => row.xpRequired as number);
+
+/** 获取从 level 升到 level+1 所需的 XP */
+export const getXPForNextLevel = (level: number): number => {
+  if (level <= 0) return XP_PER_LEVEL[0];
+  if (level <= XP_PER_LEVEL.length) return XP_PER_LEVEL[level - 1];
+  // 超出表格范围：最后一级 + 每级额外 500
+  return XP_PER_LEVEL[XP_PER_LEVEL.length - 1] + (level - XP_PER_LEVEL.length) * 500;
+};
+
+/**
+ * 检查并执行连续升级（可能一次获得大量XP跳多级）
+ * 每升一级：perkPoints +1
+ * 学徒(student)在 Lv11 时自动返还技能点
+ * @returns 升级后的角色（level/perkPoints/xp 已更新）
+ */
+export const checkLevelUp = (char: Character): { char: Character; levelsGained: number } => {
+  let updated = { ...char };
+  let levelsGained = 0;
+  const studentReturnLv = getPerkEffect('student', 'returnLevel') || 11;
+  while (true) {
+    const xpNeeded = getXPForNextLevel(updated.level);
+    if (updated.xp >= xpNeeded) {
+      updated.xp -= xpNeeded;
+      updated.level += 1;
+      updated.perkPoints += 1;
+      levelsGained += 1;
+      // 学徒在指定等级返还技能点
+      if (updated.level === studentReturnLv && updated.perks.includes('student')) {
+        updated.perkPoints += 1;
+      }
+    } else {
+      break;
+    }
+  }
+  return { char: updated, levelsGained };
+};
+
+// ==================== 专精效果数值表（from perk_effects.csv） ====================
+
+/**
+ * 专精效果配置：perkId → { effectKey → value }
+ * 所有被动/数值效果的参数均从此表读取，代码中不硬编码
+ */
+export const PERK_EFFECTS: Record<string, Record<string, number>> = {};
+parseCSV(PERK_EFFECTS_CSV).forEach((row: any) => {
+  if (!PERK_EFFECTS[row.perkId]) PERK_EFFECTS[row.perkId] = {};
+  PERK_EFFECTS[row.perkId][row.effectKey] = row.value;
+});
+
+/** 便捷取值：获取某个 perk 的某项效果数值，不存在则返回 defaultVal */
+export const getPerkEffect = (perkId: string, effectKey: string, defaultVal: number = 0): number => {
+  return PERK_EFFECTS[perkId]?.[effectKey] ?? defaultVal;
+};
+
 // ==================== 任务描述模板池 ====================
 // NPC 姓名池
 export const QUEST_NPC_NAMES = {
@@ -875,6 +936,7 @@ export const getHexDistance = (a: {q:number, r:number}, b: {q:number, r:number})
 
 import { CombatUnit, CombatState, MoraleStatus } from './types.ts';
 import { getMoraleEffects } from './services/moraleService';
+import { getDodgeDefenseBonus, getFastAdaptationBonus } from './services/perkService';
 
 /**
  * 获取单位的控制区格子（周围6个相邻格）
@@ -1005,6 +1067,10 @@ export interface HitChanceBreakdown {
   heightMod: number;
   /** 合围加成 */
   surroundBonus: number;
+  /** 身法(dodge)防御加成 */
+  dodgeDef: number;
+  /** 临机应变(fast_adaptation)命中加成 */
+  adaptationBonus: number;
 }
 
 /**
@@ -1038,9 +1104,13 @@ export const calculateHitChance = (
     : attacker.stats.meleeSkill;
 
   // 目标防御
-  const targetDefense = isRangedByName
+  const baseTargetDefense = isRangedByName
     ? target.stats.rangedDefense
     : target.stats.meleeDefense;
+
+  // 身法(dodge)防御加成：基于当前先手值
+  const dodgeDef = getDodgeDefenseBonus(target);
+  const targetDefense = baseTargetDefense + dodgeDef;
 
   // 武器命中修正
   const weapon = attacker.equipment.mainHand;
@@ -1067,8 +1137,11 @@ export const calculateHitChance = (
   // 合围加成
   const surroundBonus = getSurroundingBonus(attacker, target, state);
 
+  // 临机应变(fast_adaptation)命中加成
+  const adaptationBonus = getFastAdaptationBonus(attacker);
+
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus;
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus;
   final = Math.max(5, Math.min(95, final));
 
   return {
@@ -1081,6 +1154,8 @@ export const calculateHitChance = (
     shieldWallDef,
     heightMod,
     surroundBonus,
+    dodgeDef,
+    adaptationBonus,
   };
 };
 

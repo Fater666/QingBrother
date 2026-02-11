@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus } from '../constants';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
+import { getMovementCost, checkNineLives, hasPerk } from '../services/perkService';
 import {
   handleAllyDeath,
   handleHeavyDamage,
@@ -1074,13 +1075,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const attacker = prev.units.find(u => u.id === attackerId);
       if (!target) return prev;
       
+      // === 命不该绝 (nine_lives) ===
+      let finalDamage = hpDamage;
+      let nineLivesTriggered = false;
+      const nlCheck = checkNineLives(target, hpDamage);
+      if (nlCheck.triggered) {
+        finalDamage = nlCheck.adjustedDamage;
+        nineLivesTriggered = true;
+      }
+      
       const previousHp = target.hp;
-      const newHp = Math.max(0, target.hp - hpDamage);
+      const newHp = Math.max(0, target.hp - finalDamage);
       const isDead = newHp <= 0;
       
       let updatedUnits = prev.units.map(u => {
         if (u.id === targetId) {
           const updated: any = { ...u, hp: newHp, isDead };
+          
+          // 命不该绝触发标记
+          if (nineLivesTriggered) {
+            updated.nineLivesUsed = true;
+          }
           
           // 如果有护甲伤害结果，更新护甲耐久
           if (damageResult && damageResult.armorType) {
@@ -1110,6 +1125,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       const newState = { ...prev, units: updatedUnits };
       const allResults: MoraleCheckResult[] = [];
+      
+      // 命不该绝日志
+      if (nineLivesTriggered) {
+        addToLog(`🐈 ${target.name} 命不该绝！致命伤害被化解，HP 保留 ${newHp}！`, 'skill');
+      }
       
       // 1. 如果目标死亡，触发友军士气检定
       if (isDead) {
@@ -1791,6 +1811,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             if (!isHit) {
               // ==================== 未命中 ====================
               const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+              // 临机应变(fast_adaptation)：未命中叠层 +1
+              if (hasPerk(activeUnit, 'fast_adaptation')) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u => u.id === activeUnit.id
+                    ? { ...u, fastAdaptationStacks: (u.fastAdaptationStacks || 0) + 1 }
+                    : u)
+                }));
+              }
               setFloatingTexts(prev => [...prev, {
                 id: Date.now(),
                 text: 'MISS',
@@ -1801,12 +1830,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 size: 'md' as const,
               }]);
               triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#475569');
-              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)`, 'info');
+              addToLog(`${activeUnit.name}「${weaponName}」${selectedAbility.name} → ${target.name}，未命中！(${hitInfo.final}%)${hasPerk(activeUnit, 'fast_adaptation') ? ` 🎯临机+${(activeUnit.fastAdaptationStacks || 0) + 1}0%` : ''}`, 'info');
               setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
               return;
             }
             
             // ==================== 命中：使用护甲伤害系统 ====================
+            // 临机应变(fast_adaptation)：命中时重置叠层
+            if (hasPerk(activeUnit, 'fast_adaptation') && (activeUnit.fastAdaptationStacks || 0) > 0) {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u => u.id === activeUnit.id
+                  ? { ...u, fastAdaptationStacks: 0 }
+                  : u)
+              }));
+            }
             const dmgResult = calculateDamage(activeUnit, target);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             
@@ -1883,7 +1921,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
     
     const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-    const apCost = dist * 2;
+    // 识途(pathfinder)：移动 AP 消耗减少
+    const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
+    const apCost = moveCost.apCost;
     
     // 检查AP是否足够且目标位置未被占用
     if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
@@ -2339,7 +2379,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
                 </div>
               )}
-              <div className="font-bold">移动消耗: {getHexDistance(activeUnit.combatPos, hoveredHex) * 2} AP</div>
+              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, hoveredHex), hasPerk(activeUnit, 'pathfinder')).apCost} AP{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
               
               {/* 控制区警告 */}
               {willTriggerZoC && (
