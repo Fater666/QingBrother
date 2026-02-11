@@ -43,3 +43,5 @@ android/app/src/main/assets/capacitor.plugins.json
 *.aab
 *.jks
 *.keystore
+
+nul

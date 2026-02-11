@@ -1042,8 +1042,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const screenY = cy + (animPos.y + cameraRef.current.y) * zoom - 80;
             el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${zoom})`;
             
-            // 活动单位置于最高层
-            el.style.zIndex = u.id === activeUnitId ? '50' : '10';
+            // z-index分层：活动单位最高，悬停目标次之，其余按屏幕Y排序（越下面越上层）
+            const hovered = hoveredHexRef.current;
+            const isHoveredUnit = hovered && u.combatPos.q === hovered.q && u.combatPos.r === hovered.r;
+            el.style.zIndex = u.id === activeUnitId ? '50'
+              : isHoveredUnit ? '45'
+              : String(Math.max(1, Math.min(40, Math.floor(screenY / 10) + 20)));
           }
         }
       });
