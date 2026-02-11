@@ -767,6 +767,45 @@ export const App: React.FC = () => {
   // 预生成地图数据 (在起源选择阶段就准备好)
   const pendingMapRef = useRef<{ tiles: WorldTile[], cities: City[] } | null>(null);
 
+  // --- 音频管理 (BGM播放与切换) ---
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // 初始化音频对象
+    if (!bgmRef.current) {
+      bgmRef.current = new Audio();
+      bgmRef.current.loop = true;
+      bgmRef.current.volume = 0.3;
+    }
+
+    const audio = bgmRef.current;
+    
+    // 战斗中使用特定的战斗音乐，其他界面使用主音乐
+    const isCombat = view === 'COMBAT';
+    const targetSrc = isCombat ? '/audio/combat_bgm.mp3' : '/audio/main_bgm.mp3';
+    
+    // 检查 src 是否变化
+    const currentSrc = audio.src.split('/').pop();
+    const newSrc = targetSrc.split('/').pop();
+
+    if (currentSrc !== newSrc) {
+      audio.src = targetSrc;
+      audio.load();
+      
+      const playBgm = () => {
+        audio.play().catch(() => {
+          // 浏览器自动播放拦截处理：监听用户点击后播放
+          const retryPlay = () => {
+            audio.play().catch(() => {});
+            window.removeEventListener('click', retryPlay);
+          };
+          window.addEventListener('click', retryPlay);
+        });
+      };
+      playBgm();
+    }
+  }, [view]);
+
   // --- 从装备ID池中随机选取一件装备 ---
   const resolveItemFromPool = (ids: string[] | undefined, templates: Item[]): Item | null => {
     if (!ids || ids.length === 0) return null;
@@ -1640,24 +1679,31 @@ export const App: React.FC = () => {
                 </div>
              </div>
 
-             {/* 当前野心（可点击取消） */}
+             {/* 当前野心 */}
              {party.ambitionState.currentAmbition && (
                <div className="flex items-center gap-2 text-xs">
                  <span className="text-[9px] text-amber-700 uppercase tracking-widest hidden sm:inline">志向</span>
-                 <button
-                   onClick={handleAmbitionCancel}
-                   className="px-2 py-0.5 text-[11px] sm:text-xs text-amber-400 border border-amber-900/40 hover:border-red-500/60 hover:text-red-400 transition-all group relative max-w-full truncate"
-                   title="点击取消当前志向（会降低全员士气）"
-                 >
-                   {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon} {party.ambitionState.currentAmbition.name}
-                   {(() => {
-                     const progress = getAmbitionProgress(party);
-                     return progress ? <span className="ml-1 text-[10px] text-amber-600">({progress})</span> : null;
-                   })()}
-                   <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap hidden sm:block">
-                     点击放弃
+                 <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] sm:text-xs text-amber-400 border border-amber-900/40 bg-amber-950/20">
+                   <span className="flex items-center gap-1">
+                     {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon} {party.ambitionState.currentAmbition.name}
+                     {(() => {
+                       const progress = getAmbitionProgress(party);
+                       return progress ? <span className="ml-1 text-[10px] text-amber-600">({progress})</span> : null;
+                     })()}
                    </span>
-                 </button>
+                   <div className="w-px h-3 bg-amber-900/40 mx-0.5" />
+                   <button
+                     onClick={() => {
+                       if (window.confirm('确定要放弃当前的志向吗？这会降低全员士气。')) {
+                         handleAmbitionCancel();
+                       }
+                     }}
+                     className="text-[10px] text-red-700 hover:text-red-500 transition-colors uppercase tracking-tighter"
+                     title="放弃当前志向（会降低全员士气）"
+                   >
+                     放弃
+                   </button>
+                 </div>
                </div>
              )}
 

@@ -147,6 +147,41 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       setSelectedStashItem(null);
   };
 
+  // 双击自动穿戴逻辑
+  const handleDoubleClickStashItem = (item: Item, index: number) => {
+    if (!selectedMerc) return;
+    
+    let targetSlot: keyof Character['equipment'] | null = null;
+    if (item.type === 'HELMET') targetSlot = 'helmet';
+    else if (item.type === 'ARMOR') targetSlot = 'armor';
+    else if (item.type === 'WEAPON') targetSlot = 'mainHand';
+    else if (item.type === 'SHIELD') targetSlot = 'offHand';
+    else if (item.type === 'AMMO') targetSlot = 'ammo';
+    else if (item.type === 'ACCESSORY') targetSlot = 'accessory';
+    
+    if (targetSlot && canEquipToSlot(item, targetSlot, selectedMerc)) {
+        let newInv = [...party.inventory];
+        const newMercs = party.mercenaries.map(m => {
+            if (m.id !== selectedMerc.id) return m;
+            const newEquip = { ...m.equipment };
+            const old = newEquip[targetSlot!];
+            
+            newInv.splice(index, 1);
+            if (old) newInv.push(old);
+            newEquip[targetSlot!] = item;
+            
+            if (targetSlot === 'mainHand' && item.twoHanded && newEquip.offHand) {
+                newInv.push(newEquip.offHand);
+                newEquip.offHand = null;
+            }
+            return { ...m, equipment: newEquip };
+        });
+        onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
+        setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
+        setSelectedStashItem(null);
+    }
+  };
+
   // 卸下装备到仓库
   const handleUnequip = (slot: keyof Character['equipment']) => {
       if (!selectedMerc) return;
@@ -602,6 +637,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, { type: 'INVENTORY', index: i, item })}
                                             onClick={() => setSelectedStashItem(selectedStashItem?.index === i ? null : { item, index: i })}
+                                            onDoubleClick={() => handleDoubleClickStashItem(item, i)}
                                             onMouseEnter={() => setHoveredItem(item)}
                                             onMouseLeave={() => setHoveredItem(null)}
                                             className={`aspect-square p-2 border cursor-pointer transition-all flex flex-col items-center justify-center text-center ${
