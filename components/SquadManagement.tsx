@@ -19,6 +19,16 @@ interface DragData {
     char?: Character;
 }
 
+interface TouchFormationDragState {
+    charId: string;
+    charName: string;
+    sourceIndex: number | null;
+    x: number;
+    y: number;
+    overIndex: number | null;
+    overReserve: boolean;
+}
+
 // 获取物品类型的中文名称
 const getItemTypeName = (type: Item['type']): string => {
     const typeNames: Record<Item['type'], string> = {
@@ -71,6 +81,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [hoveredPerk, setHoveredPerk] = useState<Perk | null>(null);
   const [selectedStashItem, setSelectedStashItem] = useState<{ item: Item, index: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [touchFormationDrag, setTouchFormationDrag] = useState<TouchFormationDragState | null>(null);
 
   // 分离出战阵中和后备队伍的人员
   const activeRoster = useMemo(() => party.mercenaries.filter(m => m.formationIndex !== null), [party.mercenaries]);
@@ -80,6 +92,16 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       const handleMouseMove = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
       window.addEventListener('mousemove', handleMouseMove);
       return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  useEffect(() => {
+      const detectMobileLayout = () => {
+          const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+          setIsMobileLayout(coarsePointer || window.innerWidth < 1024);
+      };
+      detectMobileLayout();
+      window.addEventListener('resize', detectMobileLayout);
+      return () => window.removeEventListener('resize', detectMobileLayout);
   }, []);
 
   const handleDragStart = (e: React.DragEvent, data: DragData) => {
@@ -203,22 +225,99 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   };
 
   // 将角色加入战阵（找第一个空位）
-  const handleAddToFormation = (char: Character) => {
-      const usedSlots = party.mercenaries.filter(m => m.formationIndex !== null).map(m => m.formationIndex);
-      let freeSlot = -1;
+  const getFirstFreeFormationSlot = () => {
+      const usedSlots = party.mercenaries
+          .filter(m => m.formationIndex !== null)
+          .map(m => m.formationIndex);
       for (let i = 0; i < 18; i++) {
-          if (!usedSlots.includes(i)) { freeSlot = i; break; }
+          if (!usedSlots.includes(i)) return i;
       }
-      if (freeSlot === -1) return; // 没有空位
-      
-      const newMercs = party.mercenaries.map(m => m.id === char.id ? { ...m, formationIndex: freeSlot } : m);
+      return null;
+  };
+
+  const applyFormationMove = (draggedCharId: string, targetIndex: number | null) => {
+      const draggedMerc = party.mercenaries.find(m => m.id === draggedCharId);
+      if (!draggedMerc) return;
+      const sourceIndex = draggedMerc.formationIndex ?? null;
+
+      // 拖回后备区
+      if (targetIndex === null) {
+          if (sourceIndex === null) return;
+          const newMercs = party.mercenaries.map(m => m.id === draggedCharId ? { ...m, formationIndex: null } : m);
+          onUpdateParty({ ...party, mercenaries: newMercs });
+          return;
+      }
+
+      if (sourceIndex === targetIndex) return;
+      const occupantChar = party.mercenaries.find(m => m.formationIndex === targetIndex);
+      const newMercs = party.mercenaries.map(m => {
+          if (m.id === draggedCharId) return { ...m, formationIndex: targetIndex };
+          if (occupantChar && m.id === occupantChar.id) return { ...m, formationIndex: sourceIndex };
+          return m;
+      });
       onUpdateParty({ ...party, mercenaries: newMercs });
+  };
+
+  const updateTouchFormationHover = (clientX: number, clientY: number) => {
+      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      const slotEl = el?.closest('[data-formation-slot]') as HTMLElement | null;
+      const reserveEl = el?.closest('[data-formation-reserve-dropzone="true"]') as HTMLElement | null;
+      const rawSlot = slotEl?.dataset.formationSlot;
+      const overIndex = rawSlot !== undefined ? Number(rawSlot) : null;
+      setTouchFormationDrag(prev => {
+          if (!prev) return prev;
+          return {
+              ...prev,
+              x: clientX,
+              y: clientY,
+              overIndex: Number.isInteger(overIndex) ? overIndex : null,
+              overReserve: !!reserveEl,
+          };
+      });
+  };
+
+  const handleFormationTouchStart = (e: React.TouchEvent, char: Character) => {
+      if (!isMobileLayout) return;
+      const t = e.touches[0];
+      if (!t) return;
+      setTouchFormationDrag({
+          charId: char.id,
+          charName: char.name,
+          sourceIndex: char.formationIndex ?? null,
+          x: t.clientX,
+          y: t.clientY,
+          overIndex: char.formationIndex ?? null,
+          overReserve: char.formationIndex === null,
+      });
+  };
+
+  const handleFormationTouchMove = (e: React.TouchEvent) => {
+      if (!touchFormationDrag) return;
+      const t = e.touches[0];
+      if (!t) return;
+      e.preventDefault();
+      updateTouchFormationHover(t.clientX, t.clientY);
+  };
+
+  const handleFormationTouchEnd = () => {
+      if (!touchFormationDrag) return;
+      if (touchFormationDrag.overIndex !== null) {
+          applyFormationMove(touchFormationDrag.charId, touchFormationDrag.overIndex);
+      } else if (touchFormationDrag.overReserve) {
+          applyFormationMove(touchFormationDrag.charId, null);
+      }
+      setTouchFormationDrag(null);
+  };
+
+  const handleAddToFormation = (char: Character) => {
+      const freeSlot = getFirstFreeFormationSlot();
+      if (freeSlot === null) return; // 没有空位
+      applyFormationMove(char.id, freeSlot);
   };
 
   // 将角色移出战阵
   const handleRemoveFromFormation = (char: Character) => {
-      const newMercs = party.mercenaries.map(m => m.id === char.id ? { ...m, formationIndex: null } : m);
-      onUpdateParty({ ...party, mercenaries: newMercs });
+      applyFormationMove(char.id, null);
   };
 
   // --- 学习专精 ---
@@ -270,32 +369,32 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       <div className="absolute inset-0 bg-gradient-to-b from-amber-950/10 via-transparent to-black/20 pointer-events-none" />
       
       {/* Header */}
-      <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-8 z-30 shrink-0">
-          <div className="flex items-center gap-6">
-              <h1 className="text-2xl font-bold text-amber-600 tracking-[0.3em]">战团营地</h1>
+      <div className="min-h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 px-3 md:px-8 py-2 lg:py-0 z-30 shrink-0">
+          <div className="flex items-center gap-3 md:gap-6 min-w-0">
+              <h1 className="text-lg md:text-2xl font-bold text-amber-600 tracking-[0.18em] md:tracking-[0.3em] shrink-0">战团营地</h1>
               {selectedMerc && (
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm min-w-0">
                       <span className="text-slate-600">/</span>
-                      <span className="text-amber-500 font-bold">{selectedMerc.name}</span>
-                      <span className="text-slate-600 text-xs">({selectedMerc.background})</span>
+                      <span className="text-amber-500 font-bold truncate max-w-[96px] md:max-w-none">{selectedMerc.name}</span>
+                      <span className="text-slate-600 text-[10px] md:text-xs truncate max-w-[120px] md:max-w-none">({selectedMerc.background})</span>
                   </div>
               )}
           </div>
-          <div className="flex items-center gap-6">
-              <div className="text-right">
+          <div className="flex items-center gap-3 md:gap-6">
+              <div className="text-right shrink-0">
                   <span className="text-[10px] text-slate-600 uppercase tracking-widest block">战团资金</span>
                   <span className="text-amber-500 font-bold font-mono">{party.gold} <span className="text-amber-700 text-xs">金</span></span>
               </div>
-              <button onClick={onClose} className="px-6 py-2 bg-[#1a1410] border border-amber-900/40 hover:border-amber-600 text-xs text-slate-400 hover:text-amber-500 uppercase tracking-widest transition-all">
+              <button onClick={onClose} className="px-3 md:px-6 py-2 bg-[#1a1410] border border-amber-900/40 hover:border-amber-600 text-[10px] md:text-xs text-slate-400 hover:text-amber-500 uppercase tracking-widest transition-all">
                   返回地图
               </button>
           </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden z-10">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden z-10">
         
         {/* LEFT COLUMN: Inspector (Equipment on top, Stats below - Battle Brothers style) */}
-        <div className="w-[420px] border-r border-amber-900/30 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 overflow-hidden">
+        <div className="w-full lg:w-[420px] lg:border-r border-b lg:border-b-0 border-amber-900/30 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 overflow-hidden">
             {selectedMerc ? (
                 <div className="flex flex-col h-full overflow-y-auto custom-scrollbar">
                     {/* Character Header - Compact */}
@@ -603,24 +702,24 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
         </div>
 
         {/* RIGHT COLUMN: 仓库物资 / 专精技能 / 战阵布置 同层级 Tab */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             <div className="flex-1 flex flex-col min-h-0 bg-[#080705]">
                 <div className="flex h-11 border-b border-amber-900/30 bg-[#0d0b08] shrink-0">
                     <button 
                         onClick={() => { setRightTab('STASH'); setSelectedStashItem(null); }} 
-                        className={`px-8 text-xs uppercase font-bold tracking-[0.15em] transition-all border-b-2 ${rightTab === 'STASH' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'STASH' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         仓库物资
                     </button>
                     <button 
                         onClick={() => { setRightTab('PERKS'); setSelectedStashItem(null); }} 
-                        className={`px-8 text-xs uppercase font-bold tracking-[0.15em] transition-all border-b-2 ${rightTab === 'PERKS' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'PERKS' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         专精技能
                     </button>
                     <button 
                         onClick={() => { setRightTab('FORMATION'); setSelectedStashItem(null); }} 
-                        className={`px-8 text-xs uppercase font-bold tracking-[0.15em] transition-all border-b-2 ${rightTab === 'FORMATION' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'FORMATION' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         战阵布置
                     </button>
@@ -668,21 +767,32 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                             )}
                         </div>
                     ) : rightTab === 'FORMATION' ? (
-                        <div className="flex flex-col gap-4 min-h-0">
+                        <div
+                            className="flex flex-col gap-4 min-h-0"
+                            onTouchMove={handleFormationTouchMove}
+                            onTouchEnd={handleFormationTouchEnd}
+                            onTouchCancel={handleFormationTouchEnd}
+                        >
                             {/* Formation Grid */}
                             <div className="flex-1 min-h-0">
                                 <div className="flex justify-between items-center mb-2">
                                     <h3 className="text-xs font-bold text-amber-700 uppercase tracking-[0.2em]">战阵布署</h3>
-                                    <span className="text-[10px] text-slate-600">出战 {activeRoster.length}/12 人</span>
+                                    <span className="text-[10px] text-slate-600 text-right">
+                                        出战 {activeRoster.length}/12 人
+                                        {isMobileLayout ? ' · 长按拖动' : ''}
+                                    </span>
                                 </div>
-                                <div className="grid grid-cols-9 grid-rows-2 gap-1.5 min-h-[140px]">
+                                <div className="grid grid-cols-9 grid-rows-2 gap-1 md:gap-1.5 min-h-[120px] md:min-h-[140px]">
                                     {Array.from({length: 18}).map((_, i) => {
                                         const char = party.mercenaries.find(m => m.formationIndex === i);
                                         const isBackRow = i >= 9;
+                                        const isTouchSource = touchFormationDrag?.charId === char?.id;
+                                        const isTouchTarget = touchFormationDrag?.overIndex === i;
                                         return (
                                             <div 
                                                 key={i}
-                                                draggable={!!char}
+                                                data-formation-slot={i}
+                                                draggable={!!char && !isMobileLayout}
                                                 onDragStart={(e) => {
                                                     if (char) handleDragStart(e, { type: 'ROSTER', char });
                                                 }}
@@ -693,20 +803,17 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                     if (!dataStr) return;
                                                     const data: DragData = JSON.parse(dataStr);
                                                     if (data.type !== 'ROSTER' || !data.char) return;
-                                                    const draggedCharId = data.char.id;
-                                                    const occupantChar = char;
-                                                    const draggedMerc = party.mercenaries.find(m => m.id === draggedCharId);
-                                                    const sourceIndex = draggedMerc?.formationIndex ?? null;
-                                                    
-                                                    const newMercs = party.mercenaries.map(m => {
-                                                        if (m.id === draggedCharId) return { ...m, formationIndex: i };
-                                                        if (occupantChar && m.id === occupantChar.id) return { ...m, formationIndex: sourceIndex };
-                                                        return m;
-                                                    });
-                                                    onUpdateParty({ ...party, mercenaries: newMercs });
+                                                    applyFormationMove(data.char.id, i);
+                                                }}
+                                                onTouchStart={(e) => {
+                                                    if (char) handleFormationTouchStart(e, char);
                                                 }}
                                                 onClick={() => char && setSelectedMerc(char)}
                                                 className={`border transition-all flex flex-col items-center justify-center p-1 text-center ${
+                                                    isTouchTarget
+                                                        ? 'ring-1 ring-amber-500 ring-inset'
+                                                        : ''
+                                                } ${
                                                     char 
                                                         ? (selectedMerc?.id === char.id 
                                                             ? 'border-amber-500 bg-amber-950/40 cursor-grab' 
@@ -718,7 +825,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             >
                                                 {char ? (
                                                     <>
-                                                        <span className={`text-[10px] font-bold truncate w-full ${selectedMerc?.id === char.id ? 'text-amber-400' : 'text-slate-300'}`}>{char.name}</span>
+                                                        <span className={`text-[9px] md:text-[10px] font-bold truncate w-full ${selectedMerc?.id === char.id ? 'text-amber-400' : 'text-slate-300'} ${isTouchSource ? 'opacity-40' : ''}`}>{char.name}</span>
                                                         <span className="text-[8px] text-slate-600 truncate w-full">{char.background}</span>
                                                     </>
                                                 ) : (
@@ -730,21 +837,25 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 </div>
                             </div>
                             {/* Reserve Roster */}
-                            <div className="border-t border-amber-900/20 pt-3">
+                            <div className="border-t border-amber-900/20 pt-3" data-formation-reserve-dropzone="true">
                                 <div className="flex justify-between items-center mb-1.5">
                                     <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.15em]">后备队伍</h3>
-                                    <span className="text-[10px] text-slate-700">后备 {reserveRoster.length} 人 · 拖动至战阵以出战</span>
+                                    <span className="text-[10px] text-slate-700 text-right">
+                                        后备 {reserveRoster.length} 人
+                                        {isMobileLayout ? ' · 长按拖至阵位' : ' · 拖动至战阵以出战'}
+                                    </span>
                                 </div>
                                 <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
                                     {reserveRoster.length > 0 ? (
                                         reserveRoster.map(m => (
                                             <div 
                                                 key={m.id}
-                                                draggable
+                                                draggable={!isMobileLayout}
                                                 onDragStart={(e) => handleDragStart(e, { type: 'ROSTER', char: m })}
                                                 onClick={() => setSelectedMerc(m)}
                                                 onDoubleClick={() => handleAddToFormation(m)}
-                                                className={`shrink-0 px-3 py-1.5 border cursor-pointer transition-all min-w-[110px] ${
+                                                onTouchStart={(e) => handleFormationTouchStart(e, m)}
+                                                className={`shrink-0 px-2.5 md:px-3 py-1.5 border cursor-pointer transition-all min-w-[96px] md:min-w-[110px] ${
                                                     selectedMerc?.id === m.id 
                                                         ? 'border-amber-500 bg-amber-950/30' 
                                                         : 'border-slate-800 hover:border-slate-600 bg-black/40'
@@ -821,7 +932,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       </div>
 
       {/* FOOTER: All Roster - Quick Select */}
-      <div className="h-16 bg-gradient-to-r from-[#0d0b08] via-[#080705] to-[#0d0b08] border-t border-amber-900/40 flex items-center gap-2 px-6 overflow-x-auto shrink-0 z-40 custom-scrollbar">
+      <div className="h-14 md:h-16 bg-gradient-to-r from-[#0d0b08] via-[#080705] to-[#0d0b08] border-t border-amber-900/40 flex items-center gap-2 px-3 md:px-6 overflow-x-auto shrink-0 z-40 custom-scrollbar">
           <span className="text-[10px] text-slate-700 uppercase tracking-widest shrink-0 pr-4 border-r border-slate-800">全员</span>
           {party.mercenaries.map(m => (
               <button 
@@ -840,6 +951,15 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               </button>
           ))}
       </div>
+
+      {touchFormationDrag && (
+          <div
+              className="fixed z-[110] px-2 py-1 border border-amber-600 bg-amber-950/90 text-[11px] text-amber-200 pointer-events-none shadow-xl"
+              style={{ left: touchFormationDrag.x + 12, top: touchFormationDrag.y + 12 }}
+          >
+              {touchFormationDrag.charName}
+          </div>
+      )}
 
       {/* Tooltips */}
       {hoveredItem && (

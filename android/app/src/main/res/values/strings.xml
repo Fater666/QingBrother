@@ -1,7 +1,7 @@
-﻿<?xml version='1.0' encoding='utf-8'?>
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">QingBrother</string>
-    <string name="title_activity_main">QingBrother</string>
+    <string name="app_name">战国·与伍同行</string>
+    <string name="title_activity_main">战国·与伍同行</string>
     <string name="package_name">com.qingbrother.app</string>
     <string name="custom_url_scheme">com.qingbrother.app</string>
 </resources>
