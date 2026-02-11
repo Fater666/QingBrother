@@ -1576,15 +1576,17 @@ export const App: React.FC = () => {
     
     if (checkAmbitionComplete(party)) {
       const completedName = party.ambitionState.currentAmbition.name;
-      const reward = party.ambitionState.currentAmbition.reputationReward;
+      const rep = party.ambitionState.currentAmbition.reputationReward;
+      const gold = party.ambitionState.currentAmbition.goldReward ?? 0;
       setParty(p => ({
         ...p,
-        reputation: p.reputation + reward,
+        reputation: p.reputation + rep,
+        gold: p.gold + gold,
         ambitionState: completeAmbition(p),
         moraleModifier: 1, // 下次战斗全员自信开场
       }));
       // 显示通知
-      setAmbitionNotification(`目标达成「${completedName}」！声望 +${reward}`);
+      setAmbitionNotification(`目标达成「${completedName}」！声望 +${rep}${gold ? `，金币 +${gold}` : ''}`);
       if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
       ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
     }

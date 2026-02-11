@@ -94,6 +94,11 @@ export const AmbitionSelect: React.FC<AmbitionSelectProps> = ({ party, onSelect,
                   <span className={`text-sm font-bold ${isHovered ? 'text-amber-400' : 'text-amber-600'}`}>
                     +{ambition.reputationReward} 声望
                   </span>
+                  {ambition.goldReward > 0 && (
+                    <span className={`text-sm font-bold ${isHovered ? 'text-amber-400' : 'text-amber-600'}`}>
+                      +{ambition.goldReward} 金币
+                    </span>
+                  )}
                   <span className="text-[10px] text-emerald-700 ml-2">
                     + 全员士气提升
                   </span>

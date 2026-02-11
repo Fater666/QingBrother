@@ -374,7 +374,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [zoom, setZoom] = useState(0.8);
   const [hoveredHex, setHoveredHex] = useState<{q:number, r:number} | null>(null);
   const hoveredHexRef = useRef<{q:number, r:number} | null>(null);
-  const [hoveredSkill, setHoveredSkill] = useState<Ability | null>(null);
   const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
 
   // ==================== 新增：战斗特效状态 ====================
@@ -406,6 +405,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const pinchStartZoomRef = useRef(0.8);
   const isPinchingRef = useRef(false);
   const pinchMidpointRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // 移动端攻击确认状态
+  const [mobileAttackTarget, setMobileAttackTarget] = useState<{
+    unit: CombatUnit;
+    hitBreakdown: ReturnType<typeof calculateHitChance>;
+    ability: Ability;
+  } | null>(null);
 
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
@@ -425,6 +430,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     window.addEventListener('resize', detect);
     return () => window.removeEventListener('resize', detect);
   }, []);
+
+  // 切换技能或活动单位时，清除移动端攻击确认面板
+  useEffect(() => { setMobileAttackTarget(null); }, [selectedAbility, activeUnit?.id]);
 
   // ==================== 特效触发函数 ====================
   
@@ -896,6 +904,65 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
       });
 
+      // 2.5 移动端：选中攻击技能时，在可攻击敌人头顶绘制命中率浮标
+      if (isMobile && isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
+        state.units.forEach(enemy => {
+          if (enemy.isDead || enemy.team !== 'ENEMY') return;
+          const enemyKey = `${enemy.combatPos.q},${enemy.combatPos.r}`;
+          if (!visibleSet.has(enemyKey)) return;
+
+          const dist = getHexDistance(activeUnit.combatPos, enemy.combatPos);
+          if (dist < selectedAbility.range[0] || dist > selectedAbility.range[1]) return;
+
+          const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
+          const targetTerrain = terrainData.get(enemyKey);
+          const targetHeight = targetTerrain?.height || 0;
+          const heightOffset = targetHeight * HEIGHT_MULTIPLIER;
+          const atkHeightDiff = attackerHeight - targetHeight;
+          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff);
+          const hitChance = breakdown.final;
+
+          const { x, y: baseY } = getPixelPos(enemy.combatPos.q, enemy.combatPos.r);
+          const topY = baseY - heightOffset;
+
+          const color = hitChance >= 70 ? '#4ade80' : hitChance >= 40 ? '#facc15' : '#ef4444';
+          const text = `${hitChance}%`;
+          ctx.font = 'bold 14px sans-serif';
+          const textWidth = ctx.measureText(text).width;
+          const pillW = textWidth + 12;
+          const pillH = 20;
+          const pillX = x - pillW / 2;
+          const pillY = topY - HEX_SIZE * 0.8 - pillH / 2;
+
+          // 圆角矩形背景
+          const radius = 5;
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.beginPath();
+          ctx.moveTo(pillX + radius, pillY);
+          ctx.lineTo(pillX + pillW - radius, pillY);
+          ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + radius, radius);
+          ctx.lineTo(pillX + pillW, pillY + pillH - radius);
+          ctx.arcTo(pillX + pillW, pillY + pillH, pillX + pillW - radius, pillY + pillH, radius);
+          ctx.lineTo(pillX + radius, pillY + pillH);
+          ctx.arcTo(pillX, pillY + pillH, pillX, pillY + pillH - radius, radius);
+          ctx.lineTo(pillX, pillY + radius);
+          ctx.arcTo(pillX, pillY, pillX + radius, pillY, radius);
+          ctx.closePath();
+          ctx.fill();
+
+          // 颜色边框
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // 命中率文字
+          ctx.fillStyle = color;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, x, pillY + pillH / 2);
+        });
+      }
+
       // 3. 渲染攻击连线特效
       const now = performance.now();
       attackLinesRef.current = attackLinesRef.current.filter(line => {
@@ -988,7 +1055,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom, hexPoints]);
+  }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile]);
 
   // DOM 图层同步 - 考虑地形高度 + 平滑移动动画 + 活动单位z-index
   const activeUnitId = state.turnOrder[state.currentUnitIndex];
@@ -1797,6 +1864,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     setMousePos({ x: e.clientX, y: e.clientY });
   };
+  const handleMouseLeave = () => {
+    hoveredHexRef.current = null;
+    setHoveredHex(null);
+  };
   const handleMouseUp = () => isDraggingRef.current = false;
 
   // ==================== 触控手势处理 ====================
@@ -1824,13 +1895,49 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       u => !u.isDead && u.combatPos.q === q && u.combatPos.r === r
     );
 
+    // 如果已显示命中信息tooltip，检查是否点击同一个敌人（二次点击 = 攻击）
+    if (mobileAttackTarget) {
+      const isSameTarget = mobileAttackTarget.unit.combatPos.q === q && mobileAttackTarget.unit.combatPos.r === r;
+      if (isSameTarget) {
+        // 第二次点击同一个敌人 → 执行攻击
+        setMobileAttackTarget(null);
+        performAttack();
+        return;
+      }
+      // 点击其他位置 → 关闭 tooltip（后续逻辑继续处理）
+      setMobileAttackTarget(null);
+    }
+
     // A) 已选技能 → 攻击逻辑处理（含自身技能、敌人攻击等）
     if (selectedAbility) {
+      // 自身技能（盾墙/矛墙等）直接执行
+      if (selectedAbility.targetType === 'SELF' && selectedAbility.range[0] === 0 && selectedAbility.range[1] === 0) {
+        performAttack();
+        return;
+      }
+      // 攻击技能：第一次点击敌人 → 显示命中信息tooltip
+      if (selectedAbility.type === 'ATTACK') {
+        const targetUnit = state.units.find(
+          u => !u.isDead && u.team === 'ENEMY' && u.combatPos.q === q && u.combatPos.r === r
+        );
+        const dist = getHexDistance(activeUnit.combatPos, { q, r });
+        const inRange = dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1];
+        if (targetUnit && inRange) {
+          const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
+          const targetHeight = terrainData.get(`${q},${r}`)?.height || 0;
+          const atkHeightDiff = attackerHeight - targetHeight;
+          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff);
+          setMobileAttackTarget({ unit: targetUnit, hitBreakdown, ability: selectedAbility });
+          return;
+        }
+      }
+      // 其他技能类型（治疗等）直接执行
       performAttack();
       return;
     }
     // B) 无技能选中 + 空格子 → 移动
     if (!isOccupied) {
+      setMobileAttackTarget(null);
       performMove();
       return;
     }
@@ -1840,6 +1947,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         u.combatPos.q === q && u.combatPos.r === r
     );
     if (targetAlly) {
+      setMobileAttackTarget(null);
       const pos = getPixelPos(targetAlly.combatPos.q, targetAlly.combatPos.r);
       cameraRef.current.x = -pos.x;
       cameraRef.current.y = -pos.y;
@@ -1963,6 +2071,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         if (ability.id === 'SPEARWALL') {
           if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+          const enemyAdjacent = state.units.some(u =>
+            !u.isDead && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
+          );
+          if (enemyAdjacent) {
+            addToLog('附近有敌人，无法架起矛墙！', 'info');
+            return;
+          }
           setState(prev => ({
             ...prev,
             units: prev.units.map(u =>
@@ -2774,23 +2889,70 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })}
       </div>
 
-      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
+      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={isMobile ? undefined : performAttack} onContextMenu={isMobile ? undefined : performMove} />
 
         {/* 移动端操作提示 */}
         {isMobile && isPlayerTurn && activeUnit && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-black/80 border border-amber-900/40 px-4 py-1.5 rounded-full text-xs text-amber-400 flex items-center gap-2 pointer-events-auto">
             {selectedAbility
-              ? <>
-                  <span className="text-base">{selectedAbility.icon}</span>
-                  <span>{selectedAbility.name} - 点击目标</span>
-                  <button onClick={() => setSelectedAbility(null)} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
-                </>
+              ? mobileAttackTarget
+                ? <>
+                    <span className="text-base">⚔</span>
+                    <span>再次点击 {mobileAttackTarget.unit.name} 攻击</span>
+                    <button onClick={() => { setMobileAttackTarget(null); setSelectedAbility(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
+                  </>
+                : <>
+                    <span className="text-base">{selectedAbility.icon}</span>
+                    <span>{selectedAbility.name} - 点击目标</span>
+                    <button onClick={() => { setSelectedAbility(null); setMobileAttackTarget(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
+                  </>
               : <span>点击地面移动 | 选择技能后点击敌人攻击</span>
             }
           </div>
         )}
-        
+
+        {/* 移动端攻击确认提示（与桌面端 tooltip 一致） */}
+        {isMobile && mobileAttackTarget && isPlayerTurn && activeUnit && (() => {
+          const bd = mobileAttackTarget.hitBreakdown;
+          const hitColor = bd.final >= 70 ? '#4ade80' : bd.final >= 40 ? '#facc15' : '#ef4444';
+          return (
+            <div
+              className="absolute right-4 top-4 pointer-events-none bg-[#0f0f0f] border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
+              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+            >
+              <div className="mb-2 pb-2 border-b border-red-500/30">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-red-300 font-bold">⚔ {mobileAttackTarget.ability.name} → {mobileAttackTarget.unit.name}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-slate-400 text-[9px]">命中率:</span>
+                  <span className="text-lg font-bold" style={{ color: hitColor }}>{bd.final}%</span>
+                </div>
+                <div className="text-[8px] text-slate-500 mt-0.5">
+                  技能 {bd.baseSkill} - 防御 {bd.targetDefense}
+                  {bd.weaponMod ? ` + 武器 ${bd.weaponMod > 0 ? '+' : ''}${bd.weaponMod}` : ''}
+                  {bd.moraleMod ? ` + 士气 ${bd.moraleMod > 0 ? '+' : ''}${bd.moraleMod}` : ''}
+                  {bd.shieldDef ? ` - 盾牌 ${bd.shieldDef}` : ''}
+                  {bd.shieldWallDef ? ` - 盾墙 ${bd.shieldWallDef}` : ''}
+                  {bd.heightMod ? ` + 高地 ${bd.heightMod > 0 ? '+' : ''}${bd.heightMod}` : ''}
+                </div>
+                {bd.surroundBonus > 0 && (
+                  <div className="text-[8px] text-amber-400 mt-0.5 font-bold">
+                    + 合围 +{bd.surroundBonus}%
+                  </div>
+                )}
+                {activeUnit.currentAP < mobileAttackTarget.ability.apCost && (
+                  <div className="text-red-500 text-[9px] mt-1 font-bold">AP不足!</div>
+                )}
+              </div>
+              <div className="text-slate-400 text-[9px]">
+                再次点击该目标执行攻击
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="absolute inset-0 pointer-events-none">
           {state.units.map(u => {
             // 计算行动顺序：从当前活动单位开始往后数
@@ -2867,8 +3029,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           
           return (
             <div 
-              className="absolute pointer-events-none bg-gradient-to-b from-black/95 to-gray-900/95 border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
-              style={{ left: mousePos.x + 20, top: mousePos.y + 20, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+              className="absolute right-4 top-4 pointer-events-none bg-[#0f0f0f] border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
+              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
             >
               {/* 攻击命中率 - 选中攻击技能且悬停敌人时显示 */}
               {canAttack && targetUnit && hitBreakdown && (
@@ -2972,10 +3134,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         </div>
 
         <div className="flex gap-3">
-          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => (
+          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => {
+            const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
+              !u.isDead && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
+            );
+            return (
             <button 
               key={skill.id} 
               onClick={() => {
+                if (isSpearwallDisabled) return;
                 // 盾墙、矛墙等自身技能无需选目标，点击即用
                 if (skill.targetType === 'SELF' && skill.range[0] === 0 && skill.range[1] === 0) {
                   performAttack(skill);
@@ -2983,12 +3150,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   setSelectedAbility(skill);
                 }
               }} 
-              onMouseEnter={() => setHoveredSkill(skill)} 
-              onMouseLeave={() => setHoveredSkill(null)} 
+              disabled={isSpearwallDisabled}
+              title={isSpearwallDisabled ? '附近有敌人时无法架起矛墙' : undefined}
               className={`${isMobile ? 'w-16 h-16' : 'w-14 h-14'} border-2 transition-all flex flex-col items-center justify-center relative
-                ${selectedAbility?.id === skill.id 
+                ${isSpearwallDisabled ? 'opacity-50 cursor-not-allowed border-slate-700' : ''}
+                ${selectedAbility?.id === skill.id && !isSpearwallDisabled
                   ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-2 shadow-lg shadow-amber-500/30' 
-                  : 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20'
+                  : !isSpearwallDisabled ? 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20' : ''
                 }
               `}
               style={{ boxShadow: selectedAbility?.id === skill.id ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
@@ -3002,7 +3170,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               <span className="text-2xl drop-shadow-md">{skill.icon}</span>
               <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-500">{skill.apCost}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
 
         <div className="w-52 flex flex-col items-end gap-2">
@@ -3036,22 +3205,23 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         </div>
       </div>
 
-      {hoveredSkill && (
+      {/* 技能说明 tooltip：仅当没有悬停格子时显示，与命中率/地形 tooltip 互斥 */}
+      {selectedAbility && isPlayerTurn && activeUnit && !hoveredHex && (
         <div 
-          className="fixed bottom-36 left-1/2 -translate-x-1/2 w-72 bg-gradient-to-b from-gray-900/98 to-black/98 border border-amber-900/50 p-3 z-[100] rounded shadow-2xl"
-          style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)' }}
+          className="fixed right-4 top-4 w-72 bg-[#0f0f0f] border border-amber-900/50 p-3 z-[100] rounded shadow-xl pointer-events-none"
+          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
         >
           <div className="flex items-center justify-between mb-2">
-            <div className="text-amber-400 font-bold text-sm">{hoveredSkill.name}</div>
+            <div className="text-amber-400 font-bold text-sm">{selectedAbility.name}</div>
             <div className="flex gap-2 text-[9px]">
-              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">AP {hoveredSkill.apCost}</span>
-              <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {hoveredSkill.fatCost}</span>
+              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">AP {selectedAbility.apCost}</span>
+              <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {selectedAbility.fatCost}</span>
             </div>
           </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">"{hoveredSkill.description}"</p>
-          {hoveredSkill.range[1] > 0 && (
+          <p className="text-[11px] text-slate-300 leading-relaxed">"{selectedAbility.description}"</p>
+          {selectedAbility.range[1] > 0 && (
             <div className="text-[9px] text-slate-500 mt-2 pt-2 border-t border-white/10">
-              射程: {hoveredSkill.range[0]}-{hoveredSkill.range[1]} 格
+              射程: {selectedAbility.range[0]}-{selectedAbility.range[1]} 格
             </div>
           )}
         </div>

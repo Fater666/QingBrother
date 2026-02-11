@@ -348,21 +348,31 @@ function createProgressFunction(formatStr: string): ((party: Party) => string) |
   return undefined;
 }
 
+/** 默认按难度的金币（仅当 CSV 未配置 goldReward 时使用） */
+const DEFAULT_GOLD_BY_DIFFICULTY: Record<number, number> = { 1: 50, 2: 100, 3: 200 };
+
 /**
- * 从配置加载宏愿模板
+ * 从配置加载宏愿模板（声望与金币来自 ambitions.csv 的 reputationReward / goldReward）
  */
-const AMBITION_TEMPLATES: AmbitionTemplate[] = AMBITIONS_CONFIG.map((config: any) => ({
-  id: config.id,
-  name: config.name,
-  description: config.description,
-  type: config.type as AmbitionType,
-  reputationReward: config.reputationReward,
-  stage: config.stage,
-  difficulty: config.difficulty,
-  checkComplete: createCompleteCondition(config.completeCondition),
-  checkAvailable: createAvailableCondition(config.availableCondition),
-  getProgress: createProgressFunction(config.progressFormat),
-}));
+const AMBITION_TEMPLATES: AmbitionTemplate[] = AMBITIONS_CONFIG.map((config: any) => {
+  const d = Math.min(3, Math.max(1, config.difficulty ?? 1));
+  const goldReward = config.goldReward != null && !Number.isNaN(Number(config.goldReward))
+    ? Number(config.goldReward)
+    : (DEFAULT_GOLD_BY_DIFFICULTY[d] ?? 50);
+  return {
+    id: config.id,
+    name: config.name,
+    description: config.description,
+    type: config.type as AmbitionType,
+    reputationReward: config.reputationReward ?? 100,
+    goldReward,
+    stage: config.stage,
+    difficulty: config.difficulty,
+    checkComplete: createCompleteCondition(config.completeCondition),
+    checkAvailable: createAvailableCondition(config.availableCondition),
+    getProgress: createProgressFunction(config.progressFormat),
+  };
+});
 
 // ==================== 辅助函数 ====================
 
@@ -555,6 +565,7 @@ export function selectAmbition(party: Party, ambitionId: string): AmbitionState 
       description: template.description,
       type: template.type,
       reputationReward: template.reputationReward,
+      goldReward: template.goldReward,
     },
     lastCancelledIds: [], // 选定新目标后清除取消列表
   };

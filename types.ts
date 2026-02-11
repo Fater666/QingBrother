@@ -273,7 +273,8 @@ export interface Ambition {
   name: string;
   description: string;
   type: AmbitionType;
-  reputationReward: number; // 完成后获得的声望（默认100）
+  reputationReward: number; // 完成后获得的声望（按难度）
+  goldReward: number;       // 完成后获得的金币（按难度）
 }
 
 export interface AmbitionState {
