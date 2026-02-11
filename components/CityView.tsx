@@ -248,6 +248,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const [selectedItem, setSelectedItem] = useState<{ item: Item, from: 'MARKET' | 'INVENTORY', index: number } | null>(null);
   const [marketTab, setMarketTab] = useState<'BUY' | 'SELL' | 'REPAIR'>('BUY');
   const [itemFilter, setItemFilter] = useState<Item['type'] | 'ALL'>('ALL');
+  const [marketListPage, setMarketListPage] = useState(0);
+  const MARKET_PAGE_SIZE = 12;
   // Interaction State (for recruit)
   const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
 
@@ -262,6 +264,11 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
           setSubView('TAVERN');
       }
   }, []); // 仅在进入城市时检查一次
+
+  // 切换市集标签或筛选时重置分页
+  useEffect(() => {
+      setMarketListPage(0);
+  }, [marketTab, itemFilter]);
 
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
@@ -784,11 +791,43 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     ))}
                                 </div>
 
-                                {/* 物品卡片网格 */}
+                                {/* 分页：仅当物品数量超过一页时显示 */}
+                                {(() => {
+                                    const total = filteredItems.length;
+                                    const totalPages = Math.max(1, Math.ceil(total / MARKET_PAGE_SIZE));
+                                    const page = Math.min(marketListPage, totalPages - 1);
+                                    const paginatedItems = total > 0 ? filteredItems.slice(page * MARKET_PAGE_SIZE, (page + 1) * MARKET_PAGE_SIZE) : [];
+                                    return (
+                                        <>
+                                {total > MARKET_PAGE_SIZE && (
+                                    <div className="flex items-center justify-between gap-2 mb-2 shrink-0 py-1 border-b border-amber-900/20">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMarketListPage(p => Math.max(0, p - 1))}
+                                            disabled={page <= 0}
+                                            className="px-3 py-1.5 text-[11px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
+                                        >
+                                            上一页
+                                        </button>
+                                        <span className="text-[11px] text-slate-500 font-mono">
+                                            第 {page + 1} / {totalPages} 页
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setMarketListPage(p => Math.min(totalPages - 1, p + 1))}
+                                            disabled={page >= totalPages - 1}
+                                            className="px-3 py-1.5 text-[11px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
+                                        >
+                                            下一页
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* 物品卡片网格（当前页） */}
                                 <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                                     {filteredItems.length > 0 ? (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                                            {filteredItems.map((item, filteredIdx) => {
+                                            {paginatedItems.map((item) => {
                                                 // 找到在原始数组中的真实index
                                                 const realIndex = sourceItems.indexOf(item);
                                                 const price = getPrice(item);
@@ -820,6 +859,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         </div>
                                     )}
                                 </div>
+                                        </>
+                                    );
+                                })()}
                                 </>
                                 )}
                             </div>
