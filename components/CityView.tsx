@@ -249,7 +249,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const [marketTab, setMarketTab] = useState<'BUY' | 'SELL' | 'REPAIR'>('BUY');
   const [itemFilter, setItemFilter] = useState<Item['type'] | 'ALL'>('ALL');
   const [marketListPage, setMarketListPage] = useState(0);
-  const MARKET_PAGE_SIZE = 12;
+  const MARKET_PAGE_SIZE = 6; // 固定每页6个，2列x3行，不滚动
   // Interaction State (for recruit)
   const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
 
@@ -269,6 +269,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   useEffect(() => {
       setMarketListPage(0);
   }, [marketTab, itemFilter]);
+
 
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
@@ -659,10 +660,16 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             });
                         }
 
+                        const total = filteredItems.length;
+                        const totalPages = Math.max(1, Math.ceil(total / MARKET_PAGE_SIZE));
+                        const page = Math.min(marketListPage, totalPages - 1);
+                        const paginatedItems = total > 0 ? filteredItems.slice(page * MARKET_PAGE_SIZE, (page + 1) * MARKET_PAGE_SIZE) : [];
+                        const isBuyMode = marketTab === 'BUY';
+
                         return (
-                        <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
+                        <div className={`flex-1 gap-3 overflow-hidden min-h-0 ${isBuyMode ? 'flex flex-row' : 'flex flex-col lg:flex-row lg:gap-4'}`}>
                             {/* 左侧: 物品名录 */}
-                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden">
+                            <div className={`${isBuyMode ? 'w-[60%] min-w-0' : 'lg:flex-[3] flex-1'} bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden`}>
                                 {/* 购入/出售/修缮 标签切换 */}
                                 <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
                                     <div className="flex gap-1 overflow-x-auto">
@@ -691,7 +698,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             }`}
                                         >修缮装备</button>
                                     </div>
-                                    <span className="text-[10px] text-slate-600 hidden sm:inline">
+                                    <span className={`text-[10px] text-slate-600 ${isBuyMode ? 'inline' : 'hidden sm:inline'}`}>
                                         {marketTab === 'BUY' ? `${city.market.length} 件货物` : marketTab === 'SELL' ? `背包 ${party.inventory.length} 件` : '修复损坏的装备'}
                                     </span>
                                 </div>
@@ -791,42 +798,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     ))}
                                 </div>
 
-                                {/* 分页：仅当物品数量超过一页时显示 */}
-                                {(() => {
-                                    const total = filteredItems.length;
-                                    const totalPages = Math.max(1, Math.ceil(total / MARKET_PAGE_SIZE));
-                                    const page = Math.min(marketListPage, totalPages - 1);
-                                    const paginatedItems = total > 0 ? filteredItems.slice(page * MARKET_PAGE_SIZE, (page + 1) * MARKET_PAGE_SIZE) : [];
-                                    return (
-                                        <>
-                                {total > MARKET_PAGE_SIZE && (
-                                    <div className="flex items-center justify-between gap-2 mb-2 shrink-0 py-1 border-b border-amber-900/20">
-                                        <button
-                                            type="button"
-                                            onClick={() => setMarketListPage(p => Math.max(0, p - 1))}
-                                            disabled={page <= 0}
-                                            className="px-3 py-1.5 text-[11px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
-                                        >
-                                            上一页
-                                        </button>
-                                        <span className="text-[11px] text-slate-500 font-mono">
-                                            第 {page + 1} / {totalPages} 页
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setMarketListPage(p => Math.min(totalPages - 1, p + 1))}
-                                            disabled={page >= totalPages - 1}
-                                            className="px-3 py-1.5 text-[11px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
-                                        >
-                                            下一页
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* 物品卡片网格（当前页） */}
-                                <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
+                                {/* 物品卡片网格（当前页，纯分页不滚动） */}
+                                <div className="flex-1 min-h-0">
                                     {filteredItems.length > 0 ? (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                                        <div className={`grid gap-2 h-full ${isBuyMode ? 'grid-cols-2 grid-rows-3' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'}`}>
                                             {paginatedItems.map((item) => {
                                                 // 找到在原始数组中的真实index
                                                 const realIndex = sourceItems.indexOf(item);
@@ -859,16 +834,37 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         </div>
                                     )}
                                 </div>
-                                        </>
-                                    );
-                                })()}
+
+                                <div className="mt-2 pt-2 border-t border-amber-900/20 shrink-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMarketListPage(p => Math.max(0, p - 1))}
+                                            disabled={page <= 0}
+                                            className="px-2.5 py-1 text-[10px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
+                                        >
+                                            上一页
+                                        </button>
+                                        <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">
+                                            第 {page + 1} / {totalPages} 页 · {total} 件
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setMarketListPage(p => Math.min(totalPages - 1, p + 1))}
+                                            disabled={page >= totalPages - 1}
+                                            className="px-2.5 py-1 text-[10px] border border-amber-900/40 text-amber-600 hover:border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-amber-900/40 transition-all"
+                                        >
+                                            下一页
+                                        </button>
+                                    </div>
+                                </div>
                                 </>
                                 )}
                             </div>
 
                             {/* 右侧: 物品详情面板 (修缮模式下隐藏) */}
                             {marketTab !== 'REPAIR' && (
-                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative overflow-hidden">
+                            <div className={`${isBuyMode ? 'w-[40%] min-w-[260px] max-w-[460px]' : 'lg:flex-[2] flex-1 lg:min-w-[300px]'} bg-[#0d0b08] border border-amber-900/30 p-3 sm:p-4 flex flex-col shadow-xl min-h-0 relative overflow-hidden`}>
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
@@ -878,11 +874,11 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     return (
                                         <>
                                             {/* 头部: 物品名 + 品质 + 类型 */}
-                                            <div className={`mb-4 shrink-0 border-b ${tier.detailBorderColor} pb-4`}>
+                                            <div className={`mb-3 shrink-0 border-b ${tier.detailBorderColor} pb-3`}>
                                                 <div className="flex items-center gap-3 mb-2">
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-baseline gap-2">
-                                                            <h2 className={`text-xl font-bold ${tier.nameColor}`}>{item.name}</h2>
+                                                            <h2 className={`${isBuyMode ? 'text-lg' : 'text-xl'} font-bold ${tier.nameColor} truncate`}>{item.name}</h2>
                                                             {tier.label && (
                                                                 <span className={`text-[10px] px-1.5 py-0.5 border ${tier.labelColor} ${
                                                                     tier.tier === 'LEGENDARY' ? 'border-amber-500/50 bg-amber-950/30' :
@@ -901,7 +897,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     <div className="flex gap-4">
                                                         <div>
                                                             <span className="text-[9px] text-slate-600 block">{selectedItem.from === 'MARKET' ? '购入价' : '售出价'}</span>
-                                                            <span className={`text-lg font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>
+                                                            <span className={`${isBuyMode ? 'text-base' : 'text-lg'} font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>
                                                                 {price} <span className="text-xs text-amber-700">金</span>
                                                             </span>
                                                         </div>
@@ -918,9 +914,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             </div>
 
                                             {/* 属性面板 - 可滚动区域 */}
-                                            <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">
+                                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
                                                 {/* 属性条可视化 */}
-                                                <div className="bg-black/20 p-3 border border-white/5 mb-4 space-y-2">
+                                                <div className="bg-black/20 p-3 border border-white/5 mb-3 space-y-2">
                                                     {item.damage && (
                                                         <ItemStatBar label="杀伤力" value={`${item.damage[0]}-${item.damage[1]}`} pct={Math.min(100, ((item.damage[0] + item.damage[1]) / 2 / 90) * 100)} colorBar="bg-red-700" colorText="text-red-400" />
                                                     )}
@@ -954,7 +950,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 </div>
 
                                                 {/* 物品描述 */}
-                                                <div className="mb-3">
+                                                <div className="mb-2">
                                                     <h4 className="text-[9px] text-slate-600 uppercase tracking-[0.15em] mb-1.5">描述</h4>
                                                     <p className={`text-xs italic leading-relaxed pl-3 border-l-2 ${
                                                         tier.tier === 'LEGENDARY' ? 'text-amber-400/80 border-amber-600/50' :
@@ -966,21 +962,23 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 </div>
                                             </div>
 
-                                            {/* 操作按钮 */}
-                                            <button
-                                                onClick={() => selectedItem.from === 'MARKET' ? handleBuy(item, selectedItem.index) : handleSell(item, selectedItem.index)}
-                                                disabled={selectedItem.from === 'MARKET' && !canAfford}
-                                                className={`w-full py-3 border font-bold tracking-widest shadow-lg shrink-0 transition-all uppercase ${
-                                                    canAfford
-                                                        ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
-                                                        : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
-                                                }`}
-                                            >
-                                                {selectedItem.from === 'MARKET'
-                                                    ? (canAfford ? `购 买 — ${price} 金` : `金币不足 (需 ${price})`)
-                                                    : `出 售 — ${price} 金`
-                                                }
-                                            </button>
+                                            {/* 操作按钮固定底部，避免横屏时滚动后丢失主操作 */}
+                                            <div className="sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-[#0d0b08] via-[#0d0b08] to-transparent shrink-0">
+                                                <button
+                                                    onClick={() => selectedItem.from === 'MARKET' ? handleBuy(item, selectedItem.index) : handleSell(item, selectedItem.index)}
+                                                    disabled={selectedItem.from === 'MARKET' && !canAfford}
+                                                    className={`w-full py-2.5 border font-bold tracking-widest shadow-lg transition-all uppercase text-sm ${
+                                                        canAfford
+                                                            ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
+                                                            : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                    }`}
+                                                >
+                                                    {selectedItem.from === 'MARKET'
+                                                        ? (canAfford ? `购 买 — ${price} 金` : `金币不足 (需 ${price})`)
+                                                        : `出 售 — ${price} 金`
+                                                    }
+                                                </button>
+                                            </div>
                                         </>
                                     );
                                 })() : (
@@ -1484,36 +1482,36 @@ const MarketItemCard: React.FC<MarketItemCardProps> = ({ item, price, tier, isSe
     <div
         onClick={onClick}
         onDoubleClick={onDoubleClick}
-        className={`border p-3 cursor-pointer transition-all flex flex-col gap-1.5 relative group ${
+        className={`border p-2 cursor-pointer transition-all flex flex-col gap-1 relative group min-h-[86px] ${
             isSelected
                 ? `${tier.bgSelectedClass} ${tier.borderSelectedClass} shadow-[inset_0_0_15px_rgba(245,158,11,0.15)]`
                 : `${tier.bgClass} ${tier.borderClass} hover:border-amber-700/60 hover:bg-black/50`
         } ${tier.glowClass}`}
     >
         {/* 顶行: 类型标签 + 品质标记 */}
-        <div className="flex justify-between items-center">
-            <span className="text-[9px] text-slate-600 uppercase tracking-wider">{getItemTypeName(item.type)}</span>
+        <div className="flex justify-between items-center gap-2">
+            <span className="text-[8px] text-slate-600 uppercase tracking-wider truncate">{getItemTypeName(item.type)}</span>
             {tier.label && (
-                <span className={`text-[9px] font-bold tracking-wider ${tier.labelColor}`}>
+                <span className={`text-[8px] font-bold tracking-wider whitespace-nowrap ${tier.labelColor}`}>
                     ★{tier.label}
                 </span>
             )}
         </div>
 
         {/* 物品名称 */}
-        <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : tier.nameColor}`}>
+        <div className={`text-[13px] font-bold truncate leading-tight ${isSelected ? 'text-amber-100' : tier.nameColor}`}>
             {item.name}
         </div>
 
         {/* 关键属性简览 */}
-        <div className="flex justify-between items-center text-[10px]">
+        <div className="flex justify-between items-center text-[9px]">
             <span className="text-slate-500 truncate">{getItemBrief(item)}</span>
         </div>
 
         {/* 价格 */}
         <div className="flex justify-between items-center mt-0.5">
-            <span className="text-[9px] text-slate-600">{canAfford ? '' : '金币不足'}</span>
-            <span className={`text-xs font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>{price} 金</span>
+            <span className="text-[8px] text-slate-600 truncate pr-1">{canAfford ? '' : '金币不足'}</span>
+            <span className={`text-[11px] font-mono font-bold whitespace-nowrap ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>{price} 金</span>
         </div>
     </div>
 );
