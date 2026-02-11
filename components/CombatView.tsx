@@ -138,9 +138,9 @@ const getWeaponIcon = (w: Item | null): string => {
 };
 
 const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; turnIndex: number }> = ({ unit, isActive, isHit, turnIndex }) => {
-  // 血量百分比和颜色
+  // 血量百分比和颜色（用 hex 避免 Android WebView 下 oklch/渐变不显示）
   const hpPercent = (unit.hp / unit.maxHp) * 100;
-  const hpColor = hpPercent > 50 ? 'bg-gradient-to-r from-green-600 to-green-400' : hpPercent > 25 ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : 'bg-gradient-to-r from-red-700 to-red-500';
+  const hpBarColor = hpPercent > 50 ? '#22c55e' : hpPercent > 25 ? '#eab308' : '#dc2626';
   const hpTextColor = hpPercent > 50 ? 'text-green-400' : hpPercent > 25 ? 'text-yellow-400' : 'text-red-400';
 
   // 护甲信息
@@ -249,38 +249,38 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; 
         <div className={`text-[7px] truncate drop-shadow-sm mb-0.5 ${isEnemy ? 'text-red-300/70' : 'text-blue-300/70'}`}>
           {unit.name.slice(0, 4)}{typeName ? ` · ${typeName}` : ''}</div>
 
-        {/* 头甲条 */}
+        {/* 头甲条 - 内联样式兼容 Android WebView */}
         {helmet && (
           <div className="flex items-center gap-0.5 mb-0.5">
             <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🪖</span>
-            <div className="flex-1 h-[7px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)' }}>
-              <div className="h-full bg-gradient-to-r from-cyan-700 to-cyan-500 transition-all relative" style={{ width: `${helmetPercent}%` }}>
-                <div className="absolute inset-0 bg-gradient-to-b from-white/25 to-transparent h-1/2" />
+            <div className="flex-1 h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+              <div className="h-full transition-all relative" style={{ width: `${helmetPercent}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
+                <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
               </div>
             </div>
             <span className="text-[7px] font-bold text-cyan-400 w-5 text-right flex-shrink-0">{helmet.durability}</span>
           </div>
         )}
 
-        {/* 体甲条 */}
+        {/* 体甲条 - 内联样式兼容 Android WebView */}
         {armor && (
           <div className="flex items-center gap-0.5 mb-0.5">
             <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🛡</span>
-            <div className="flex-1 h-[7px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)' }}>
-              <div className="h-full bg-gradient-to-r from-slate-500 to-slate-300 transition-all relative" style={{ width: `${armorPercent}%` }}>
-                <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent h-1/2" />
+            <div className="flex-1 h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+              <div className="h-full transition-all relative" style={{ width: `${armorPercent}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
+                <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
               </div>
             </div>
             <span className="text-[7px] font-bold text-slate-300 w-5 text-right flex-shrink-0">{armor.durability}</span>
           </div>
         )}
 
-        {/* HP条 - 最突出 */}
+        {/* HP条 - 内联样式兼容 Android WebView */}
         <div className="flex items-center gap-0.5 mb-0.5">
-          <span className="text-[7px] w-3 flex-shrink-0" style={{ color: hpPercent > 50 ? '#4ade80' : hpPercent > 25 ? '#facc15' : '#ef4444' }}>♥</span>
-          <div className="flex-1 h-[8px] bg-black/70 rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)' }}>
-            <div className={`h-full ${hpColor} transition-all relative`} style={{ width: `${hpPercent}%` }}>
-              <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent h-1/2" />
+          <span className="text-[7px] w-3 flex-shrink-0" style={{ color: hpBarColor }}>♥</span>
+          <div className="flex-1 h-[8px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+            <div className="h-full transition-all relative" style={{ width: `${hpPercent}%`, backgroundColor: hpBarColor }}>
+              <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
             </div>
           </div>
           <span className={`text-[7px] font-black w-5 text-right flex-shrink-0 ${hpTextColor}`}>{unit.hp}</span>
