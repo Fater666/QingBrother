@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { ContactModal } from './ContactModal';
 
 interface MainMenuProps {
   onNewGame: () => void;
@@ -31,6 +32,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
   const [showButtons, setShowButtons] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showContact, setShowContact] = useState(false);
   const [quoteIndex] = useState(() => Math.floor(Math.random() * QUOTES.length));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const embersRef = useRef<Ember[]>([]);
@@ -226,11 +228,22 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
           </button>
         </div>
 
-        {/* 版本信息 */}
-        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 transition-all duration-[2000ms] delay-[2500ms] ${showButtons ? 'opacity-30' : 'opacity-0'}`}>
+        {/* 版本信息与联系方式 */}
+        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 transition-all duration-[2000ms] delay-[2500ms] ${showButtons ? 'opacity-30' : 'opacity-0'}`}>
           <p className="text-[10px] text-slate-600 tracking-[0.3em] uppercase">Version 1.0.0 — 战国项目组</p>
+          <button 
+            onClick={() => setShowContact(true)}
+            className="text-[10px] text-amber-700/60 hover:text-amber-600 tracking-[0.2em] transition-colors"
+          >
+            联系我们
+          </button>
         </div>
       </div>
+
+      {/* 联系我们面板 */}
+      {showContact && (
+        <ContactModal onClose={() => setShowContact(false)} />
+      )}
 
       {/* 选项面板 */}
       {showSettings && (

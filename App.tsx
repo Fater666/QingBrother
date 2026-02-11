@@ -15,6 +15,7 @@ import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveDa
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier, generateCityQuests } from './services/mapGenerator.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
+import { ContactModal } from './components/ContactModal.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 
 // --- Character Generation ---
@@ -742,6 +743,7 @@ export const App: React.FC = () => {
   const lastUpdateRef = useRef<number>(performance.now());
   const [hasSave, setHasSave] = useState<boolean>(hasAnySaveData());
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
+  const [showContact, setShowContact] = useState(false);
 
   // 每日消耗/恢复追踪
   const lastProcessedDayRef = useRef<number>(1);
@@ -1634,6 +1636,7 @@ export const App: React.FC = () => {
                 <div className="flex gap-2 sm:ml-2">
                     <button onClick={() => setSaveLoadMode('SAVE')} className="px-2.5 sm:px-3 py-1 text-[10px] text-emerald-500 border border-emerald-900/40 hover:bg-emerald-900/20 transition-all uppercase">存档</button>
                     <button onClick={() => setSaveLoadMode('LOAD')} className="px-2.5 sm:px-3 py-1 text-[10px] text-blue-500 border border-blue-900/40 hover:bg-blue-900/20 transition-all uppercase">读档</button>
+                    <button onClick={() => setShowContact(true)} className="px-2.5 sm:px-3 py-1 text-[10px] text-amber-500 border border-amber-900/40 hover:bg-amber-900/20 transition-all uppercase">联系</button>
                 </div>
              </div>
 
@@ -2093,6 +2096,11 @@ export const App: React.FC = () => {
             onLoad={(slot) => loadGame(slot)}
             onClose={() => setSaveLoadMode(null)}
           />
+        )}
+
+        {/* 联系我们面板 */}
+        {showContact && (
+          <ContactModal onClose={() => setShowContact(false)} />
         )}
 
         {/* ===== 野心目标选择弹窗 ===== */}

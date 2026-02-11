@@ -55,7 +55,7 @@ const canEquipToSlot = (item: Item, slot: keyof Character['equipment'], char?: C
 
     const slotTypeMap: Record<keyof Character['equipment'], Item['type'][]> = {
         mainHand: ['WEAPON'],
-        offHand: ['WEAPON', 'SHIELD'], // 副手可以装备武器（双持）或盾牌
+        offHand: ['SHIELD'], // 仅允许盾牌，禁止双持武器
         armor: ['ARMOR'],
         helmet: ['HELMET'],
         ammo: ['AMMO'],
@@ -96,11 +96,13 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       // 验证物品类型是否匹配槽位（含双手武器限制）
       if (!canEquipToSlot(data.item, slot, selectedMerc)) return;
       
+      let newInv = [...party.inventory];
+      
       const newMercs = party.mercenaries.map(m => {
           if (m.id !== selectedMerc.id) return m;
           const newEquip = { ...m.equipment };
           const old = newEquip[slot];
-          const newInv = [...party.inventory];
+          
           if (data.type === 'INVENTORY') newInv.splice(data.index!, 1);
           if (old) newInv.push(old);
           newEquip[slot] = data.item!;
@@ -109,10 +111,9 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               newInv.push(newEquip.offHand);
               newEquip.offHand = null;
           }
-          onUpdateParty({ ...party, inventory: newInv });
           return { ...m, equipment: newEquip };
       });
-      onUpdateParty({ ...party, mercenaries: newMercs });
+      onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
       setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
       setSelectedStashItem(null);
   };
@@ -124,11 +125,13 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       // 验证物品类型是否匹配槽位（含双手武器限制）
       if (!canEquipToSlot(selectedStashItem.item, slot, selectedMerc)) return;
       
+      let newInv = [...party.inventory];
+
       const newMercs = party.mercenaries.map(m => {
           if (m.id !== selectedMerc.id) return m;
           const newEquip = { ...m.equipment };
           const old = newEquip[slot];
-          const newInv = [...party.inventory];
+          
           newInv.splice(selectedStashItem.index, 1);
           if (old) newInv.push(old);
           newEquip[slot] = selectedStashItem.item;
@@ -137,10 +140,9 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               newInv.push(newEquip.offHand);
               newEquip.offHand = null;
           }
-          onUpdateParty({ ...party, inventory: newInv });
           return { ...m, equipment: newEquip };
       });
-      onUpdateParty({ ...party, mercenaries: newMercs });
+      onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
       setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
       setSelectedStashItem(null);
   };
