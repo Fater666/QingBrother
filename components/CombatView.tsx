@@ -2620,12 +2620,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
     const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
     
-    // 溃逃判定：敌方至多只剩1个活人且该人正在逃跑，才算敌方全军溃败
+    // 溃逃判定：所有敌人要么死亡要么溃逃，即判定胜利
     // 玩家方仅在全部阵亡时才判定失败（逃跑的兄弟不算战败，仿照战场兄弟机制）
     const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
     const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
     const aliveEnemies = totalEnemies - deadEnemies;
-    const enemyRoutedValid = enemyRouted && aliveEnemies <= 1 && deadEnemies >= 1;
+    const enemyRoutedValid = enemyRouted;
     
     const totalPlayers = state.units.filter(u => u.team === 'PLAYER').length;
     const deadPlayers = state.units.filter(u => u.team === 'PLAYER' && u.isDead).length;
