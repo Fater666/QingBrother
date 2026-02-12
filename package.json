@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "android:package": "powershell -ExecutionPolicy Bypass -File .\\scripts\\package-android.ps1",
+    "taptap:upload": "node scripts/upload-taptap.js",
     "preview": "vite preview",
     "electron:dev": "NODE_ENV=development electron .",
     "electron:build": "vite build && electron-builder --win",
