@@ -559,6 +559,6 @@ export const getMoraleDisplayText = (result: MoraleCheckResult): string => {
  */
 export const checkTeamRouted = (team: 'PLAYER' | 'ENEMY', state: CombatState): boolean => {
   const teamUnits = state.units.filter(u => u.team === team);
-  const activeUnits = teamUnits.filter(u => !u.isDead && u.morale !== MoraleStatus.FLEEING);
+  const activeUnits = teamUnits.filter(u => !u.isDead && !u.hasEscaped && u.morale !== MoraleStatus.FLEEING);
   return activeUnits.length === 0;
 };

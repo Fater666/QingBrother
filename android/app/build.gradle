@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+// Release 签名：存在 keystore.properties 时使用，否则打出未签名包（无法安装）
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def hasSigning = keystorePropertiesFile.exists()
+
 android {
     namespace = "com.qingbrother.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -18,8 +22,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasSigning) {
+            release {
+                def keystoreProperties = new Properties()
+                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

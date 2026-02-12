@@ -316,6 +316,7 @@ export interface CombatUnit extends Character {
   team: 'PLAYER' | 'ENEMY';
   currentAP: number;
   isDead: boolean;
+  hasEscaped?: boolean; // 已成功逃离战场（不再参与战斗）
   isShieldWall: boolean;
   isHalberdWall: boolean;
   movedThisTurn: boolean;

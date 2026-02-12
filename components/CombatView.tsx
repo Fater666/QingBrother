@@ -137,6 +137,13 @@ const getWeaponIcon = (w: Item | null): string => {
   return '🗡️';
 };
 
+// 技能图标兜底，避免个别平台 emoji 缺字导致显示为空
+const getAbilityIcon = (ability: Ability | null | undefined): string => {
+  if (!ability) return '✦';
+  if (ability.id === 'CHOP') return '⚒️';
+  return ability.icon || '✦';
+};
+
 const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; turnIndex: number }> = ({ unit, isActive, isHit, turnIndex }) => {
   // 血量百分比和颜色（用 hex 避免 Android WebView 下 oklch/渐变不显示）
   const hpPercent = (unit.hp / unit.maxHp) * 100;
@@ -547,6 +554,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   // 预生成地形数据 - 基于世界地形类型和随机种子
   const gridRange = 15;
+  const isHexInBounds = useCallback((pos: { q: number; r: number }) => {
+    const { q, r } = pos;
+    if (q < -gridRange || q > gridRange) return false;
+    const minR = Math.max(-gridRange, -q - gridRange);
+    const maxR = Math.min(gridRange, -q + gridRange);
+    return r >= minR && r <= maxR;
+  }, []);
+
+  const isEdgeHex = useCallback((pos: { q: number; r: number }) => {
+    if (!isHexInBounds(pos)) return false;
+    const { q, r } = pos;
+    const minR = Math.max(-gridRange, -q - gridRange);
+    const maxR = Math.min(gridRange, -q + gridRange);
+    return q === -gridRange || q === gridRange || r === minR || r === maxR;
+  }, [isHexInBounds]);
 
   // 每次战斗使用随机种子
   const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
@@ -647,7 +669,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   // 视野计算 - 战斗中使用更大的视野范围
   const visibleSet = useMemo(() => {
     const set = new Set<string>();
-    state.units.filter(u => u.team === 'PLAYER' && !u.isDead).forEach(u => {
+    state.units.filter(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped).forEach(u => {
       const radius = 12; // 增大战斗视野范围
       for (let q = -radius; q <= radius; q++) {
         for (let r = Math.max(-radius, -q - radius); r <= Math.min(radius, -q + radius); r++) {
@@ -873,7 +895,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
       // 2. 渲染单位指示器（简化版）
       state.units.forEach(u => {
-        if (u.isDead) return;
+        if (u.isDead || u.hasEscaped) return;
         const key = `${u.combatPos.q},${u.combatPos.r}`;
         if (!visibleSet.has(key) && u.team === 'ENEMY') return;
 
@@ -1075,7 +1097,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (el) {
           const key = `${u.combatPos.q},${u.combatPos.r}`;
           const isVisible = visibleSet.has(key);
-          if (u.isDead || (!isVisible && u.team === 'ENEMY')) {
+          if (u.isDead || u.hasEscaped || (!isVisible && u.team === 'ENEMY')) {
             el.style.display = 'none';
           } else {
             el.style.display = 'block';
@@ -1310,55 +1332,155 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const executeFleeAction = useCallback(async (unit: CombatUnit) => {
     const fleeTarget = getFleeTargetPosition(unit, state);
     if (!fleeTarget) return;
-    
-    // 检查目标位置是否被占用
-    const isOccupied = state.units.some(u => 
-      !u.isDead && 
-      u.combatPos.q === fleeTarget.q && 
-      u.combatPos.r === fleeTarget.r
+
+    const isOccupied = (pos: { q: number; r: number }) => state.units.some(u =>
+      !u.isDead &&
+      !u.hasEscaped &&
+      u.id !== unit.id &&
+      u.combatPos.q === pos.q &&
+      u.combatPos.r === pos.r
     );
-    
-    if (isOccupied) {
-      // 尝试找一个相邻的空位置
-      const neighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r);
-      const emptyNeighbor = neighbors.find(n => 
-        !state.units.some(u => !u.isDead && u.combatPos.q === n.q && u.combatPos.r === n.r)
-      );
-      if (emptyNeighbor) {
-        setState(prev => ({
-          ...prev,
-          units: prev.units.map(u => 
-            u.id === unit.id 
-              ? { ...u, combatPos: emptyNeighbor, currentAP: 0 }
-              : u
-          )
-        }));
-        addToLog(`${unit.name} 惊慌逃窜！`, 'flee');
+
+    const emptyInBoundsNeighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r)
+      .filter(isHexInBounds)
+      .filter(pos => !isOccupied(pos));
+
+    // 确定最终逃跑目标：优先 fleeTarget，不合法/被占用则选择最接近 fleeTarget 的可用邻格
+    let finalTarget = fleeTarget;
+    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget)) {
+      const fallback = emptyInBoundsNeighbors.sort(
+        (a, b) => getHexDistance(a, fleeTarget) - getHexDistance(b, fleeTarget)
+      )[0];
+      if (!fallback) {
+        // 已在边缘且无法移动时，视为成功逃离
+        if (isEdgeHex(unit.combatPos)) {
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === unit.id
+                ? { ...u, hasEscaped: true, currentAP: 0 }
+                : u
+            )
+          }));
+          addToLog(`${unit.name} 趁乱从战场边缘脱离！`, 'flee');
+          showCenterBanner(`${unit.name} 成功逃离战场`, '#f87171', '💨');
+          return;
+        }
+        addToLog(`${unit.name} 惊慌失措，被人群堵住去路！`, 'flee');
+        return;
       }
+      finalTarget = fallback;
+    }
+
+    const willEscapeOnMove = isEdgeHex(finalTarget);
+
+    // 逃跑同样会触发离开控制区的截击
+    const zocCheck = checkZoCOnMove(unit, unit.combatPos, finalTarget, state);
+    if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
+      const { results, movementAllowed, totalDamage } = processZoCAttacks(unit, unit.combatPos, state);
+
+      results.forEach(result => {
+        addToLog(getFreeAttackLogText(result), 'intercept');
+      });
+
+      setState(prev => {
+        let newUnits = prev.units.map(u => {
+          const usedFreeAttack = results.find(r => r.attacker.id === u.id);
+          if (usedFreeAttack) return { ...u, hasUsedFreeAttack: true };
+          return u;
+        });
+
+        newUnits = newUnits.map(u => {
+          if (u.id !== unit.id) return u;
+
+          const newHp = Math.max(0, u.hp - totalDamage);
+          const isDead = newHp <= 0;
+          let updatedEquipment = { ...u.equipment };
+          results.forEach(r => {
+            if (r.hit && r.damageResult) {
+              const dr = r.damageResult;
+              if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
+                updatedEquipment = {
+                  ...updatedEquipment,
+                  helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
+                };
+              } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
+                updatedEquipment = {
+                  ...updatedEquipment,
+                  armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
+                };
+              }
+            }
+          });
+
+          return {
+            ...u,
+            hp: newHp,
+            isDead,
+            equipment: updatedEquipment,
+            combatPos: movementAllowed && !isDead ? finalTarget : u.combatPos,
+            currentAP: 0,
+            hasEscaped: movementAllowed && !isDead && willEscapeOnMove ? true : u.hasEscaped
+          };
+        });
+
+        return { ...prev, units: newUnits };
+      });
+
+      const wasKilled = results.some(r => r.targetKilled);
+      if (wasKilled) {
+        addToLog(`${unit.name} 在逃跑时被截击击杀！`, 'kill');
+        triggerDeathEffect(unit.combatPos.q, unit.combatPos.r);
+        showCenterBanner(`${unit.name} 在逃跑时被截击击杀！`, '#ef4444', '💀');
+      } else if (movementAllowed && willEscapeOnMove) {
+        addToLog(`${unit.name} 顶着截击冲到边缘，成功逃离战场！`, 'flee');
+        showCenterBanner(`${unit.name} 成功逃离战场`, '#f87171', '💨');
+      } else if (movementAllowed) {
+        addToLog(`${unit.name} 惊慌逃窜，硬吃截击冲了出去！`, 'flee');
+      } else {
+        addToLog(`${unit.name} 逃跑时被截击阻止！`, 'intercept');
+      }
+
+      if (totalDamage > 0) {
+        setTimeout(() => {
+          results.forEach(result => {
+            if (result.hit) {
+              processDamageWithMorale(unit.id, result.hpDamage, result.attacker.id, result.damageResult);
+            }
+          });
+        }, 100);
+      }
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      units: prev.units.map(u =>
+        u.id === unit.id
+          ? { ...u, combatPos: finalTarget, currentAP: 0, hasEscaped: willEscapeOnMove ? true : u.hasEscaped }
+          : u
+      )
+    }));
+    if (willEscapeOnMove) {
+      addToLog(`${unit.name} 趁乱冲到边缘，成功逃离战场！`, 'flee');
+      showCenterBanner(`${unit.name} 成功逃离战场`, '#f87171', '💨');
     } else {
-      setState(prev => ({
-        ...prev,
-        units: prev.units.map(u => 
-          u.id === unit.id 
-            ? { ...u, combatPos: fleeTarget, currentAP: 0 }
-            : u
-        )
-      }));
       addToLog(`${unit.name} 惊慌逃窜！`, 'flee');
     }
-  }, [state]);
+  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex]);
 
   /**
    * 回合开始时的士气恢复检定
    */
-  const processTurnStartMorale = useCallback((unit: CombatUnit) => {
+  const processTurnStartMorale = useCallback((unit: CombatUnit): MoraleStatus => {
     if (unit.morale === MoraleStatus.CONFIDENT || unit.morale === MoraleStatus.STEADY) {
-      return;
+      return unit.morale;
     }
     
     const result = handleTurnStartRecovery(unit, state);
     if (result) {
       const { updatedUnits, chainResults } = applyMoraleResults(state, [result]);
+      const selfAfterRecovery = updatedUnits.find(uu => uu.id === unit.id);
       
       setState(prev => ({
         ...prev,
@@ -1373,18 +1495,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         addToLog(displayText, 'morale');
         showMoraleFloatingText(result, unit);
       }
+      return selfAfterRecovery?.morale ?? unit.morale;
     }
+    return unit.morale;
   }, [state]);
 
   const nextTurn = useCallback(() => {
     setState(prev => {
       let nextIdx = (prev.currentUnitIndex + 1) % prev.turnOrder.length;
       
-      // 跳过死亡单位
+      // 跳过死亡/逃离单位
       let attempts = 0;
       while (attempts < prev.turnOrder.length) {
         const nextUnit = prev.units.find(u => u.id === prev.turnOrder[nextIdx]);
-        if (nextUnit && !nextUnit.isDead) break;
+        if (nextUnit && !nextUnit.isDead && !nextUnit.hasEscaped) break;
         nextIdx = (nextIdx + 1) % prev.turnOrder.length;
         attempts++;
       }
@@ -1400,7 +1524,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         let retries = 0;
         while (retries < newTurnOrder.length) {
           const u = prev.units.find(uu => uu.id === newTurnOrder[nextIdx]);
-          if (u && !u.isDead) break;
+          if (u && !u.isDead && !u.hasEscaped) break;
           nextIdx = (nextIdx + 1) % newTurnOrder.length;
           retries++;
         }
@@ -1459,11 +1583,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       let nextIdx = prev.currentUnitIndex;
       if (nextIdx >= newTurnOrder.length) nextIdx = 0;
       
-      // 跳过死亡单位
+      // 跳过死亡/逃离单位
       let attempts = 0;
       while (attempts < newTurnOrder.length) {
         const nextUnit = prev.units.find(u => u.id === newTurnOrder[nextIdx]);
-        if (nextUnit && !nextUnit.isDead) break;
+        if (nextUnit && !nextUnit.isDead && !nextUnit.hasEscaped) break;
         nextIdx = (nextIdx + 1) % newTurnOrder.length;
         attempts++;
       }
@@ -1494,12 +1618,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
     
+    if (activeUnit.hasEscaped) {
+      isProcessingAI.current = false;
+      nextTurn();
+      return;
+    }
+
     if (activeUnit.team === 'PLAYER') {
       console.log('[AI] 玩家回合，跳过');
       isProcessingAI.current = false;
       
       // 玩家回合开始时，处理逃跑单位和士气恢复
-      if (activeUnit.morale === MoraleStatus.FLEEING) {
+      const moraleAfterRecovery = processTurnStartMorale(activeUnit);
+      if (moraleAfterRecovery === MoraleStatus.FLEEING) {
         // 逃跑单位自动行动
         setTimeout(async () => {
           await executeFleeAction(activeUnit);
@@ -1507,11 +1638,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           nextTurn();
         }, 300);
       } else {
-        // 尝试士气恢复
-        processTurnStartMorale(activeUnit);
-        
         // 检查崩溃状态是否跳过行动
-        if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
+        const recoveredUnit = { ...activeUnit, morale: moraleAfterRecovery };
+        if (moraleAfterRecovery === MoraleStatus.BREAKING && shouldSkipAction(recoveredUnit)) {
           addToLog(`${activeUnit.name} 惊慌失措，无法行动！`, 'morale');
           setTimeout(nextTurn, 800);
         }
@@ -1519,7 +1648,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
     
-    if (activeUnit.isDead) {
+    if (activeUnit.isDead || activeUnit.hasEscaped) {
       console.log('[AI] 单位已死亡，跳过');
       isProcessingAI.current = false;
       nextTurn();
@@ -1537,20 +1666,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 异步执行 AI 回合
     const runAITurn = async () => {
+      const moraleAfterRecovery = processTurnStartMorale(activeUnit);
+
       // 处理逃跑单位
-      if (activeUnit.morale === MoraleStatus.FLEEING) {
+      if (moraleAfterRecovery === MoraleStatus.FLEEING) {
         await executeFleeAction(activeUnit);
         await new Promise(r => setTimeout(r, 500));
         isProcessingAI.current = false;
         nextTurn();
         return;
       }
-      
-      // 尝试士气恢复
-      processTurnStartMorale(activeUnit);
-      
+
       // 检查崩溃状态是否跳过行动
-      if (activeUnit.morale === MoraleStatus.BREAKING && shouldSkipAction(activeUnit)) {
+      const recoveredUnit = { ...activeUnit, morale: moraleAfterRecovery };
+      if (moraleAfterRecovery === MoraleStatus.BREAKING && shouldSkipAction(recoveredUnit)) {
         addToLog(`${activeUnit.name} 惊慌失措，无法行动！`, 'morale');
         await new Promise(r => setTimeout(r, 800));
         isProcessingAI.current = false;
@@ -1570,11 +1699,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         await new Promise(r => setTimeout(r, 500));
         
         // 构造用于 AI 决策的单位状态
-        const unitForAI = { ...activeUnit, currentAP, combatPos: currentPos };
+        const unitForAI = { ...activeUnit, morale: moraleAfterRecovery, currentAP, combatPos: currentPos };
         
         console.log(`[AI决策前] 单位: ${unitForAI.name}, AP: ${unitForAI.currentAP}, 位置: (${unitForAI.combatPos.q}, ${unitForAI.combatPos.r})`);
         console.log(`[AI决策前] 装备武器: ${unitForAI.equipment?.mainHand?.name || '无'}`);
-        console.log(`[AI决策前] state.units 数量: ${state.units.length}, 玩家单位: ${state.units.filter(u => u.team === 'PLAYER' && !u.isDead).length}`);
+        console.log(`[AI决策前] state.units 数量: ${state.units.length}, 玩家单位: ${state.units.filter(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped).length}`);
         
         // 获取 AI 决策
         const action = executeAITurn(unitForAI, state);
@@ -1718,7 +1847,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           actionsPerformed++;
           
         } else if (action.type === 'ATTACK' && action.targetUnitId && action.ability) {
-          const target = state.units.find(u => u.id === action.targetUnitId && !u.isDead);
+          const target = state.units.find(u => u.id === action.targetUnitId && !u.isDead && !u.hasEscaped);
           if (target) {
             // ==================== AI攻击：命中判定（含合围加成） ====================
             const aiAttackerTerrain = terrainData.get(`${currentPos.q},${currentPos.r}`);
@@ -1892,7 +2021,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
     // 判断目标格内容
     const isOccupied = state.units.some(
-      u => !u.isDead && u.combatPos.q === q && u.combatPos.r === r
+      u => !u.isDead && !u.hasEscaped && u.combatPos.q === q && u.combatPos.r === r
     );
 
     // 如果已显示命中信息tooltip，检查是否点击同一个敌人（二次点击 = 攻击）
@@ -1918,7 +2047,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       // 攻击技能：第一次点击敌人 → 显示命中信息tooltip
       if (selectedAbility.type === 'ATTACK') {
         const targetUnit = state.units.find(
-          u => !u.isDead && u.team === 'ENEMY' && u.combatPos.q === q && u.combatPos.r === r
+          u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === q && u.combatPos.r === r
         );
         const dist = getHexDistance(activeUnit.combatPos, { q, r });
         const inRange = dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1];
@@ -1943,7 +2072,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     // C) 点击己方单位 → 居中镜头
     const targetAlly = state.units.find(
-      u => !u.isDead && u.team === 'PLAYER' && u.id !== activeUnit.id &&
+      u => !u.isDead && !u.hasEscaped && u.team === 'PLAYER' && u.id !== activeUnit.id &&
         u.combatPos.q === q && u.combatPos.r === r
     );
     if (targetAlly) {
@@ -2072,7 +2201,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (ability.id === 'SPEARWALL') {
           if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
           const enemyAdjacent = state.units.some(u =>
-            !u.isDead && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
+            !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
           );
           if (enemyAdjacent) {
             addToLog('附近有敌人，无法架起矛墙！', 'info');
@@ -2146,7 +2275,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       setState(prev => {
         // 提升自身和周围4格内盟友的士气
         const affectedAllies = prev.units.filter(u =>
-          !u.isDead && u.team === activeUnit.team &&
+          !u.isDead && !u.hasEscaped && u.team === activeUnit.team &&
           getHexDistance(u.combatPos, activeUnit.combatPos) <= 4
         );
         const rallyNames: string[] = [];
@@ -2242,7 +2371,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       }
       
       // 检查目标位置是否被占用
-      if (state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
+      if (state.units.some(u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
         addToLog('目标位置已被占用！');
         return;
       }
@@ -2271,7 +2400,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     // ==================== 换位技能处理 ====================
     if (ability.id === 'ROTATION_SKILL') {
       const allyTarget = state.units.find(u =>
-        !u.isDead && u.team === 'PLAYER' && u.id !== activeUnit.id &&
+        !u.isDead && !u.hasEscaped && u.team === 'PLAYER' && u.id !== activeUnit.id &&
         u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r
       );
       if (!allyTarget) {
@@ -2314,7 +2443,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
 
     // ==================== 攻击处理 ====================
-    const target = state.units.find(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
+    const target = state.units.find(u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
     if (target && target.team === 'ENEMY') {
         const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
         
@@ -2544,7 +2673,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const apCost = moveCost.apCost;
     
     // 检查AP是否足够且目标位置未被占用
-    if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
+    if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
       return;
     }
     
@@ -2732,33 +2861,36 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const playerRouted = checkTeamRouted('PLAYER', state);
     
     // 传统胜负判定
-    const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead);
-    const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead);
+    const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead && !u.hasEscaped);
+    const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped);
     
     // 溃逃判定：所有敌人要么死亡要么溃逃，即判定胜利
     // 玩家方仅在全部阵亡时才判定失败（逃跑的兄弟不算战败，仿照战场兄弟机制）
     const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
     const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
-    const aliveEnemies = totalEnemies - deadEnemies;
+    const escapedEnemies = state.units.filter(u => u.team === 'ENEMY' && u.hasEscaped).length;
+    const aliveEnemies = totalEnemies - deadEnemies - escapedEnemies;
     const enemyRoutedValid = enemyRouted;
     
     const totalPlayers = state.units.filter(u => u.team === 'PLAYER').length;
     const deadPlayers = state.units.filter(u => u.team === 'PLAYER' && u.isDead).length;
-    const alivePlayers = totalPlayers - deadPlayers;
+    const escapedPlayers = state.units.filter(u => u.team === 'PLAYER' && u.hasEscaped).length;
+    const alivePlayers = totalPlayers - deadPlayers - escapedPlayers;
     
-    console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} | 己: ${totalPlayers}总/${deadPlayers}亡/${alivePlayers}存 溃逃:${playerRouted}`);
+    console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${escapedEnemies}逃/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} | 己: ${totalPlayers}总/${deadPlayers}亡/${escapedPlayers}逃/${alivePlayers}存 溃逃:${playerRouted}`);
     
     if (noEnemiesAlive || enemyRoutedValid) {
       // 敌人全部死亡或仅剩1人且溃逃，玩家胜利
       combatEndedRef.current = true;
-      const survivors = state.units.filter(u => u.team === 'PLAYER' && !u.isDead);
+      const survivors = state.units.filter(u => u.team === 'PLAYER' && (!u.isDead || u.hasEscaped));
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(true, survivors, enemyUnits, state.round);
     } else if (noPlayersAlive) {
       // 玩家全部阵亡才判定失败（逃跑不算失败）
       combatEndedRef.current = true;
+      const survivors = state.units.filter(u => u.team === 'PLAYER' && u.hasEscaped);
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
-      onCombatEnd(false, [], enemyUnits, state.round);
+      onCombatEnd(false, survivors, enemyUnits, state.round);
     }
   }, [state.units]);
 
@@ -2852,7 +2984,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       <div className="h-12 bg-black border-b border-amber-900/40 flex items-center px-6 gap-2 z-50 shrink-0">
         {state.turnOrder.map((uid, i) => {
           const u = state.units.find(u => u.id === uid);
-          if (!u || u.isDead) return null;
+          if (!u || u.isDead || u.hasEscaped) return null;
           const isCurrent = i === state.currentUnitIndex;
           const orderNum = i >= state.currentUnitIndex 
             ? i - state.currentUnitIndex 
@@ -2903,7 +3035,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <button onClick={() => { setMobileAttackTarget(null); setSelectedAbility(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
                 : <>
-                    <span className="text-base">{selectedAbility.icon}</span>
+                    <span className="text-base">{getAbilityIcon(selectedAbility)}</span>
                     <span>{selectedAbility.name} - 点击目标</span>
                     <button onClick={() => { setSelectedAbility(null); setMobileAttackTarget(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
@@ -2955,6 +3087,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
         <div className="absolute inset-0 pointer-events-none">
           {state.units.map(u => {
+            if (u.hasEscaped) return null;
             // 计算行动顺序：从当前活动单位开始往后数
             const orderIdx = state.turnOrder.indexOf(u.id);
             const turnIndex = orderIdx >= state.currentUnitIndex
@@ -3009,7 +3142,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
           
           // 攻击命中率计算（使用统一函数，含合围加成）
-          const targetUnit = state.units.find(u => !u.isDead && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
+          const targetUnit = state.units.find(u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
           const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
           const canAttack = selectedAbility && selectedAbility.type === 'ATTACK' && targetUnit && 
             dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] && activeUnit.currentAP >= selectedAbility.apCost;
@@ -3136,7 +3269,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <div className="flex gap-3">
           {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => {
             const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
-              !u.isDead && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
+              !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
             );
             return (
             <button 
@@ -3167,7 +3300,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 {index + 1}
               </span>
               )}
-              <span className="text-2xl drop-shadow-md">{skill.icon}</span>
+              <span className="text-2xl drop-shadow-md">{getAbilityIcon(skill)}</span>
               <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-500">{skill.apCost}</span>
             </button>
             );
