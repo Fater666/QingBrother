@@ -16,6 +16,7 @@ import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints
 import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier, generateCityQuests } from './services/mapGenerator.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
+import { ConfirmDialog } from './components/ConfirmDialog.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 
 // --- Character Generation ---
@@ -745,6 +746,7 @@ export const App: React.FC = () => {
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
   const [showContact, setShowContact] = useState(false);
   const [showSystemMenu, setShowSystemMenu] = useState(false);
+  const [showReturnMainMenuConfirm, setShowReturnMainMenuConfirm] = useState(false);
   const systemMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 每日消耗/恢复追踪
@@ -1858,10 +1860,8 @@ export const App: React.FC = () => {
                       <div className="my-1 border-t border-amber-900/40" />
                       <button
                         onClick={() => {
-                          if (window.confirm('返回主菜单将结束当前游戏，未保存的进度会丢失。确定继续？')) {
-                            setShowSystemMenu(false);
-                            setView('MAIN_MENU');
-                          }
+                          setShowSystemMenu(false);
+                          setShowReturnMainMenuConfirm(true);
                         }}
                         className="px-3 py-1.5 text-left text-[11px] text-slate-400 border border-transparent hover:border-slate-600 hover:bg-slate-800/40 transition-all"
                       >
@@ -2425,6 +2425,19 @@ export const App: React.FC = () => {
         {showContact && (
           <ContactModal onClose={() => setShowContact(false)} />
         )}
+
+        <ConfirmDialog
+          open={showReturnMainMenuConfirm}
+          title="返回主菜单"
+          message="返回主菜单将结束当前游戏，未保存的进度会丢失。确定继续？"
+          confirmText="确定返回"
+          cancelText="继续游戏"
+          onCancel={() => setShowReturnMainMenuConfirm(false)}
+          onConfirm={() => {
+            setShowReturnMainMenuConfirm(false);
+            setView('MAIN_MENU');
+          }}
+        />
 
         {/* ===== 野心目标选择弹窗 ===== */}
         {showAmbitionPopup && !preCombatEntity && !saveLoadMode && (

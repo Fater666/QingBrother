@@ -38,6 +38,7 @@ import {
   DamageResult,
   HitLocation
 } from '../services/damageService.ts';
+import { ConfirmDialog } from './ConfirmDialog.tsx';
 
 interface CombatViewProps {
   initialState: CombatState;
@@ -424,6 +425,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     unit: CombatUnit;
     hitBreakdown: ReturnType<typeof calculateHitChance>;
     ability: Ability;
+  } | null>(null);
+  const [pendingSkillConfirm, setPendingSkillConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
   } | null>(null);
 
   const isWaitAbility = (ability: Ability) =>
@@ -2382,19 +2389,23 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (ability.id === 'SHIELDWALL') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
-          if (!window.confirm(`确认让 ${activeUnit.name} 架起盾墙吗？`)) {
-            return;
-          }
-          setState(prev => ({
-            ...prev,
-            units: prev.units.map(u =>
-              u.id === activeUnit.id
-                ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isShieldWall: true }
-                : u
-            )
-          }));
-          addToLog(`🛡️ ${activeUnit.name} 架起盾墙！`, 'skill');
-          if (!overrideAbility) setSelectedAbility(null);
+          setPendingSkillConfirm({
+            title: '释放技能确认',
+            message: `确认让 ${activeUnit.name} 架起盾墙吗？`,
+            confirmText: '确认释放',
+            onConfirm: () => {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u =>
+                  u.id === activeUnit.id
+                    ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isShieldWall: true }
+                    : u
+                )
+              }));
+              addToLog(`🛡️ ${activeUnit.name} 架起盾墙！`, 'skill');
+              if (!overrideAbility) setSelectedAbility(null);
+            },
+          });
           return;
         }
         if (ability.id === 'SPEARWALL') {
@@ -2406,42 +2417,50 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             addToLog('附近有敌人，无法架起矛墙！', 'info');
             return;
           }
-          if (!window.confirm(`确认让 ${activeUnit.name} 架起矛墙吗？`)) {
-            return;
-          }
-          setState(prev => ({
-            ...prev,
-            units: prev.units.map(u =>
-              u.id === activeUnit.id
-                ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isHalberdWall: true }
-                : u
-            )
-          }));
-          addToLog(`🚧 ${activeUnit.name} 架起矛墙！`, 'skill');
-          if (!overrideAbility) setSelectedAbility(null);
+          setPendingSkillConfirm({
+            title: '释放技能确认',
+            message: `确认让 ${activeUnit.name} 架起矛墙吗？`,
+            confirmText: '确认释放',
+            onConfirm: () => {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u =>
+                  u.id === activeUnit.id
+                    ? { ...u, currentAP: u.currentAP - ability.apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)), isHalberdWall: true }
+                    : u
+                )
+              }));
+              addToLog(`🚧 ${activeUnit.name} 架起矛墙！`, 'skill');
+              if (!overrideAbility) setSelectedAbility(null);
+            },
+          });
           return;
         }
         if (ability.id === 'RIPOSTE') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.isRiposte) { addToLog(`${activeUnit.name} 已处于反击姿态。`, 'info'); return; }
-          if (!window.confirm(`确认让 ${activeUnit.name} 进入反击姿态吗？`)) {
-            return;
-          }
-          setState(prev => ({
-            ...prev,
-            units: prev.units.map(u =>
-              u.id === activeUnit.id
-                ? {
-                    ...u,
-                    currentAP: u.currentAP - ability.apCost,
-                    fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)),
-                    isRiposte: true,
-                  }
-                : u
-            )
-          }));
-          addToLog(`🔄 ${activeUnit.name} 进入反击姿态：受到近战攻击时将自动反击！`, 'skill');
-          if (!overrideAbility) setSelectedAbility(null);
+          setPendingSkillConfirm({
+            title: '释放技能确认',
+            message: `确认让 ${activeUnit.name} 进入反击姿态吗？`,
+            confirmText: '确认释放',
+            onConfirm: () => {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u =>
+                  u.id === activeUnit.id
+                    ? {
+                        ...u,
+                        currentAP: u.currentAP - ability.apCost,
+                        fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)),
+                        isRiposte: true,
+                      }
+                    : u
+                )
+              }));
+              addToLog(`🔄 ${activeUnit.name} 进入反击姿态：受到近战攻击时将自动反击！`, 'skill');
+              if (!overrideAbility) setSelectedAbility(null);
+            },
+          });
           return;
         }
       }
@@ -3722,6 +3741,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <span className="ml-2"><b className="text-slate-400">Esc</b> 取消</span>
       </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingSkillConfirm}
+        title={pendingSkillConfirm?.title}
+        message={pendingSkillConfirm?.message || ''}
+        confirmText={pendingSkillConfirm?.confirmText}
+        onCancel={() => setPendingSkillConfirm(null)}
+        onConfirm={() => {
+          if (!pendingSkillConfirm) return;
+          pendingSkillConfirm.onConfirm();
+          setPendingSkillConfirm(null);
+        }}
+      />
     </div>
   );
 };
