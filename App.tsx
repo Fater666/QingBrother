@@ -1321,6 +1321,7 @@ export const App: React.FC = () => {
         const currentDay = Math.floor(party.day);
         if (currentDay > lastProcessedDayRef.current) {
           lastProcessedDayRef.current = currentDay;
+          let questFailedTitle: string | null = null;
           setParty(p => {
             const headcount = p.mercenaries.length;
             const foodCost = headcount; // 每人每天消耗1份粮食
@@ -1397,6 +1398,7 @@ export const App: React.FC = () => {
               const newDaysLeft = updatedQuest.daysLeft - 1;
               if (newDaysLeft <= 0) {
                 // 任务超时失败：清除任务，扣声望
+                questFailedTitle = updatedQuest.title;
                 updatedQuest = null;
               } else {
                 updatedQuest = { ...updatedQuest, daysLeft: newDaysLeft };
@@ -1416,6 +1418,13 @@ export const App: React.FC = () => {
               reputation: updatedQuest === null && p.activeQuest ? Math.max(0, p.reputation - 3) : p.reputation, // 任务失败扣3声望
             };
           });
+          if (questFailedTitle) {
+            if (ambitionNotifTimerRef.current) {
+              clearTimeout(ambitionNotifTimerRef.current);
+            }
+            setAmbitionNotification(`契约失败「${questFailedTitle}」：已超时（声望 -3）`);
+            ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
+          }
 
           // === 商店库存 & 佣兵招募池定期刷新（每 3 天） ===
           setCities(prevCities => {

@@ -47,3 +47,6 @@ android/app/src/main/assets/capacitor.plugins.json
 
 nul
 录屏/
+
+# 嵌套的隐私政策仓库（单独维护，不纳入本仓库）
+docs/privacy

@@ -1052,8 +1052,11 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 <h2 className="text-lg font-bold text-amber-600 tracking-widest">契约公告</h2>
                                 <p className="text-xs text-slate-600 mt-1">在此处接取工作，赚取金币与声望</p>
                                 {party.activeQuest && !party.activeQuest.isCompleted && (
-                                    <div className="mt-2 text-xs text-red-400 font-bold bg-red-950/20 py-1 px-3 inline-block border border-red-900/40">
-                                        已有在身契约，需先完成当前任务
+                                    <div className="mt-2 inline-flex items-center gap-3 text-xs font-bold bg-red-950/20 py-1 px-3 border border-red-900/40">
+                                        <span className="text-red-400">已有在身契约，需先完成当前任务</span>
+                                        <span className={`font-mono ${party.activeQuest.daysLeft <= 1 ? 'text-red-300' : party.activeQuest.daysLeft <= 2 ? 'text-amber-300' : 'text-amber-400'}`}>
+                                            时限 {party.activeQuest.daysLeft} 天
+                                        </span>
                                     </div>
                                 )}
                                 {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId !== city.id && (

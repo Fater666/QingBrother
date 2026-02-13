@@ -1823,6 +1823,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               </span>
             </div>
             <div className="px-3 py-2 space-y-1.5">
+              {!party.activeQuest.isCompleted && party.activeQuest.daysLeft <= 2 && (
+                <div className={`border px-2 py-1 ${party.activeQuest.daysLeft <= 1 ? 'border-red-600/70 bg-red-950/35' : 'border-amber-600/60 bg-amber-950/25'}`}>
+                  <marquee
+                    behavior="scroll"
+                    direction="left"
+                    scrollAmount={party.activeQuest.daysLeft <= 1 ? 6 : 4}
+                    className={`text-[10px] font-bold tracking-wide ${party.activeQuest.daysLeft <= 1 ? 'text-red-300' : 'text-amber-300'}`}
+                  >
+                    {party.activeQuest.daysLeft <= 1 ? '⚠ 契约即将失效！仅剩最后 1 天，务必立即完成！ ⚠' : `⚠ 契约剩余 ${party.activeQuest.daysLeft} 天，请尽快完成并返城交付！ ⚠`}
+                  </marquee>
+                </div>
+              )}
+
               <div className={`text-sm font-bold tracking-wider ${
                 party.activeQuest.isCompleted ? 'text-emerald-400' : 'text-amber-400'
               }`}>{party.activeQuest.title}</div>
@@ -1855,7 +1868,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 flex items-center justify-center">
                       <svg width="20" height="20" viewBox="0 0 20 20" className="drop-shadow-sm">
-                        <g transform={`rotate(${(questTargetAngle * 180 / Math.PI) - 90}, 10, 10)`}>
+                        <g transform={`rotate(${(questTargetAngle * 180 / Math.PI) + 90}, 10, 10)`}>
                           <polygon 
                             points="10,2 14,14 10,11 6,14" 
                             fill={questTargetDist <= VISION_RADIUS ? '#ef4444' : '#b45309'} 
@@ -1950,7 +1963,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               <div className="flex items-center justify-between text-[10px] pt-1">
                 <span className="text-amber-600 font-mono">{party.activeQuest.rewardGold} 金</span>
                 {!party.activeQuest.isCompleted && (
-                  <span className="text-slate-600">剩余 {party.activeQuest.daysLeft} 天</span>
+                  <span className={`font-mono ${party.activeQuest.daysLeft <= 1 ? 'text-red-400' : party.activeQuest.daysLeft <= 2 ? 'text-amber-400' : 'text-slate-500'}`}>
+                    时限 {party.activeQuest.daysLeft} 天
+                  </span>
                 )}
               </div>
             </div>
