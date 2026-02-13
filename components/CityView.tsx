@@ -760,7 +760,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     <div
                                                         key={merc.id}
                                                         onClick={() => setSelectedRecruit(isSelected ? null : i)}
-                                                        onDoubleClick={() => handleRecruit(merc, i)}
                                                         className={`border p-3 cursor-pointer transition-all flex flex-col gap-1.5 relative group ${
                                                             isSelected
                                                                 ? 'bg-amber-900/30 border-amber-500 shadow-[inset_0_0_15px_rgba(245,158,11,0.15)]'
@@ -917,7 +916,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         <div className="text-4xl mb-4 text-slate-800">⚔️</div>
                                         <p className="text-sm tracking-widest">从左侧名录中选择</p>
                                         <p className="text-sm tracking-widest">一名候选人以查看详情</p>
-                                        <p className="text-[10px] text-slate-800 mt-3">双击可直接雇佣</p>
+                                        <p className="text-[10px] text-slate-800 mt-3">点击下方按钮进行雇佣</p>
                                     </div>
                                 )}
                             </div>

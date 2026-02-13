@@ -3254,13 +3254,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const noEnemiesAlive = !state.units.some(u => u.team === 'ENEMY' && !u.isDead && !u.hasEscaped);
     const noPlayersAlive = !state.units.some(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped);
     
-    // 溃逃判定：所有敌人要么死亡要么溃逃，即判定胜利
-    // 玩家方仅在全部阵亡时才判定失败（逃跑的兄弟不算战败，仿照战场兄弟机制）
+    // 统计信息（用于日志观察）
     const totalEnemies = state.units.filter(u => u.team === 'ENEMY').length;
     const deadEnemies = state.units.filter(u => u.team === 'ENEMY' && u.isDead).length;
     const escapedEnemies = state.units.filter(u => u.team === 'ENEMY' && u.hasEscaped).length;
     const aliveEnemies = totalEnemies - deadEnemies - escapedEnemies;
-    const enemyRoutedValid = enemyRouted;
     
     const totalPlayers = state.units.filter(u => u.team === 'PLAYER').length;
     const deadPlayers = state.units.filter(u => u.team === 'PLAYER' && u.isDead).length;
@@ -3269,8 +3267,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${escapedEnemies}逃/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} | 己: ${totalPlayers}总/${deadPlayers}亡/${escapedPlayers}逃/${alivePlayers}存 溃逃:${playerRouted}`);
     
-    if (noEnemiesAlive || enemyRoutedValid) {
-      // 敌人全部死亡或仅剩1人且溃逃，玩家胜利
+    if (noEnemiesAlive) {
+      // 敌方已无可战单位（全部死亡/逃离）才结算胜利；全员溃逃时允许继续追击
       combatEndedRef.current = true;
       const survivors = state.units.filter(u => u.team === 'PLAYER' && (!u.isDead || u.hasEscaped));
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');

@@ -968,6 +968,8 @@ export const isInEnemyZoC = (
 ): boolean => {
   return state.units.some(u => 
     !u.isDead && 
+    !u.hasEscaped &&
+    u.morale !== MoraleStatus.FLEEING &&
     u.team !== movingUnit.team &&
     getHexDistance(u.combatPos, pos) === 1
   );
@@ -987,6 +989,8 @@ export const getThreateningEnemies = (
 ): CombatUnit[] => {
   return state.units.filter(u => 
     !u.isDead && 
+    !u.hasEscaped &&
+    u.morale !== MoraleStatus.FLEEING &&
     u.team !== movingUnit.team &&
     !u.hasUsedFreeAttack && // 本回合未使用过截击
     getHexDistance(u.combatPos, pos) === 1
