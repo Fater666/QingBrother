@@ -548,6 +548,10 @@ export const resetTurnStartStates = (unit: CombatUnit): CombatUnit => {
   if (updated.overwhelmStacks) {
     updated.overwhelmStacks = 0;
   }
+  // 重置反击姿态
+  if (updated.isRiposte) {
+    updated.isRiposte = false;
+  }
   return updated;
 };
 

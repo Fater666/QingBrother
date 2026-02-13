@@ -343,6 +343,7 @@ export interface CombatUnit extends Character {
   isIndomitable?: boolean;         // 不屈：受到伤害减半，持续到下回合
   adrenalineActive?: boolean;      // 血勇：下回合行动顺序提前至最先
   taunting?: boolean;              // 挑衅：迫使周围敌人攻击自己
+  isRiposte?: boolean;             // 反击：受到近战攻击时自动反击，持续到下回合
 }
 
 export interface CombatState {

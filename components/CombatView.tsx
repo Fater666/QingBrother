@@ -394,6 +394,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none');
   const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>([]);
   const [centerBanner, setCenterBanner] = useState<CenterBanner | null>(null);
+  const [isCombatLogCollapsed, setIsCombatLogCollapsed] = useState(false);
   const attackLinesRef = useRef<AttackLineEffect[]>([]);
   const deathEffectsRef = useRef<DeathEffect[]>([]);
 
@@ -1958,6 +1959,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               triggerAttackLine(currentPos.q, currentPos.r, target.combatPos.q, target.combatPos.r, '#475569');
               addToLog(`${activeUnit.name}「${weaponName}」${action.ability.name} → ${target.name}，未命中！(${aiHitInfo.final}%)`, 'info');
               setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              tryTriggerRiposte(target.id, activeUnit.id);
               actionsPerformed++;
             } else {
               // ==================== AI命中：使用护甲伤害系统 ====================
@@ -2016,6 +2018,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
                 addToLog(`💀 ${target.name} 阵亡！`, 'kill');
               }
+              tryTriggerRiposte(target.id, activeUnit.id);
               
               actionsPerformed++;
             }
@@ -2264,6 +2267,104 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     touchMovedDistRef.current = 0;
   };
 
+  const tryTriggerRiposte = (defenderId: string, attackerId: string) => {
+    const defender = state.units.find(u => u.id === defenderId && !u.isDead && !u.hasEscaped);
+    const attacker = state.units.find(u => u.id === attackerId && !u.isDead && !u.hasEscaped);
+    if (!defender || !attacker || !defender.isRiposte) return;
+    if (getHexDistance(defender.combatPos, attacker.combatPos) !== 1) return;
+
+    const defenderTerrain = terrainData.get(`${defender.combatPos.q},${defender.combatPos.r}`);
+    const attackerTerrain = terrainData.get(`${attacker.combatPos.q},${attacker.combatPos.r}`);
+    const heightDiff = (defenderTerrain?.height || 0) - (attackerTerrain?.height || 0);
+    const baseHitInfo = calculateHitChance(defender, attacker, state, heightDiff);
+    const ripostePenalty = hasPerk(defender, 'sword_mastery') ? 0 : 20;
+    const finalHitChance = Math.max(5, Math.min(95, baseHitInfo.final - ripostePenalty));
+    const isHit = rollHitCheck(finalHitChance);
+    const weaponName = defender.equipment.mainHand?.name || '徒手';
+
+    if (!isHit) {
+      triggerDodgeEffect(attacker.id, defender.combatPos, attacker.combatPos);
+      setFloatingTexts(prev => [...prev, {
+        id: Date.now(),
+        text: 'MISS',
+        x: attacker.combatPos.q,
+        y: attacker.combatPos.r,
+        color: '#94a3b8',
+        type: 'miss' as FloatingTextType,
+        size: 'md' as const,
+      }]);
+      triggerAttackLine(defender.combatPos.q, defender.combatPos.r, attacker.combatPos.q, attacker.combatPos.r, '#7c3aed');
+      addToLog(`🔄 ${defender.name} 进行反击，但未命中 ${attacker.name}！(${finalHitChance}%)`, 'skill');
+      setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+      return;
+    }
+
+    const dmgResult = calculateDamage(defender, attacker, { damageMult: 0.8 });
+    const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
+    if (dmgResult.armorDamageDealt > 0) {
+      floatTexts.push({
+        id: Date.now(),
+        text: dmgResult.armorDestroyed ? `🔄🛡💥-${dmgResult.armorDamageDealt}` : `🔄🛡-${dmgResult.armorDamageDealt}`,
+        x: attacker.combatPos.q,
+        y: attacker.combatPos.r,
+        color: dmgResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
+        type: 'intercept' as FloatingTextType,
+        size: 'sm' as const,
+      });
+    }
+    floatTexts.push({
+      id: Date.now() + 1,
+      text: dmgResult.isCritical ? `🔄💥-${dmgResult.hpDamageDealt}` : `🔄-${dmgResult.hpDamageDealt}`,
+      x: attacker.combatPos.q,
+      y: attacker.combatPos.r,
+      color: dmgResult.isCritical ? '#ff6b35' : '#a78bfa',
+      type: (dmgResult.isCritical ? 'critical' : 'intercept') as FloatingTextType,
+      size: dmgResult.isCritical ? 'lg' as const : 'md' as const,
+    });
+    setFloatingTexts(prev => [...prev, ...floatTexts]);
+    triggerHitEffect(attacker.id);
+    triggerAttackLine(defender.combatPos.q, defender.combatPos.r, attacker.combatPos.q, attacker.combatPos.r, '#7c3aed');
+    triggerScreenShake(dmgResult.isCritical || dmgResult.willKill ? 'heavy' : 'light');
+    addToLog(getDamageLogText(defender.name, attacker.name, weaponName, '反击', dmgResult), 'skill');
+    if (ripostePenalty > 0) {
+      addToLog('剑术未精通：反击命中率 -20%', 'info');
+    }
+    if (dmgResult.armorDestroyed) {
+      const armorName = dmgResult.armorType === 'HELMET' ? '头盔' : '护甲';
+      addToLog(`🛡 ${attacker.name} 的${armorName}被反击打碎！`, 'skill');
+    }
+
+    setState(prev => ({
+      ...prev,
+      units: prev.units.map(u => {
+        if (u.id !== attacker.id) return u;
+        const newHp = Math.max(0, u.hp - dmgResult.hpDamageDealt);
+        const isDead = newHp <= 0;
+        let updatedEquipment = { ...u.equipment };
+        if (dmgResult.armorType === 'HELMET' && updatedEquipment.helmet) {
+          updatedEquipment = {
+            ...updatedEquipment,
+            helmet: { ...updatedEquipment.helmet, durability: Math.max(0, updatedEquipment.helmet.durability - dmgResult.armorDamageDealt) }
+          };
+        } else if (dmgResult.armorType === 'ARMOR' && updatedEquipment.armor) {
+          updatedEquipment = {
+            ...updatedEquipment,
+            armor: { ...updatedEquipment.armor, durability: Math.max(0, updatedEquipment.armor.durability - dmgResult.armorDamageDealt) }
+          };
+        }
+        return { ...u, hp: newHp, isDead, equipment: updatedEquipment };
+      })
+    }));
+
+    processDamageWithMorale(attacker.id, dmgResult.hpDamageDealt, defender.id, dmgResult);
+    if (dmgResult.willKill) {
+      triggerDeathEffect(attacker.combatPos.q, attacker.combatPos.r);
+      showCenterBanner(`${attacker.name} 被 ${defender.name} 反击击杀！`, '#f59e0b', '💀');
+      addToLog(`💀 ${attacker.name} 被反击击杀！`, 'kill');
+    }
+    setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+  };
+
   const performAttack = (overrideAbility?: Ability) => {
     const ability = overrideAbility ?? selectedAbility;
     if (!activeUnit || !isPlayerTurn || !ability) return;
@@ -2317,6 +2418,29 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             )
           }));
           addToLog(`🚧 ${activeUnit.name} 架起矛墙！`, 'skill');
+          if (!overrideAbility) setSelectedAbility(null);
+          return;
+        }
+        if (ability.id === 'RIPOSTE') {
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
+          if (activeUnit.isRiposte) { addToLog(`${activeUnit.name} 已处于反击姿态。`, 'info'); return; }
+          if (!window.confirm(`确认让 ${activeUnit.name} 进入反击姿态吗？`)) {
+            return;
+          }
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === activeUnit.id
+                ? {
+                    ...u,
+                    currentAP: u.currentAP - ability.apCost,
+                    fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)),
+                    isRiposte: true,
+                  }
+                : u
+            )
+          }));
+          addToLog(`🔄 ${activeUnit.name} 进入反击姿态：受到近战攻击时将自动反击！`, 'skill');
           if (!overrideAbility) setSelectedAbility(null);
           return;
         }
@@ -2619,6 +2743,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#475569');
               addToLog(`${activeUnit.name}「${weaponName}」${ability.name} → ${target.name}，未命中！(${hitInfo.final}%)${hasPerk(activeUnit, 'fast_adaptation') ? ` 🎯临机+${(activeUnit.fastAdaptationStacks || 0) + 1}0%` : ''}`, 'info');
               setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              tryTriggerRiposte(target.id, activeUnit.id);
               return;
             }
             
@@ -2783,6 +2908,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               // 额外触发一次轻微士气检定
               addToLog(`👻 ${activeUnit.name} 的威压令 ${target.name} 心生畏惧！`, 'morale');
             }
+            tryTriggerRiposte(target.id, activeUnit.id);
         }
     }
   };
@@ -3514,35 +3640,46 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
       {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
       <div className={`fixed ${isMobile ? 'left-1 top-14 w-48 max-h-[25vh]' : 'left-3 top-20 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}>
-        <div className="bg-gradient-to-b from-black/85 to-black/70 border border-amber-900/30 rounded-sm overflow-hidden backdrop-blur-sm">
+        <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
           {/* 日志标题 */}
-          <div className="px-3 py-1.5 border-b border-amber-900/30 flex items-center gap-2">
-            <span className="text-amber-600 text-[10px] font-bold tracking-widest">战斗日志</span>
+          <div className={`px-3 py-1.5 flex items-center gap-2 ${isCombatLogCollapsed ? '' : 'border-b border-amber-900/30'}`}>
+            <span className="text-amber-600 text-[10px] font-bold tracking-widest flex-1">战斗日志</span>
             <span className="text-slate-600 text-[9px]">第{state.round}回合</span>
+            <button
+              type="button"
+              onClick={() => setIsCombatLogCollapsed(prev => !prev)}
+              className="ml-1 text-[10px] text-slate-400 hover:text-amber-400 transition-colors leading-none"
+              aria-label={isCombatLogCollapsed ? '展开战斗日志' : '收起战斗日志'}
+              title={isCombatLogCollapsed ? '展开战斗日志' : '收起战斗日志'}
+            >
+              {isCombatLogCollapsed ? '▶' : '▼'}
+            </button>
           </div>
           {/* 日志条目 */}
-          <div className="px-2 py-1 space-y-0.5 max-h-[38vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-            {combatLogEntries.slice(0, 12).map((entry, i) => {
-              const style = LOG_STYLES[entry.type];
-              return (
-                <div 
-                  key={entry.id}
-                  className={`flex items-start gap-1.5 py-1 px-1.5 rounded-sm text-[11px] leading-snug ${i === 0 ? 'anim-slide-in' : ''}`}
-                  style={{ 
-                    opacity: Math.max(0.3, 1 - i * 0.07),
-                    borderLeft: i === 0 ? `2px solid ${style.color}` : '2px solid transparent',
-                    backgroundColor: i === 0 ? `${style.color}10` : 'transparent',
-                  }}
-                >
-                  <span className="flex-shrink-0 mt-0.5" style={{ color: style.color }}>{style.icon}</span>
-                  <span style={{ color: i === 0 ? style.color : '#94a3b8' }}>{entry.text}</span>
-                </div>
-              );
-            })}
-            {combatLogEntries.length === 0 && (
-              <div className="text-slate-600 text-[10px] py-2 text-center italic">战斗开始...</div>
-            )}
-          </div>
+          {!isCombatLogCollapsed && (
+            <div className="px-2 py-1 space-y-0.5 max-h-[38vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+              {combatLogEntries.slice(0, 12).map((entry, i) => {
+                const style = LOG_STYLES[entry.type];
+                return (
+                  <div 
+                    key={entry.id}
+                    className={`flex items-start gap-1.5 py-1 px-1.5 rounded-sm text-[11px] leading-snug ${i === 0 ? 'anim-slide-in' : ''}`}
+                    style={{ 
+                      opacity: Math.max(0.3, 1 - i * 0.07),
+                      borderLeft: i === 0 ? `2px solid ${style.color}` : '2px solid transparent',
+                      backgroundColor: i === 0 ? `${style.color}10` : 'transparent',
+                    }}
+                  >
+                    <span className="flex-shrink-0 mt-0.5" style={{ color: style.color }}>{style.icon}</span>
+                    <span style={{ color: i === 0 ? style.color : '#94a3b8' }}>{entry.text}</span>
+                  </div>
+                );
+              })}
+              {combatLogEntries.length === 0 && (
+                <div className="text-slate-600 text-[10px] py-2 text-center italic">战斗开始...</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
