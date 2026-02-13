@@ -574,7 +574,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
         {/* ==================== 功能面板视图 ==================== */}
         {subView !== 'MAP' && (
-            <div className="flex-1 flex flex-col relative z-10">
+            <div className="flex-1 min-h-0 flex flex-col relative z-10">
                 {/* 面板顶栏 */}
                 <div className="bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between px-3 sm:px-6 py-2 gap-2 shrink-0">
                     <div className="flex items-center gap-2 sm:gap-4">
@@ -1050,7 +1050,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     </div>
                                 )}
                             </div>
-                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+                            <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
                                 {/* ===== 已完成任务交付面板（仿战场兄弟：返回接取城市交付） ===== */}
                                 {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id && (
                                     <div className="mb-5 border-2 border-emerald-700/60 bg-emerald-950/20 p-5 relative animate-pulse-slow">
@@ -1200,7 +1200,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 <h2 className="text-lg font-bold text-emerald-600 tracking-widest">医馆治疗</h2>
                                 <p className="text-slate-600 text-xs mt-1">支付费用治疗伤员，费用取决于伤势轻重</p>
                             </div>
-                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+                            <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                     {party.mercenaries.map((merc, i) => {
                                         const missingHp = merc.maxHp - merc.hp;

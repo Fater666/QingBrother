@@ -419,6 +419,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     ability: Ability;
   } | null>(null);
 
+  const isWaitAbility = (ability: Ability) =>
+    ability.id === 'WAIT' ||
+    ability.name === '等待' ||
+    ability.icon === '⏳' ||
+    ability.description.includes('推迟行动顺序');
+
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
 
@@ -2186,6 +2192,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (ability.id === 'SHIELDWALL') {
           if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
           if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
+          if (!window.confirm(`确认让 ${activeUnit.name} 架起盾墙吗？`)) {
+            return;
+          }
           setState(prev => ({
             ...prev,
             units: prev.units.map(u =>
@@ -2205,6 +2214,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           );
           if (enemyAdjacent) {
             addToLog('附近有敌人，无法架起矛墙！', 'info');
+            return;
+          }
+          if (!window.confirm(`确认让 ${activeUnit.name} 架起矛墙吗？`)) {
             return;
           }
           setState(prev => ({
@@ -2900,7 +2912,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       // 只在玩家回合响应
       if (!isPlayerTurn || !activeUnit) return;
 
-      const abilities = getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE');
+      const abilities = getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a));
       
       // 数字键 1-9 选择技能
       if (e.key >= '1' && e.key <= '9') {
@@ -3267,7 +3279,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         </div>
 
         <div className="flex gap-3">
-          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE').map((skill, index) => {
+          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a)).map((skill, index) => {
             const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
               !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
             );
