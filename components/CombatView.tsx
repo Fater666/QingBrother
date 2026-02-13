@@ -1423,8 +1423,24 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
       const { results, movementAllowed, totalDamage } = processZoCAttacks(unit, unit.combatPos, state);
 
-      results.forEach(result => {
+      results.forEach((result, index) => {
         addToLog(getFreeAttackLogText(result), 'intercept');
+        if (!result.hit) {
+          setTimeout(() => {
+            triggerDodgeEffect(unit.id, result.attacker.combatPos, unit.combatPos);
+            setFloatingTexts(prev => [...prev, {
+              id: Date.now() + index * 10,
+              text: 'MISS',
+              x: unit.combatPos.q,
+              y: unit.combatPos.r,
+              color: '#94a3b8',
+              type: 'miss' as FloatingTextType,
+              size: 'md' as const,
+            }]);
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, unit.combatPos.q, unit.combatPos.r, '#475569');
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+          }, index * 150);
+        }
       });
 
       setState(prev => {
@@ -1809,6 +1825,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     const armorName = result.damageResult.armorType === 'HELMET' ? '头盔' : '护甲';
                     addToLog(`🛡 ${activeUnit.name} 的${armorName}破碎了！`, 'intercept');
                   }
+                } else if (!result.hit) {
+                  triggerDodgeEffect(activeUnit.id, result.attacker.combatPos, currentPos);
+                  setFloatingTexts(prev => [...prev, {
+                    id: Date.now() + Math.random(),
+                    text: 'MISS',
+                    x: currentPos.q,
+                    y: currentPos.r,
+                    color: '#94a3b8',
+                    type: 'miss' as FloatingTextType,
+                    size: 'md' as const,
+                  }]);
+                  triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, currentPos.q, currentPos.r, '#475569');
+                  setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
                 }
               }
               
@@ -2636,7 +2665,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 setState(prev => ({
                   ...prev,
                   units: prev.units.map(u =>
-                    u.id === target.id ? { ...u, combatPos: pushPos } : u
+                    u.id === target.id ? { ...u, combatPos: pushPos, hasUsedFreeAttack: true } : u
                   )
                 }));
                 addToLog(`👊 ${activeUnit.name} 推撞 ${target.name}，将其击退一格！`, 'skill');
@@ -2811,6 +2840,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               const armorName = result.damageResult.armorType === 'HELMET' ? '头盔' : '护甲';
               addToLog(`🛡 ${activeUnit.name} 的${armorName}破碎了！`, 'intercept');
             }
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+          } else if (!result.hit) {
+            triggerDodgeEffect(activeUnit.id, result.attacker.combatPos, activeUnit.combatPos);
+            setFloatingTexts(prev => [...prev, {
+              id: Date.now() + index * 10 + 2,
+              text: 'MISS',
+              x: activeUnit.combatPos.q,
+              y: activeUnit.combatPos.r,
+              color: '#94a3b8',
+              type: 'miss' as FloatingTextType,
+              size: 'md' as const,
+            }]);
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, activeUnit.combatPos.q, activeUnit.combatPos.r, '#475569');
             setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
           }
         }, index * 300);
