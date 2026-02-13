@@ -13,8 +13,9 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 4
         versionName "1.0"
-        // TapTap 支持：64位+32位 或 仅64位。仅64位可减小包体（arm64-v8a, x86_64）
-        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        // Android 实机分发建议同时保留 32/64 位 ARM，避免机型因 ABI 不匹配在启动时崩溃。
+        // 注意：Unity 导出产物中必须真实包含 arm64-v8a/libil2cpp.so。
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

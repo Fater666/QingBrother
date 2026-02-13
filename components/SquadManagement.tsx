@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Party, Character, Item, Perk } from '../types.ts';
+import { Party, Character, Item, Perk, Trait } from '../types.ts';
 import { BACKGROUNDS, PERK_TREE, TRAIT_TEMPLATES, getXPForNextLevel } from '../constants';
 
 interface SquadManagementProps {
@@ -79,10 +79,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [rightTab, setRightTab] = useState<'STASH' | 'PERKS' | 'FORMATION'>('STASH');
   const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
   const [hoveredPerk, setHoveredPerk] = useState<Perk | null>(null);
+  const [selectedTraitId, setSelectedTraitId] = useState<string | null>(null);
   const [selectedStashItem, setSelectedStashItem] = useState<{ item: Item, index: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [touchFormationDrag, setTouchFormationDrag] = useState<TouchFormationDragState | null>(null);
+  const selectedTrait: Trait | null = selectedTraitId ? (TRAIT_TEMPLATES[selectedTraitId] || null) : null;
 
   // 分离出战阵中和后备队伍的人员
   const activeRoster = useMemo(() => party.mercenaries.filter(m => m.formationIndex !== null), [party.mercenaries]);
@@ -103,6 +105,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       window.addEventListener('resize', detectMobileLayout);
       return () => window.removeEventListener('resize', detectMobileLayout);
   }, []);
+
+  useEffect(() => {
+      setSelectedTraitId(null);
+  }, [selectedMerc?.id]);
 
   const handleDragStart = (e: React.DragEvent, data: DragData) => {
       e.dataTransfer.setData('text/plain', JSON.stringify(data));
@@ -416,32 +422,62 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                         </div>
                     </div>
 
-                    {/* Traits Section - 特质标签 */}
+                    {/* Traits Section - 特质标签（使用 onTouchEnd tap 检测，兼容 Android WebView 滚动容器） */}
                     {selectedMerc.traits && selectedMerc.traits.length > 0 && (
-                        <div className="px-4 py-2 border-b border-amber-900/20 flex flex-wrap gap-1.5">
-                            {selectedMerc.traits.map(tid => {
-                                const trait = TRAIT_TEMPLATES[tid];
-                                if (!trait) return null;
-                                const isPositive = trait.type === 'positive';
-                                return (
-                                    <div
-                                        key={tid}
-                                        className={`group relative inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border cursor-default ${
-                                            isPositive
-                                                ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
-                                                : 'text-red-300 bg-red-950/40 border-red-800/50'
-                                        }`}
-                                    >
-                                        <span>{trait.icon}</span>
-                                        <span>{trait.name}</span>
-                                        {/* Tooltip */}
-                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-black/95 border border-amber-900/60 rounded text-[11px] text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl">
-                                            <div className="font-bold text-amber-400 mb-1">{trait.icon} {trait.name}</div>
-                                            <div>{trait.description}</div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                        <div className="px-4 py-2 border-b border-amber-900/20">
+                            <div className="flex flex-wrap gap-1.5">
+                                {selectedMerc.traits.map(tid => {
+                                    const trait = TRAIT_TEMPLATES[tid];
+                                    if (!trait) return null;
+                                    const isPositive = trait.type === 'positive';
+                                    return (
+                                        <span
+                                            key={tid}
+                                            role="button"
+                                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded border ${
+                                                selectedTraitId === tid
+                                                    ? 'ring-1 ring-amber-500 '
+                                                    : ''
+                                            }${
+                                                isPositive
+                                                    ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
+                                                    : 'text-red-300 bg-red-950/40 border-red-800/50'
+                                            }`}
+                                            onTouchStart={(e) => {
+                                                const t = e.touches[0];
+                                                (e.currentTarget as any)._tapX = t.clientX;
+                                                (e.currentTarget as any)._tapY = t.clientY;
+                                            }}
+                                            onTouchEnd={(e) => {
+                                                const el = e.currentTarget as any;
+                                                const ct = e.changedTouches[0];
+                                                const dx = ct.clientX - (el._tapX || 0);
+                                                const dy = ct.clientY - (el._tapY || 0);
+                                                if (Math.abs(dx) < 15 && Math.abs(dy) < 15) {
+                                                    e.preventDefault();
+                                                    setHoveredItem(null);
+                                                    setHoveredPerk(null);
+                                                    setSelectedTraitId(prev => prev === tid ? null : tid);
+                                                }
+                                            }}
+                                            onClick={() => {
+                                                setHoveredItem(null);
+                                                setHoveredPerk(null);
+                                                setSelectedTraitId(prev => prev === tid ? null : tid);
+                                            }}
+                                        >
+                                            <span>{trait.icon}</span>
+                                            <span>{trait.name}</span>
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                            {selectedTrait && (
+                                <div className="mt-2 px-3 py-2 bg-black/70 border border-amber-900/40 rounded text-xs text-slate-300">
+                                    <div className="font-bold text-amber-400 mb-1">{selectedTrait.icon} {selectedTrait.name}</div>
+                                    <div>{selectedTrait.description}</div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -517,28 +553,6 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
                     {/* === 行军被动效果状态面板 === */}
                     <div className="px-4 pb-2 space-y-2">
-                        {/* 资源储备一览 */}
-                        <div className="border border-amber-900/20 bg-black/20 p-3">
-                            <h4 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-2">行军补给</h4>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
-                                    <span className="text-emerald-500 font-mono font-bold">{party.food}</span>
-                                    <span className="text-[9px] text-slate-600 mt-0.5">🌾 粮食</span>
-                                </div>
-                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
-                                    <span className={`font-mono font-bold ${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}`}>{party.medicine}</span>
-                                    <span className="text-[9px] text-slate-600 mt-0.5">💊 医药</span>
-                                </div>
-                                <div className="flex flex-col items-center p-1.5 bg-black/30 border border-white/5">
-                                    <span className={`font-mono font-bold ${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}`}>{party.repairSupplies}</span>
-                                    <span className="text-[9px] text-slate-600 mt-0.5">🔧 修甲</span>
-                                </div>
-                            </div>
-                            <div className="text-[9px] text-slate-700 mt-2 leading-relaxed">
-                                每天每位伤员消耗 5 医药恢复 5HP · 每件损坏装备消耗 3 修甲材料修复 10 耐久
-                            </div>
-                        </div>
-
                         {/* 生命恢复状态 */}
                         {selectedMerc.hp < selectedMerc.maxHp && (
                             <div className="border border-red-900/30 bg-red-950/10 p-3">
@@ -962,7 +976,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       )}
 
       {/* Tooltips */}
-      {hoveredItem && (
+      {hoveredItem && !isMobileLayout && (
           <div 
               className="fixed z-[100] bg-[#0d0b08] border border-amber-900/60 p-4 shadow-2xl pointer-events-none w-72" 
               style={{ left: Math.min(mousePos.x + 20, window.innerWidth - 300), top: Math.min(mousePos.y + 20, window.innerHeight - 200) }}
@@ -1028,7 +1042,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           </div>
       )}
       
-      {hoveredPerk && (
+      {hoveredPerk && !isMobileLayout && (
           <div 
               className="fixed z-[100] bg-[#0d0b08] border border-amber-900/60 p-4 shadow-2xl pointer-events-none w-80" 
               style={{ left: Math.min(mousePos.x + 20, window.innerWidth - 340), top: Math.min(mousePos.y, window.innerHeight - 150) }}
@@ -1053,6 +1067,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               })()}
           </div>
       )}
+
     </div>
   );
 };

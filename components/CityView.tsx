@@ -243,6 +243,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const [subView, setSubView] = useState<SubView>('MAP');
   const [notification, setNotification] = useState<string | null>(null);
   const [hoveredBuilding, setHoveredBuilding] = useState<CityFacility | null>(null);
+  const [activeTraitTooltip, setActiveTraitTooltip] = useState<string | null>(null);
+  const activeTrait = activeTraitTooltip ? TRAIT_TEMPLATES[activeTraitTooltip] : null;
   
   // Interaction State (for market)
   const [selectedItem, setSelectedItem] = useState<{ item: Item, from: 'MARKET' | 'INVENTORY', index: number } | null>(null);
@@ -269,6 +271,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   useEffect(() => {
       setMarketListPage(0);
   }, [marketTab, itemFilter]);
+
+  useEffect(() => {
+      setActiveTraitTooltip(null);
+  }, [selectedRecruit, subView, city.id]);
 
 
   const handleBuy = (item: Item, index: number) => {
@@ -959,24 +965,30 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                         if (!trait) return null;
                                                         const isPositive = trait.type === 'positive';
                                                         return (
-                                                            <div
+                                                            <button
+                                                                type="button"
                                                                 key={tid}
-                                                                className={`group relative inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border cursor-default ${
+                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border cursor-pointer select-none touch-manipulation ${
                                                                     isPositive
                                                                         ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
                                                                         : 'text-red-300 bg-red-950/40 border-red-800/50'
                                                                 }`}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setActiveTraitTooltip(prev => prev === tid ? null : tid);
+                                                                }}
                                                             >
                                                                 <span>{trait.icon}</span>
                                                                 <span>{trait.name}</span>
-                                                                {/* Tooltip */}
-                                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-black/95 border border-amber-900/60 rounded text-[11px] text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl">
-                                                                    <div className="font-bold text-amber-400 mb-1">{trait.icon} {trait.name}</div>
-                                                                    <div>{trait.description}</div>
-                                                                </div>
-                                                            </div>
+                                                            </button>
                                                         );
                                                     })}
+                                                </div>
+                                            )}
+                                            {activeTrait && (
+                                                <div className="mb-4 shrink-0 px-3 py-2 bg-black/70 border border-amber-900/40 rounded text-xs text-slate-300">
+                                                    <div className="font-bold text-amber-400 mb-1">{activeTrait.icon} {activeTrait.name}</div>
+                                                    <div>{activeTrait.description}</div>
                                                 </div>
                                             )}
 

@@ -141,6 +141,8 @@ const getWeaponIcon = (w: Item | null): string => {
 const getAbilityIcon = (ability: Ability | null | undefined): string => {
   if (!ability) return '✦';
   if (ability.id === 'CHOP') return '⚒️';
+  // Android/WebView 上 🤚 兼容性较差，给推撞固定一个更稳定的图标
+  if (ability.id === 'KNOCK_BACK') return '👊';
   return ability.icon || '✦';
 };
 
