@@ -1866,7 +1866,7 @@ export const App: React.FC = () => {
   }, [showSystemMenu]);
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
+    <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
       {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && (
           <nav className="bg-black border-b border-amber-900/40 px-3 sm:px-6 py-2 sm:py-0 sm:h-14 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -2027,7 +2027,7 @@ export const App: React.FC = () => {
         {/* ===== 过场叙事 ===== */}
         {view === 'INTRO_STORY' && (
           <div
-            className={`w-screen h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer transition-opacity duration-[800ms] ${
+            className={`w-full h-full bg-black flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer transition-opacity duration-[800ms] ${
               introFade === 'out' ? 'opacity-0' : introFade === 'in' ? 'opacity-0' : 'opacity-100'
             }`}
             onClick={handleIntroClick}

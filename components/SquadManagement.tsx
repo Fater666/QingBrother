@@ -403,12 +403,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           </div>
       </div>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden z-10">
+      <div className={`flex-1 flex flex-col lg:flex-row z-10 min-h-0 ${isMobileLayout ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
         
         {/* LEFT COLUMN: Inspector (Equipment on top, Stats below - Battle Brothers style) */}
-        <div className="w-full lg:w-[420px] lg:border-r border-b lg:border-b-0 border-amber-900/30 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 overflow-hidden">
+        <div className={`w-full lg:w-[420px] lg:border-r border-b lg:border-b-0 border-amber-900/30 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 ${isMobileLayout ? 'overflow-visible' : 'overflow-hidden'}`}>
             {selectedMerc ? (
-                <div className="flex flex-col h-full overflow-y-auto custom-scrollbar">
+                <div className={`flex flex-col ${isMobileLayout ? 'overflow-visible' : 'h-full overflow-y-auto custom-scrollbar'}`}>
                     {/* Character Header - Compact */}
                     <div className="p-4 border-b border-amber-900/30 bg-gradient-to-r from-amber-950/10 to-transparent">
                         <div className="flex justify-between items-center">
@@ -722,8 +722,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
         </div>
 
         {/* RIGHT COLUMN: 仓库物资 / 专精技能 / 战阵布置 同层级 Tab */}
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="flex-1 flex flex-col min-h-0 bg-[#080705]">
+        <div className={`${isMobileLayout ? 'w-full flex-none' : 'flex-1 min-h-0'} flex flex-col overflow-hidden`}>
+            <div className={`${isMobileLayout ? 'flex flex-col bg-[#080705]' : 'flex-1 flex flex-col min-h-0 bg-[#080705]'}`}>
                 <div className="flex h-11 border-b border-amber-900/30 bg-[#0d0b08] shrink-0">
                     <button 
                         onClick={() => { setRightTab('STASH'); setSelectedStashItem(null); }} 

@@ -166,7 +166,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
   };
 
   return (
-    <div className={`w-screen h-screen bg-black flex flex-col relative overflow-hidden select-none transition-opacity duration-1000 ${fadeIn ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`w-full h-full bg-black flex flex-col relative overflow-hidden select-none transition-opacity duration-1000 ${fadeIn ? 'opacity-100' : 'opacity-0'}`}>
       {/* 背景 */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
         style={{

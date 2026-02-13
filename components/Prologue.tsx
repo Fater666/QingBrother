@@ -193,7 +193,7 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
 
   return (
     <div
-      className="w-screen h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer"
+      className="w-full h-full bg-black flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer"
       onClick={handleContinue}
     >
       {/* 背景氛围 */}
