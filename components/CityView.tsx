@@ -410,7 +410,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   return (
-    <div className="w-full h-full bg-[#0a0908] flex flex-col font-serif text-slate-300 relative select-none overflow-hidden">
+    <div className="w-full h-full bg-[#0a0908] flex flex-col font-serif text-slate-300 relative select-none overflow-hidden min-h-0">
         {/* 竹简质感背景 */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
              style={{
@@ -421,7 +421,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
         {/* ==================== 城市地图视图 ==================== */}
         {subView === 'MAP' && (
-            <div className="flex-1 flex flex-col relative z-10">
+            <div className="flex-1 min-h-0 flex flex-col relative z-10">
                 {/* 顶部信息栏 */}
                 <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-3 sm:px-8 shrink-0">
                     <div className="flex items-center gap-4">
@@ -443,7 +443,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                 </div>
 
                 {/* 城市俯视地图主区域 */}
-                <div className="flex-1 flex items-center justify-center relative overflow-auto px-2 pb-14 sm:pb-16">
+                <div className="city-map-scroll flex-1 min-h-0 flex items-center justify-center relative overflow-y-auto overflow-x-hidden touch-pan-y px-2 pb-20 sm:pb-16">
                     {/* 地面纹理 */}
                     <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
                          style={{
