@@ -930,7 +930,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                                 : 'bg-black/20 border-slate-800/50 text-slate-700 cursor-not-allowed'
                                                     }`}
                                                 >
-                                                    <span className="mr-1">{perk.icon}</span>{perk.name}
+                                                    {perk.name}
                                                     {isLearned && <span className="ml-1 text-[9px] text-amber-600">✓</span>}
                                                 </div>
                                             );
@@ -1048,7 +1048,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               style={{ left: Math.min(mousePos.x + 20, window.innerWidth - 340), top: Math.min(mousePos.y, window.innerHeight - 150) }}
           >
               <div className="border-b border-amber-900/30 pb-2 mb-3">
-                  <h4 className="text-amber-500 font-bold text-base">{hoveredPerk.icon} {hoveredPerk.name}</h4>
+                  <h4 className="text-amber-500 font-bold text-base">{hoveredPerk.name}</h4>
                   <span className="text-[10px] text-slate-600">第 {hoveredPerk.tier} 阶专精 · 需要 Lv.{hoveredPerk.tier}</span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">{hoveredPerk.description}</p>
