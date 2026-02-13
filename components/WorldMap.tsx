@@ -1595,6 +1595,36 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         drawTrackMarkers(ctx, questTargetEntity, tiles, party.x, party.y, toScreen, tileSize, rect.width, rect.height, animTime);
       }
 
+      // 巡逻点标记（PATROL）
+      if (
+        party.activeQuest &&
+        party.activeQuest.type === 'PATROL' &&
+        !party.activeQuest.isCompleted &&
+        typeof party.activeQuest.patrolTargetX === 'number' &&
+        typeof party.activeQuest.patrolTargetY === 'number'
+      ) {
+        const patrolPos = toScreen(party.activeQuest.patrolTargetX + 0.5, party.activeQuest.patrolTargetY + 0.5);
+        if (
+          patrolPos.x >= -tileSize && patrolPos.x <= rect.width + tileSize &&
+          patrolPos.y >= -tileSize && patrolPos.y <= rect.height + tileSize
+        ) {
+          const pulse = 0.8 + 0.2 * Math.sin(animTime * 3);
+          const markerRadius = tileSize * 0.35 * pulse;
+          ctx.save();
+          ctx.strokeStyle = party.activeQuest.patrolArrived ? 'rgba(34,197,94,0.9)' : 'rgba(245,158,11,0.9)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(patrolPos.x, patrolPos.y, markerRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([4, 4]);
+          ctx.globalAlpha = 0.7;
+          ctx.beginPath();
+          ctx.arc(patrolPos.x, patrolPos.y, tileSize * 0.7, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
       // 绘制动态实体（含名称标签） - 加 0.5 偏移到格子中心
       for (let i = 0; i < entities.length; i++) {
         const ent = entities[i];
@@ -1685,6 +1715,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
 
   const questTargetDist = questTarget ? Math.hypot(questTarget.x - party.x, questTarget.y - party.y) : null;
   const questTargetAngle = questTarget ? Math.atan2(questTarget.y - party.y, questTarget.x - party.x) : null;
+  const patrolTargetDist = (party.activeQuest && party.activeQuest.type === 'PATROL' && typeof party.activeQuest.patrolTargetX === 'number' && typeof party.activeQuest.patrolTargetY === 'number')
+    ? Math.hypot(party.activeQuest.patrolTargetX - party.x, party.activeQuest.patrolTargetY - party.y)
+    : null;
+  const patrolTargetAngle = (party.activeQuest && party.activeQuest.type === 'PATROL' && typeof party.activeQuest.patrolTargetX === 'number' && typeof party.activeQuest.patrolTargetY === 'number')
+    ? Math.atan2(party.activeQuest.patrolTargetY - party.y, party.activeQuest.patrolTargetX - party.x)
+    : null;
   
   // 方向文字
   const getDirectionText = (angle: number): string => {
@@ -1837,6 +1873,37 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                       {getDistanceText(questTargetDist)}
                     </span>
                   </div>
+                </div>
+              )}
+
+              {/* 未完成：巡逻任务（先到达区域，再累计击杀） */}
+              {!party.activeQuest.isCompleted && party.activeQuest.type === 'PATROL' && (
+                <div className="mt-1.5 pt-1.5 border-t border-amber-900/20 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-amber-700 uppercase tracking-widest">巡逻区域</span>
+                    <span className="text-amber-400 text-xs font-bold">{party.activeQuest.patrolTargetName || '指定路段'}</span>
+                  </div>
+                  {party.activeQuest.patrolArrived ? (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-emerald-400">已抵达区域，开始清剿</div>
+                      <div className="text-[10px] text-slate-400">
+                        击杀进度
+                        <span className="text-red-400 font-bold ml-1">
+                          {party.activeQuest.patrolKillsDone || 0}/{party.activeQuest.patrolKillsRequired || 0}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {patrolTargetDist !== null && patrolTargetAngle !== null && (
+                        <div className="text-[10px] text-slate-400">
+                          方向 <span className="text-amber-500 font-bold">{getDirectionText(patrolTargetAngle)}</span>
+                          <span className="text-slate-600 ml-1.5">约 {Math.round(patrolTargetDist)} 格</span>
+                        </div>
+                      )}
+                      <div className="text-[10px] text-amber-500">目标：先抵达巡逻点</div>
+                    </div>
+                  )}
                 </div>
               )}
               

@@ -174,6 +174,14 @@ export interface Quest {
     isCompleted: boolean;
     daysLeft: number;
     requiredReputation?: number; // 接取此任务所需的最低声望值
+    // 巡逻任务进度字段（仅 PATROL 使用）
+    patrolTargetX?: number;
+    patrolTargetY?: number;
+    patrolTargetName?: string;
+    patrolRadius?: number;
+    patrolKillsRequired?: number;
+    patrolKillsDone?: number;
+    patrolArrived?: boolean;
 }
 
 export type CityFacility = 'MARKET' | 'RECRUIT' | 'TAVERN' | 'TEMPLE';

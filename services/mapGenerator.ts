@@ -798,6 +798,9 @@ export const generateCityQuests = (
         targetEntityName: target,
         isCompleted: false,
         daysLeft: 5 + difficulty * 2,
+        patrolKillsRequired: difficulty === 1 ? 4 : difficulty === 2 ? 6 : 8,
+        patrolKillsDone: 0,
+        patrolArrived: false,
       });
     } else if (questType === 'ESCORT' && biomeTemplates.ESCORT) {
       const escortTemplates = biomeTemplates.ESCORT;

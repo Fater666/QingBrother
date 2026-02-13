@@ -379,7 +379,7 @@ const generateEntities = (cities: City[], tiles: WorldTile[], camps: EnemyCamp[]
             homeY: city.y,
             worldAIType: 'TRADER',
             alertRadius: 5,
-            chaseRadius: 0,
+            chaseRadius: 8,
             linkedCityId: city.id,
             destinationCityId: targetCity.id,
             wanderCooldown: 5 + Math.random() * 5
@@ -1220,6 +1220,91 @@ export const App: React.FC = () => {
     const loop = (time: number) => {
       const dt = (time - lastUpdateRef.current) / 1000;
       lastUpdateRef.current = time;
+      if (view === 'WORLD_MAP') {
+        const activeEscortQuest = party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted
+          ? party.activeQuest
+          : null;
+        const activePatrolQuest = party.activeQuest && party.activeQuest.type === 'PATROL' && !party.activeQuest.isCompleted
+          ? party.activeQuest
+          : null;
+        if (activeEscortQuest?.targetEntityId) {
+          if (timeScale <= 0) {
+            setTimeScale(1);
+          }
+          const escortEntity = entities.find(e => e.id === activeEscortQuest.targetEntityId);
+          if (escortEntity) {
+            const distToEscort = Math.hypot(escortEntity.x - party.x, escortEntity.y - party.y);
+            const followMinDist = 0.45;
+            if (distToEscort > followMinDist) {
+              if (party.targetX !== escortEntity.x || party.targetY !== escortEntity.y) {
+                setParty(p => ({ ...p, targetX: escortEntity.x, targetY: escortEntity.y }));
+              }
+            } else if (party.targetX !== null || party.targetY !== null) {
+              setParty(p => ({ ...p, targetX: null, targetY: null }));
+            }
+          }
+        }
+        if (
+          activePatrolQuest &&
+          (typeof activePatrolQuest.patrolTargetX !== 'number' || typeof activePatrolQuest.patrolTargetY !== 'number')
+        ) {
+          const sourceCity = cities.find(c => c.id === activePatrolQuest.sourceCityId);
+          const cx = sourceCity?.x ?? party.x;
+          const cy = sourceCity?.y ?? party.y;
+          const fallbackX = Math.max(2, Math.min(MAP_SIZE - 3, cx + 5));
+          const fallbackY = cy;
+          setParty(prevParty => {
+            if (
+              !prevParty.activeQuest ||
+              prevParty.activeQuest.id !== activePatrolQuest.id ||
+              prevParty.activeQuest.type !== 'PATROL' ||
+              prevParty.activeQuest.isCompleted
+            ) {
+              return prevParty;
+            }
+            return {
+              ...prevParty,
+              activeQuest: {
+                ...prevParty.activeQuest,
+                patrolTargetX: fallbackX,
+                patrolTargetY: fallbackY,
+                patrolTargetName: prevParty.activeQuest.patrolTargetName || `${sourceCity?.name || '城镇'}外官道`,
+                patrolRadius: prevParty.activeQuest.patrolRadius ?? 1.4,
+                patrolKillsRequired: prevParty.activeQuest.patrolKillsRequired ?? (prevParty.activeQuest.difficulty === 1 ? 4 : prevParty.activeQuest.difficulty === 2 ? 6 : 8),
+                patrolKillsDone: prevParty.activeQuest.patrolKillsDone || 0,
+                patrolArrived: !!prevParty.activeQuest.patrolArrived,
+              }
+            };
+          });
+        }
+        if (
+          activePatrolQuest &&
+          !activePatrolQuest.patrolArrived &&
+          typeof activePatrolQuest.patrolTargetX === 'number' &&
+          typeof activePatrolQuest.patrolTargetY === 'number'
+        ) {
+          const patrolRadius = activePatrolQuest.patrolRadius ?? 1.4;
+          const distToPatrol = Math.hypot(party.x - activePatrolQuest.patrolTargetX, party.y - activePatrolQuest.patrolTargetY);
+          if (distToPatrol <= patrolRadius) {
+            setParty(prevParty => {
+              if (
+                !prevParty.activeQuest ||
+                prevParty.activeQuest.id !== activePatrolQuest.id ||
+                prevParty.activeQuest.type !== 'PATROL' ||
+                prevParty.activeQuest.isCompleted ||
+                prevParty.activeQuest.patrolArrived
+              ) {
+                return prevParty;
+              }
+              return {
+                ...prevParty,
+                activeQuest: { ...prevParty.activeQuest, patrolArrived: true }
+              };
+            });
+          }
+        }
+      }
+
       if (view === 'WORLD_MAP' && timeScale > 0) {
         // 玩家移动
         if (party.targetX !== null && party.targetY !== null) {
@@ -1409,6 +1494,11 @@ export const App: React.FC = () => {
             // ===== 实体间碰撞互动（匪劫商队、军灭匪、兽袭商队） =====
             const toRemoveIds = new Set<string>();
             const campDecrements = new Map<string, number>(); // campId -> decrement count
+            let escortArrived = false;
+            let escortFailed = false;
+            const activeEscortQuest = party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted
+              ? party.activeQuest
+              : null;
             
             for (let i = 0; i < updatedEntities.length; i++) {
               const a = updatedEntities[i];
@@ -1462,8 +1552,58 @@ export const App: React.FC = () => {
             }
             
             // 移除被消灭的实体
+            if (activeEscortQuest?.targetEntityId && toRemoveIds.has(activeEscortQuest.targetEntityId)) {
+              escortFailed = true;
+            }
+            if (activeEscortQuest?.targetEntityId && activeEscortQuest.targetCityId) {
+              const escortEnt = updatedEntities.find(e => e.id === activeEscortQuest.targetEntityId && !toRemoveIds.has(e.id));
+              const destinationCity = cities.find(c => c.id === activeEscortQuest.targetCityId);
+              if (escortEnt && destinationCity) {
+                const distToDest = Math.hypot(escortEnt.x - destinationCity.x, escortEnt.y - destinationCity.y);
+                if (distToDest < 0.9) {
+                  toRemoveIds.add(escortEnt.id);
+                  escortArrived = true;
+                }
+              }
+            }
+
             if (toRemoveIds.size > 0) {
-              return updatedEntities.filter(e => !toRemoveIds.has(e.id));
+              const survivors = updatedEntities.filter(e => !toRemoveIds.has(e.id));
+              if (escortArrived) {
+                setParty(prevParty => {
+                  if (!prevParty.activeQuest || prevParty.activeQuest.id !== activeEscortQuest?.id || prevParty.activeQuest.isCompleted) {
+                    return prevParty;
+                  }
+                  return {
+                    ...prevParty,
+                    activeQuest: { ...prevParty.activeQuest, isCompleted: true },
+                  };
+                });
+              } else if (escortFailed) {
+                setParty(prevParty => {
+                  if (!prevParty.activeQuest || prevParty.activeQuest.id !== activeEscortQuest?.id || prevParty.activeQuest.isCompleted) {
+                    return prevParty;
+                  }
+                  return {
+                    ...prevParty,
+                    activeQuest: null,
+                    reputation: Math.max(0, prevParty.reputation - 3),
+                  };
+                });
+              }
+              return survivors;
+            }
+
+            if (escortArrived) {
+              setParty(prevParty => {
+                if (!prevParty.activeQuest || prevParty.activeQuest.id !== activeEscortQuest?.id || prevParty.activeQuest.isCompleted) {
+                  return prevParty;
+                }
+                return {
+                  ...prevParty,
+                  activeQuest: { ...prevParty.activeQuest, isCompleted: true },
+                };
+              });
             }
             
             return updatedEntities;
@@ -1884,7 +2024,14 @@ export const App: React.FC = () => {
                 party={party} 
                 entities={entities} 
                 cities={cities}
-                onSetTarget={(x, y) => { setParty(p => ({ ...p, targetX: x, targetY: y })); setTimeScale(1); }} 
+                onSetTarget={(x, y) => {
+                  // 护送任务期间禁止手动设置目标，强制跟随任务商队
+                  if (party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted) {
+                    return;
+                  }
+                  setParty(p => ({ ...p, targetX: x, targetY: y }));
+                  setTimeScale(1);
+                }} 
             />
         )}
         {view === 'COMBAT' && combatState && (
@@ -1936,6 +2083,25 @@ export const App: React.FC = () => {
                           const defeatedEntityId = combatEntityIdRef.current;
                           if (updatedQuest.targetEntityId === defeatedEntityId) {
                             updatedQuest = { ...updatedQuest, isCompleted: true };
+                          }
+                        } else if (updatedQuest && updatedQuest.type === 'PATROL' && !updatedQuest.isCompleted) {
+                          const patrolTargetX = updatedQuest.patrolTargetX;
+                          const patrolTargetY = updatedQuest.patrolTargetY;
+                          const patrolRadius = updatedQuest.patrolRadius ?? 1.4;
+                          const isInPatrolArea =
+                            typeof patrolTargetX === 'number' &&
+                            typeof patrolTargetY === 'number' &&
+                            Math.hypot(p.x - patrolTargetX, p.y - patrolTargetY) <= patrolRadius + 1.2;
+                          if (updatedQuest.patrolArrived && isInPatrolArea) {
+                            const defeatedThisBattle = Math.max(1, result.enemiesKilled + result.enemiesRouted);
+                            const requiredKills = updatedQuest.patrolKillsRequired ?? (updatedQuest.difficulty === 1 ? 4 : updatedQuest.difficulty === 2 ? 6 : 8);
+                            const currentKills = updatedQuest.patrolKillsDone || 0;
+                            const nextKills = Math.min(requiredKills, currentKills + defeatedThisBattle);
+                            updatedQuest = {
+                              ...updatedQuest,
+                              patrolKillsDone: nextKills,
+                              isCompleted: nextKills >= requiredKills,
+                            };
                           }
                         }
                         return {
@@ -2035,8 +2201,7 @@ export const App: React.FC = () => {
                     });
                 }}
                 onAcceptQuest={(q) => {
-                    // 寻找地图上名称匹配的最近敌人实体，绑定targetEntityId
-                    // 如果附近没有匹配实体（距离>15格），在城市附近生成一个任务专属目标
+                    // 为不同任务类型生成接取时的绑定数据
                     let linkedQuest = { ...q };
                     if (q.type === 'HUNT' && q.targetEntityName) {
                         const sourceCity = cities.find(c => c.id === q.sourceCityId);
@@ -2091,6 +2256,129 @@ export const App: React.FC = () => {
                             };
                             setEntities(prev => [...prev, newEntity]);
                             linkedQuest.targetEntityId = questEntId;
+                        }
+                    }
+                    if (q.type === 'PATROL') {
+                        const sourceCity = cities.find(c => c.id === q.sourceCityId);
+                        const cx = sourceCity?.x ?? party.x;
+                        const cy = sourceCity?.y ?? party.y;
+                        const patrolDistBase = 6 + q.difficulty * 1.5 + Math.random() * 3;
+                        let patrolX = cx;
+                        let patrolY = cy;
+                        let found = false;
+
+                        for (let i = 0; i < 20; i++) {
+                          const angle = Math.random() * Math.PI * 2;
+                          const dist = patrolDistBase + (Math.random() - 0.5) * 2;
+                          const tryX = Math.max(2, Math.min(MAP_SIZE - 3, cx + Math.cos(angle) * dist));
+                          const tryY = Math.max(2, Math.min(MAP_SIZE - 3, cy + Math.sin(angle) * dist));
+                          const tile = tiles[Math.floor(tryY) * MAP_SIZE + Math.floor(tryX)];
+                          if (!tile || tile.type === 'MOUNTAIN' || tile.type === 'CITY') continue;
+                          patrolX = tryX;
+                          patrolY = tryY;
+                          found = true;
+                          break;
+                        }
+
+                        if (!found) {
+                          patrolX = Math.max(2, Math.min(MAP_SIZE - 3, cx + 5));
+                          patrolY = cy;
+                        }
+
+                        const dx = patrolX - cx;
+                        const dy = patrolY - cy;
+                        const dir = Math.abs(dx) > Math.abs(dy)
+                          ? (dx >= 0 ? '东侧' : '西侧')
+                          : (dy >= 0 ? '南侧' : '北侧');
+                        const patrolKillsRequired = q.patrolKillsRequired ?? (q.difficulty === 1 ? 4 : q.difficulty === 2 ? 6 : 8);
+                        const patrolRadius = 1.2 + q.difficulty * 0.4;
+
+                        linkedQuest = {
+                          ...linkedQuest,
+                          targetEntityId: undefined,
+                          patrolTargetX: patrolX,
+                          patrolTargetY: patrolY,
+                          patrolTargetName: `${sourceCity?.name || '城镇'}${dir}官道`,
+                          patrolRadius,
+                          patrolKillsRequired,
+                          patrolKillsDone: 0,
+                          patrolArrived: false,
+                        };
+
+                        if (q.targetEntityName) {
+                          const patrolPackCount = q.difficulty >= 2 ? 2 : 1;
+                          const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
+                          const isBeast = beastNames.includes(q.targetEntityName);
+                          const entityType = isBeast ? 'BEAST' : 'BANDIT';
+                          const worldAIType = isBeast ? 'BEAST' : 'BANDIT';
+                          const spawned: WorldEntity[] = [];
+
+                          for (let i = 0; i < patrolPackCount; i++) {
+                            const spawnAngle = Math.random() * Math.PI * 2;
+                            const spawnDist = 0.8 + Math.random() * 1.6;
+                            const spawnX = Math.max(1, Math.min(MAP_SIZE - 2, patrolX + Math.cos(spawnAngle) * spawnDist));
+                            const spawnY = Math.max(1, Math.min(MAP_SIZE - 2, patrolY + Math.sin(spawnAngle) * spawnDist));
+                            spawned.push({
+                              id: `patrol-hostile-${q.id}-${Date.now()}-${i}`,
+                              name: q.targetEntityName,
+                              type: entityType as any,
+                              faction: 'HOSTILE',
+                              x: spawnX,
+                              y: spawnY,
+                              targetX: null,
+                              targetY: null,
+                              speed: 0.58 + Math.random() * 0.22,
+                              aiState: 'WANDER',
+                              homeX: patrolX,
+                              homeY: patrolY,
+                              worldAIType: worldAIType as any,
+                              alertRadius: 4,
+                              chaseRadius: 8,
+                              wanderCooldown: Math.random() * 4,
+                              territoryRadius: 3 + Math.random() * 2,
+                            });
+                          }
+                          if (spawned.length > 0) {
+                            setEntities(prev => [...prev, ...spawned]);
+                          }
+                        }
+                    }
+                    if (q.type === 'ESCORT') {
+                        const sourceCity = cities.find(c => c.id === q.sourceCityId);
+                        if (sourceCity) {
+                            const destinationCity = cities
+                                .filter(c => c.id !== sourceCity.id)
+                                .sort((a, b) => {
+                                    const da = Math.hypot(a.x - sourceCity.x, a.y - sourceCity.y);
+                                    const db = Math.hypot(b.x - sourceCity.x, b.y - sourceCity.y);
+                                    return da - db;
+                                })[0];
+                            if (destinationCity) {
+                                const escortEntityId = `escort-trader-${q.id}-${Date.now()}`;
+                                const escortEntity: WorldEntity = {
+                                    id: escortEntityId,
+                                    name: '护送商队',
+                                    type: 'TRADER',
+                                    faction: 'NEUTRAL',
+                                    x: sourceCity.x,
+                                    y: sourceCity.y,
+                                    targetX: destinationCity.x,
+                                    targetY: destinationCity.y,
+                                    speed: 0.52,
+                                    aiState: 'TRAVEL',
+                                    homeX: sourceCity.x,
+                                    homeY: sourceCity.y,
+                                    worldAIType: 'TRADER',
+                                    alertRadius: 5,
+                                    chaseRadius: 8,
+                                    linkedCityId: sourceCity.id,
+                                    destinationCityId: destinationCity.id,
+                                    wanderCooldown: 0,
+                                };
+                                setEntities(prev => [...prev, escortEntity]);
+                                linkedQuest.targetEntityId = escortEntityId;
+                                linkedQuest.targetCityId = destinationCity.id;
+                            }
                         }
                     }
                     setParty(p => ({ ...p, activeQuest: linkedQuest }));

@@ -431,6 +431,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     ability.icon === '⏳' ||
     ability.description.includes('推迟行动顺序');
 
+  // 推撞属于特殊攻击技能：虽然在数据里是 SKILL，但需要走攻击命中率与目标确认流程。
+  const isAttackLikeAbility = (ability: Ability | null | undefined): ability is Ability =>
+    !!ability && (ability.type === 'ATTACK' || ability.id === 'KNOCK_BACK');
+
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
 
@@ -886,7 +890,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           }
 
           // 技能范围高亮（简化，无shadowBlur）
-          if (isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
+          if (isPlayerTurn && activeUnit && isAttackLikeAbility(selectedAbility)) {
             const dist = getHexDistance(activeUnit.combatPos, {q, r});
             if (dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1]) {
               ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
@@ -967,7 +971,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       });
 
       // 2.5 移动端：选中攻击技能时，在可攻击敌人头顶绘制命中率浮标
-      if (isMobile && isPlayerTurn && activeUnit && selectedAbility?.type === 'ATTACK') {
+      if (isMobile && isPlayerTurn && activeUnit && isAttackLikeAbility(selectedAbility)) {
         state.units.forEach(enemy => {
           if (enemy.isDead || enemy.team !== 'ENEMY') return;
           const enemyKey = `${enemy.combatPos.q},${enemy.combatPos.r}`;
@@ -2086,7 +2090,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         return;
       }
       // 攻击技能：第一次点击敌人 → 显示命中信息tooltip
-      if (selectedAbility.type === 'ATTACK') {
+      if (isAttackLikeAbility(selectedAbility)) {
         const targetUnit = state.units.find(
           u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === q && u.combatPos.r === r
         );
@@ -2613,6 +2617,34 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               })
             }));
             
+            // 推撞：命中后尝试将目标沿攻击方向击退1格（若后方被占用或越界则失败）
+            if (ability.id === 'KNOCK_BACK' && !dmgResult.willKill) {
+              const dq = target.combatPos.q - activeUnit.combatPos.q;
+              const dr = target.combatPos.r - activeUnit.combatPos.r;
+              const pushPos = { q: target.combatPos.q + dq, r: target.combatPos.r + dr };
+              const pushKey = `${pushPos.q},${pushPos.r}`;
+              const hasTerrain = terrainData.has(pushKey);
+              const blockedByUnit = state.units.some(u =>
+                !u.isDead &&
+                !u.hasEscaped &&
+                u.id !== target.id &&
+                u.combatPos.q === pushPos.q &&
+                u.combatPos.r === pushPos.r
+              );
+
+              if (hasTerrain && !blockedByUnit) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u =>
+                    u.id === target.id ? { ...u, combatPos: pushPos } : u
+                  )
+                }));
+                addToLog(`👊 ${activeUnit.name} 推撞 ${target.name}，将其击退一格！`, 'skill');
+              } else {
+                addToLog(`👊 ${activeUnit.name} 推撞 ${target.name}，但后方受阻未能击退。`, 'info');
+              }
+            }
+
             // 构建浮动伤害文字（护甲伤害+HP伤害）
             const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
             
@@ -3201,7 +3233,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           // 攻击命中率计算（使用统一函数，含合围加成）
           const targetUnit = state.units.find(u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
           const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-          const canAttack = selectedAbility && selectedAbility.type === 'ATTACK' && targetUnit && 
+          const canAttack = isAttackLikeAbility(selectedAbility) && targetUnit && 
             dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] && activeUnit.currentAP >= selectedAbility.apCost;
           
           let hitChance = 0;

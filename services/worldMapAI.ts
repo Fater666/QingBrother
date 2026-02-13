@@ -77,6 +77,52 @@ const findNearestRoad = (x: number, y: number, tiles: WorldTile[], searchRadius:
 };
 
 /**
+ * 为商队选择下一段“沿道路前进”的局部目标点
+ * - 不在道路上：先并道
+ * - 在道路上：优先选择能缩短到目的地距离的邻近道路点
+ */
+const getRoadTravelTarget = (
+  entity: WorldEntity,
+  destination: { x: number; y: number },
+  tiles: WorldTile[]
+): { x: number; y: number } => {
+  const currentTileX = Math.floor(entity.x);
+  const currentTileY = Math.floor(entity.y);
+  const currentDist = getDistance(entity.x, entity.y, destination.x, destination.y);
+  const currentlyOnRoad = isRoad(entity.x, entity.y, tiles);
+
+  if (!currentlyOnRoad) {
+    return findNearestRoad(entity.x, entity.y, tiles, 6) ?? destination;
+  }
+
+  if (currentDist < 2.2) {
+    return destination;
+  }
+
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const tx = currentTileX + dx;
+      const ty = currentTileY + dy;
+      if (!isInBounds(tx, ty)) continue;
+      if (!isRoad(tx + 0.5, ty + 0.5, tiles)) continue;
+      const targetX = tx + 0.5;
+      const targetY = ty + 0.5;
+      const distToDest = getDistance(targetX, targetY, destination.x, destination.y);
+      const progressBonus = distToDest < currentDist ? -0.6 : 0;
+      const score = distToDest + progressBonus;
+      if (!best || score < best.score) {
+        best = { x: targetX, y: targetY, score };
+      }
+    }
+  }
+
+  if (best) return { x: best.x, y: best.y };
+  return findNearestRoad(destination.x, destination.y, tiles, 8) ?? destination;
+};
+
+/**
  * 在领地内随机选择一个点
  */
 const getRandomPointInTerritory = (centerX: number, centerY: number, radius: number): { x: number; y: number } => {
@@ -557,8 +603,9 @@ const executeTraderBehavior = (
         newEntity.targetY = newDest.y;
       }
     } else {
-      newEntity.targetX = destCity.x;
-      newEntity.targetY = destCity.y;
+      const roadTarget = getRoadTravelTarget(entity, { x: destCity.x, y: destCity.y }, tiles);
+      newEntity.targetX = roadTarget.x;
+      newEntity.targetY = roadTarget.y;
     }
   }
   

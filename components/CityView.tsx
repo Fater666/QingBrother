@@ -1083,6 +1083,11 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 {party.activeQuest.targetEntityName && (
                                                     <span className="ml-3 text-red-400">目标:「{party.activeQuest.targetEntityName}」</span>
                                                 )}
+                                                {party.activeQuest.type === 'PATROL' && (
+                                                    <span className="ml-3 text-amber-400">
+                                                        清剿: {party.activeQuest.patrolKillsDone || 0}/{party.activeQuest.patrolKillsRequired || 0}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="text-right">
                                                 <div className="text-xl font-mono text-amber-500 font-bold">{party.activeQuest.rewardGold}</div>
@@ -1174,6 +1179,13 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                         : `"${quest.description}"`
                                                     }
                                                 </p>
+                                                {!reputationLocked && quest.type === 'PATROL' && (
+                                                    <div className="text-[11px] text-amber-600 mb-3">
+                                                        任务目标：前往指定巡逻路段并击杀
+                                                        <span className="text-red-400 font-bold mx-1">{quest.patrolKillsRequired || (quest.difficulty === 1 ? 4 : quest.difficulty === 2 ? 6 : 8)}</span>
+                                                        名敌人
+                                                    </div>
+                                                )}
                                                 <button 
                                                     onClick={() => !isDisabled && handleQuestTake(quest)}
                                                     disabled={isDisabled}
