@@ -1172,6 +1172,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                             <div className="text-[10px] text-amber-700">
                                                               金币报酬{hasBonus && <span className="text-emerald-600 ml-1">(声望+{Math.round((mult - 1) * 100)}%)</span>}
                                                             </div>
+                                                            <div className="text-[10px] text-slate-500 mt-0.5">
+                                                              时限 {quest.daysLeft} 天
+                                                            </div>
                                                           </>;
                                                         })()}
                                                     </div>

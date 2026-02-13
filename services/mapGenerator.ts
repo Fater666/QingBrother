@@ -689,8 +689,9 @@ export const generateCityQuests = (
     if (isElite) {
       // 生成高声望任务
       const eliteTemplates = ELITE_QUEST_TEMPLATES[biome] as EliteTemplate[];
-      if (eliteTemplates && eliteTemplates.length > 0) {
-        const tmpl = pick(eliteTemplates);
+      const eliteTemplatesNoEscort = (eliteTemplates || []).filter(t => t.type !== 'ESCORT');
+      if (eliteTemplatesNoEscort.length > 0) {
+        const tmpl = pick(eliteTemplatesNoEscort);
         const difficulty = tmpl.minDifficulty;
         const place = pick(places);
         const npc = pick([...QUEST_NPC_NAMES.MILITARY, ...QUEST_NPC_NAMES.OFFICIALS]);
@@ -723,7 +724,6 @@ export const generateCityQuests = (
     // 任务类型分布：HUNT 保持较高占比，但不再固定首槽
     const availableTypes: QuestType[] = ['HUNT'];
     if (biomeTemplates.PATROL) availableTypes.push('PATROL');
-    if (biomeTemplates.ESCORT) availableTypes.push('ESCORT');
     if (biomeTemplates.DELIVERY) availableTypes.push('DELIVERY');
     
     // HUNT 权重 45%，其余类型平分剩余

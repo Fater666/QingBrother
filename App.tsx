@@ -1233,13 +1233,14 @@ export const App: React.FC = () => {
           }
           const escortEntity = entities.find(e => e.id === activeEscortQuest.targetEntityId);
           if (escortEntity) {
-            if (
-              party.targetX === null ||
-              party.targetY === null ||
-              Math.abs(party.targetX - escortEntity.x) > 0.02 ||
-              Math.abs(party.targetY - escortEntity.y) > 0.02
-            ) {
-              setParty(p => ({ ...p, targetX: escortEntity.x, targetY: escortEntity.y }));
+            const distToEscort = Math.hypot(escortEntity.x - party.x, escortEntity.y - party.y);
+            const followMinDist = 0.45;
+            if (distToEscort > followMinDist) {
+              if (party.targetX !== escortEntity.x || party.targetY !== escortEntity.y) {
+                setParty(p => ({ ...p, targetX: escortEntity.x, targetY: escortEntity.y }));
+              }
+            } else if (party.targetX !== null || party.targetY !== null) {
+              setParty(p => ({ ...p, targetX: null, targetY: null }));
             }
           }
         }
@@ -1272,9 +1273,6 @@ export const App: React.FC = () => {
       }
 
       if (view === 'WORLD_MAP' && timeScale > 0) {
-        const movingEscortQuest = party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted
-          ? party.activeQuest
-          : null;
         // 玩家移动
         if (party.targetX !== null && party.targetY !== null) {
             const dx = party.targetX - party.x, dy = party.targetY - party.y, dist = Math.hypot(dx, dy);
@@ -1282,13 +1280,6 @@ export const App: React.FC = () => {
                 const step = 1.8 * timeScale * dt;
                 setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.012 * timeScale }));
             } else {
-                if (movingEscortQuest?.targetEntityId) {
-                  const escortEntity = entities.find(e => e.id === movingEscortQuest.targetEntityId);
-                  if (escortEntity) {
-                    setParty(p => ({ ...p, targetX: escortEntity.x, targetY: escortEntity.y }));
-                    return;
-                  }
-                }
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
                 if (city) {
@@ -1555,7 +1546,7 @@ export const App: React.FC = () => {
               const destinationCity = cities.find(c => c.id === activeEscortQuest.targetCityId);
               if (escortEnt && destinationCity) {
                 const distToDest = Math.hypot(escortEnt.x - destinationCity.x, escortEnt.y - destinationCity.y);
-                if (distToDest < 1.1) {
+                if (distToDest < 0.9) {
                   toRemoveIds.add(escortEnt.id);
                   escortArrived = true;
                 }
