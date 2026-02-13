@@ -43,6 +43,7 @@ import { ConfirmDialog } from './ConfirmDialog.tsx';
 interface CombatViewProps {
   initialState: CombatState;
   onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number) => void;
+  onTriggerTip?: (tipId: string) => void;
 }
 
 type FloatingTextType = 'damage' | 'heal' | 'miss' | 'critical' | 'morale' | 'block' | 'intercept';
@@ -379,7 +380,7 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; 
   );
 };
 
-export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEnd }) => {
+export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEnd, onTriggerTip }) => {
   const [state, setState] = useState(initialState);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -445,6 +446,51 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
+
+  // ==================== 玩法提示触发 ====================
+  const tipPrevUnitsRef = useRef(state.units);
+  const tipFirstAttackFired = useRef(false);
+
+  useEffect(() => {
+    const prev = tipPrevUnitsRef.current;
+    const curr = state.units;
+
+    for (const unit of curr) {
+      if (unit.team !== 'PLAYER' || unit.isDead) continue;
+      const prevUnit = prev.find(u => u.id === unit.id);
+      if (!prevUnit) continue;
+
+      // 首次攻击检测（玩家单位AP减少 = 执行了动作）
+      if (!tipFirstAttackFired.current && prevUnit.currentAP > unit.currentAP && state.round >= 1) {
+        tipFirstAttackFired.current = true;
+        onTriggerTip?.('combat_first_attack');
+      }
+
+      // 护甲跌破50%
+      const armor = unit.equipment.armor;
+      const prevArmor = prevUnit.equipment.armor;
+      if (armor && prevArmor && armor.maxDurability > 0) {
+        if (prevArmor.durability >= prevArmor.maxDurability * 0.5 && armor.durability < armor.maxDurability * 0.5) {
+          onTriggerTip?.('combat_armor_break');
+        }
+      }
+
+      // 士气下降
+      if ((prevUnit.morale === MoraleStatus.STEADY || prevUnit.morale === MoraleStatus.CONFIDENT) &&
+          (unit.morale !== MoraleStatus.STEADY && unit.morale !== MoraleStatus.CONFIDENT)) {
+        onTriggerTip?.('combat_morale_change');
+      }
+    }
+
+    tipPrevUnitsRef.current = curr;
+  }, [state.units]);
+
+  // 行动力耗尽提示
+  useEffect(() => {
+    if (activeUnit && activeUnit.team === 'PLAYER' && activeUnit.currentAP === 0) {
+      onTriggerTip?.('combat_ap_zero');
+    }
+  }, [state.currentUnitIndex, activeUnit?.currentAP]);
 
   // 移动端检测（兼容模拟器 / Capacitor / 真机）
   useEffect(() => {

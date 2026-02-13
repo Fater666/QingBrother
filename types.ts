@@ -315,6 +315,7 @@ export interface Party {
   reputation: number;                     // 声望值（影响合同出价）
   ambitionState: AmbitionState;           // 野心目标状态
   moraleModifier: number;                 // 全员士气修正（+1=自信开场, -1=动摇开场, 0=正常）
+  shownTips: string[];                    // 已显示的玩法提示ID列表
 }
 
 // 敌人AI类型

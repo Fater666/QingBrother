@@ -7,6 +7,7 @@ interface SquadManagementProps {
   party: Party;
   onUpdateParty: (party: Party) => void;
   onClose: () => void;
+  onTriggerTip?: (tipId: string) => void;
 }
 
 type DragSourceType = 'INVENTORY' | 'EQUIP_SLOT' | 'BAG_SLOT' | 'ROSTER';
@@ -74,12 +75,17 @@ const canEquipToSlot = (item: Item, slot: keyof Character['equipment'], char?: C
     return slotTypeMap[slot].includes(item.type);
 };
 
-export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdateParty, onClose }) => {
+export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdateParty, onClose, onTriggerTip }) => {
   const [selectedMerc, setSelectedMerc] = useState<Character | null>(party.mercenaries[0] || null);
   const [rightTab, setRightTab] = useState<'STASH' | 'PERKS' | 'FORMATION'>('STASH');
   const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
   const [hoveredPerk, setHoveredPerk] = useState<Perk | null>(null);
   const [selectedTraitId, setSelectedTraitId] = useState<string | null>(null);
+
+  // 玩法提示：首次打开队伍管理
+  useEffect(() => {
+    onTriggerTip?.('squad_first_open');
+  }, []);
   const [selectedStashItem, setSelectedStashItem] = useState<{ item: Item, index: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMobileLayout, setIsMobileLayout] = useState(false);

@@ -12,6 +12,7 @@ interface CityViewProps {
   onUpdateCity: (city: City) => void;
   onAcceptQuest: (quest: Quest) => void;
   onCompleteQuest: () => void; // 交付已完成的任务（返回接取城市时调用）
+  onTriggerTip?: (tipId: string) => void;
 }
 
 // 获取物品类型的中文名称
@@ -189,11 +190,18 @@ const STATE_FLAVOR: Record<City['state'], string> = {
 
 type SubView = 'MAP' | CityFacility;
 
-export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpdateParty, onUpdateCity, onAcceptQuest, onCompleteQuest }) => {
+export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpdateParty, onUpdateCity, onAcceptQuest, onCompleteQuest, onTriggerTip }) => {
   const [subView, setSubView] = useState<SubView>('MAP');
   const [notification, setNotification] = useState<string | null>(null);
   const [activeTraitTooltip, setActiveTraitTooltip] = useState<string | null>(null);
   const activeTrait = activeTraitTooltip ? TRAIT_TEMPLATES[activeTraitTooltip] : null;
+
+  // 玩法提示：设施首次打开
+  useEffect(() => {
+    if (subView === 'MARKET')  onTriggerTip?.('city_market_open');
+    if (subView === 'RECRUIT') onTriggerTip?.('city_recruit_open');
+    if (subView === 'TAVERN')  onTriggerTip?.('city_tavern_open');
+  }, [subView]);
   
   // Interaction State (for market)
   const [selectedItem, setSelectedItem] = useState<{ item: Item, from: 'MARKET' | 'INVENTORY', index: number } | null>(null);
@@ -337,6 +345,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       const newQuests = city.quests.filter(q => q.id !== quest.id);
       onUpdateCity({ ...city, quests: newQuests });
       showNotification("接受契约！");
+      onTriggerTip?.('quest_first_accept');
   };
 
   const getRoleRecommendation = (merc: Character) => {

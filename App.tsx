@@ -18,6 +18,8 @@ import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
 import { ConfirmDialog } from './components/ConfirmDialog.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
+import { GameTip } from './components/GameTip.tsx';
+import { GameTipData, GAME_TIPS, markTipShown } from './services/tipService.ts';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -736,7 +738,8 @@ export const App: React.FC = () => {
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
     medicine: 0, repairSupplies: 0,
     mercenaries: [], inventory: [], day: 1.0, activeQuest: null,
-    reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
+    reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0,
+    shownTips: []
   });
 
   const [combatState, setCombatState] = useState<CombatState | null>(null);
@@ -756,6 +759,10 @@ export const App: React.FC = () => {
   const [showAmbitionPopup, setShowAmbitionPopup] = useState(false);
   const [ambitionNotification, setAmbitionNotification] = useState<string | null>(null);
   const ambitionNotifTimerRef = useRef<number | null>(null);
+
+  // 玩法提示系统状态
+  const [activeTip, setActiveTip] = useState<GameTipData | null>(null);
+  const tipQueueRef = useRef<GameTipData[]>([]);
 
   // 叙事流程状态
   const [selectedOrigin, setSelectedOrigin] = useState<OriginConfig | null>(null);
@@ -854,11 +861,39 @@ export const App: React.FC = () => {
       repairSupplies: 50,    // 1个修甲工具 × 50 = 50
       mercenaries: mercs,
       inventory: [], day: 1.0, activeQuest: null,
-      reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0
+      reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0,
+      shownTips: []
     });
     lastProcessedDayRef.current = 1; // 新游戏从第1天开始
     setGameInitialized(true);
     setTimeScale(0);
+  }, []);
+
+  // --- 玩法提示系统 ---
+  const triggerTip = useCallback((tipId: string) => {
+    setParty(prev => {
+      if (prev.shownTips.includes(tipId)) return prev;
+      const tipData = GAME_TIPS[tipId];
+      if (!tipData) return prev;
+      // 标记已显示
+      const newShownTips = markTipShown(prev.shownTips, tipId);
+      // 延迟设置activeTip，避免在setParty回调中嵌套setState
+      setTimeout(() => {
+        setActiveTip(current => {
+          if (current) {
+            tipQueueRef.current.push(tipData);
+            return current;
+          }
+          return tipData;
+        });
+      }, 0);
+      return { ...prev, shownTips: newShownTips };
+    });
+  }, []);
+
+  const handleTipDismiss = useCallback(() => {
+    const next = tipQueueRef.current.shift();
+    setActiveTip(next || null);
   }, []);
 
   // --- SAVE & LOAD SYSTEM (多栏位) ---
@@ -959,6 +994,7 @@ export const App: React.FC = () => {
           reputation: data.party.reputation ?? 0,
           ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
           moraleModifier: data.party.moraleModifier ?? 0,
+          shownTips: data.party.shownTips ?? [],
         };
         setParty(loadedParty);
         // 同步每日消耗追踪，避免读档瞬间触发大量天数消耗
@@ -1744,6 +1780,32 @@ export const App: React.FC = () => {
     }
   }, [view, party.ambitionState.currentAmbition, party.day, gameInitialized, showAmbitionPopup, preCombatEntity, saveLoadMode]);
 
+  // --- 玩法提示触发 ---
+  // 视图切换触发
+  useEffect(() => {
+    if (!gameInitialized) return;
+    if (view === 'WORLD_MAP') triggerTip('world_map_intro');
+    if (view === 'COMBAT')    triggerTip('combat_first_start');
+    if (view === 'CITY')      triggerTip('city_first_enter');
+    if (view === 'CAMP')      triggerTip('squad_first_open');
+  }, [view, gameInitialized]);
+
+  // 粮草不足触发
+  const prevFoodRef = useRef(party.food);
+  useEffect(() => {
+    if (!gameInitialized || view !== 'WORLD_MAP') return;
+    const threshold = party.mercenaries.length * 3;
+    if (prevFoodRef.current > threshold && party.food <= threshold && party.food > 0) {
+      triggerTip('world_map_food_low');
+    }
+    prevFoodRef.current = party.food;
+  }, [party.food, gameInitialized, view]);
+
+  // 遭遇敌人触发
+  useEffect(() => {
+    if (preCombatEntity) triggerTip('world_map_enemy_nearby');
+  }, [preCombatEntity]);
+
   // --- 野心目标：选择/取消处理 ---
   const handleAmbitionSelect = useCallback((ambitionId: string) => {
     setParty(p => ({ ...p, ambitionState: selectAmbition(p, ambitionId) }));
@@ -2042,8 +2104,9 @@ export const App: React.FC = () => {
             />
         )}
         {view === 'COMBAT' && combatState && (
-            <CombatView 
-                initialState={combatState} 
+            <CombatView
+                initialState={combatState}
+                onTriggerTip={triggerTip}
                 onCombatEnd={(victory, survivors, enemyUnits, rounds) => {
                     const result = generateBattleResult(
                       victory,
@@ -2176,18 +2239,20 @@ export const App: React.FC = () => {
             />
         )}
         {view === 'CAMP' && (
-            <SquadManagement 
-                party={party} 
-                onUpdateParty={setParty} 
-                onClose={() => setView('WORLD_MAP')} 
+            <SquadManagement
+                party={party}
+                onUpdateParty={setParty}
+                onClose={() => setView('WORLD_MAP')}
+                onTriggerTip={triggerTip}
             />
         )}
         {view === 'CITY' && currentCity && (
-            <CityView 
-                city={currentCity} 
-                party={party} 
+            <CityView
+                city={currentCity}
+                party={party}
                 onLeave={() => { setView('WORLD_MAP'); setTimeScale(0); }}
                 onUpdateParty={setParty}
+                onTriggerTip={triggerTip}
                 onUpdateCity={(newCity) => { setCities(prev => prev.map(c => c.id === newCity.id ? newCity : c)); setCurrentCity(newCity); }}
                 onCompleteQuest={() => {
                     // 交付已完成的任务：获得金币奖励 + 声望 + 清除activeQuest + 契约完成计数
@@ -2458,6 +2523,9 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* ===== 玩法提示浮窗 ===== */}
+        <GameTip tip={activeTip} onDismiss={handleTipDismiss} />
 
         {preCombatEntity && (
             <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-10">
