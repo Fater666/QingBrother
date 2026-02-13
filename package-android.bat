@@ -66,9 +66,18 @@ if "%TARGET_DEVICE%"=="" (
 )
 
 echo Installing to: %TARGET_DEVICE%
-adb -s %TARGET_DEVICE% install -r "%APK_PATH%"
+echo Running: adb -s %TARGET_DEVICE% install -r -d -t "%APK_PATH%"
+adb -s %TARGET_DEVICE% install -r -d -t "%APK_PATH%"
 if errorlevel 1 (
     echo Install failed.
+    echo.
+    echo Possible reasons:
+    echo 1^) Signature mismatch with the installed app ^(INSTALL_FAILED_UPDATE_INCOMPATIBLE^)
+    echo 2^) Device policy or permission issue
+    echo.
+    echo If signature mismatch, uninstall then reinstall:
+    echo adb -s %TARGET_DEVICE% uninstall com.qingbrother.app
+    echo adb -s %TARGET_DEVICE% install -t "%APK_PATH%"
     exit /b 1
 )
 

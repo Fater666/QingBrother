@@ -547,13 +547,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 
   // --- 动态护甲/头盔价值上限（随 tier 增长，替代原有硬编码上限） ---
   // 每个tier的基准值：初期廉价装备 → 末期可穿重甲
-  const TIER_ARMOR_BASE = [500, 1000, 2000, 3500];
-  const TIER_HELMET_BASE = [300, 650, 1200, 2200];
+  const TIER_ARMOR_BASE = [180, 420, 900, 1800];
+  const TIER_HELMET_BASE = [120, 260, 600, 1200];
   const tierIdx = Math.min(tier, TIER_ARMOR_BASE.length - 1);
 
   // AI类型系数：不同定位穿不同档次的护甲
   const ARMOR_COEFF: Record<string, number> = {
-    BANDIT: 1.0, ARCHER: 0.4, BERSERKER: 0.35, SKIRMISHER: 0.3, ARMY: 1.2, TANK: 1.5,
+    BANDIT: 1.0, ARCHER: 0.4, BERSERKER: 0.35, SKIRMISHER: 0.3, ARMY: 1.0, TANK: 1.2,
   };
   const HELMET_COEFF: Record<string, number> = {
     BANDIT: 0.7, ARCHER: 0.35, BERSERKER: 0.3, SKIRMISHER: 0.25, ARMY: 1.0, TANK: 1.0,
@@ -567,20 +567,20 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 
   // [基础概率, 每tier增量]
   const ARMOR_PROB: Record<string, [number, number]> = {
-    BANDIT: [0.75, 0.08],     // tier0=75% → tier3=99%
-    ARCHER: [0.70, 0.08],     // tier0=70% → tier3=94%
-    BERSERKER: [0.50, 0.12],  // tier0=50% → tier3=86%
-    SKIRMISHER: [0.45, 0.12], // tier0=45% → tier3=81%
-    ARMY: [1.0, 0],           // 军队始终穿甲
-    TANK: [1.0, 0],           // 盾卫始终穿甲
+    BANDIT: [0.45, 0.12],     // tier0=45% → tier3=81%
+    ARCHER: [0.25, 0.10],     // tier0=25% → tier3=55%
+    BERSERKER: [0.20, 0.10],  // tier0=20% → tier3=50%
+    SKIRMISHER: [0.12, 0.08], // tier0=12% → tier3=36%
+    ARMY: [0.60, 0.10],       // tier0=60% → tier3=90%
+    TANK: [0.75, 0.08],       // tier0=75% → tier3=99%
   };
   const HELMET_PROB: Record<string, [number, number]> = {
-    BANDIT: [0.50, 0.15],     // tier0=50% → tier3=95%
-    ARCHER: [0.45, 0.12],     // tier0=45% → tier3=81%
-    BERSERKER: [0.35, 0.15],  // tier0=35% → tier3=80%
-    SKIRMISHER: [0.20, 0.10], // tier0=20% → tier3=50%
-    ARMY: [0.70, 0.10],       // tier0=70% → tier3=95% (接近全员戴盔)
-    TANK: [1.0, 0],           // 盾卫始终戴盔
+    BANDIT: [0.25, 0.12],     // tier0=25% → tier3=61%
+    ARCHER: [0.12, 0.10],     // tier0=12% → tier3=42%
+    BERSERKER: [0.10, 0.10],  // tier0=10% → tier3=40%
+    SKIRMISHER: [0.05, 0.08], // tier0=5%  → tier3=29%
+    ARMY: [0.40, 0.12],       // tier0=40% → tier3=76%
+    TANK: [0.70, 0.10],       // tier0=70% → tier3=95%
   };
   const SHIELD_PROB: Record<string, [number, number]> = {
     BANDIT: [0.30, 0.10],     // tier0=30% → tier3=60%
@@ -638,12 +638,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
       );
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
       const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
-      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= 80);
+      const minArmyArmorValue = tier <= 0 ? 0 : 80;
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= minArmyArmorValue);
       const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: shields.length > 0 && Math.random() < shieldProb ? cloneItem(pick(shields)) : null,
-        armor: armors.length > 0 ? cloneItem(pick(armors)) : null,
+        armor: armors.length > 0 && Math.random() < armorProb ? cloneItem(pick(armors)) : null,
         helmet: helmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(helmets)) : null,
       };
     }
@@ -679,13 +680,14 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
       const weapon = weapons.length > 0 ? pick(weapons) : WEAPON_TEMPLATES.find(w => w.id === 'w_spear_2')!;
       const shields = noUnique(SHIELD_TEMPLATES).filter(s => s.value <= valueLimit);
       const shield = shields.length > 0 ? pick(shields) : SHIELD_TEMPLATES[0];
-      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= 80);
+      const minTankArmorValue = tier <= 0 ? 0 : 80;
+      const armors = noUnique(ARMOR_TEMPLATES).filter(a => a.value <= armorCap && a.value >= minTankArmorValue);
       const helmets = noUnique(HELMET_TEMPLATES).filter(h => h.value <= helmetCap);
       return {
         mainHand: cloneItem(weapon),
         offHand: shield ? cloneItem(shield) : null, // 盾卫必有盾
-        armor: armors.length > 0 ? cloneItem(pick(armors)) : null,
-        helmet: helmets.length > 0 ? cloneItem(pick(helmets)) : null,
+        armor: armors.length > 0 && Math.random() < armorProb ? cloneItem(pick(armors)) : null,
+        helmet: helmets.length > 0 && Math.random() < helmetProb ? cloneItem(pick(helmets)) : null,
       };
     }
     case 'SKIRMISHER': {
@@ -1082,13 +1084,14 @@ export const App: React.FC = () => {
       compositions = tierComps[Math.min(tier, tierComps.length - 1)];
     }
     
+    const ENEMY_STAT_NERF = 0.9;
     const enemies: CombatUnit[] = compositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
       // BEAST类型敌人及猛虎/野猪：使用天然武器，不穿装备
       const isBeastCreature = comp.aiType === 'BEAST' || comp.name === '猛虎' || comp.name === '野猪';
       if (isBeastCreature) {
-        const beastStatMult = statMult;
+        const beastStatMult = statMult * ENEMY_STAT_NERF;
         // 根据不同野兽类型设置不同天然武器
         let weaponName = '利爪';
         let weaponDesc = '野兽锋利的爪子。';
@@ -1103,9 +1106,9 @@ export const App: React.FC = () => {
           armorPen = 0.35; armorDmg = 0.8;
           fatCost = 10; hitMod = 12;
           // 猛虎额外加成HP和攻击
-          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.5);
+          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.35);
           baseChar.hp = baseChar.maxHp;
-          baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * 1.3);
+          baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * 1.2);
         } else if (comp.name === '野猪') {
           weaponName = '獠牙';
           weaponDesc = '野猪尖锐的獠牙，冲撞力十足。';
@@ -1113,7 +1116,7 @@ export const App: React.FC = () => {
           armorPen = 0.2; armorDmg = 0.6;
           fatCost = 8; hitMod = 8;
           // 野猪额外HP加成（坦克型）
-          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.3);
+          baseChar.maxHp = Math.floor(baseChar.maxHp * 1.2);
           baseChar.hp = baseChar.maxHp;
         } else if (comp.name.includes('头狼')) {
           weaponName = '狼牙';
@@ -1160,8 +1163,9 @@ export const App: React.FC = () => {
       }
       
       // --- 属性缩放：天数越高敌人基础属性越强 ---
-      // Boss实体保底1.3倍属性
-      const effectiveMult = isBoss ? Math.max(1.3, statMult) : statMult;
+      // Boss实体保底1.2倍属性
+      const nerfedStatMult = statMult * ENEMY_STAT_NERF;
+      const effectiveMult = isBoss ? Math.max(1.2, nerfedStatMult) : nerfedStatMult;
       if (effectiveMult > 1.0) {
         baseChar.maxHp = Math.floor(baseChar.maxHp * effectiveMult);
         baseChar.hp = baseChar.maxHp;
