@@ -624,18 +624,29 @@ const shuffle = <T>(arr: T[]): T[] => {
  * 根据城市类型和普通任务数量，从预设分布池中加权随机选取一组难度，并打乱顺序。
  */
 const generateDifficultyDistribution = (normalQuestCount: number, cityType: City['type']): (1|2|3)[] => {
+  if (normalQuestCount <= 0) return [];
+
+  const ensureAtLeastOneEasyQuest = (distribution: (1|2|3)[]): (1|2|3)[] => {
+    // 需求：任务不要全是高星，尽量保证每轮至少有一个 1 星任务
+    if (distribution.includes(1) || distribution.length === 0) return distribution;
+    const adjusted = [...distribution];
+    const replaceIdx = adjusted.findIndex(d => d > 1);
+    if (replaceIdx >= 0) adjusted[replaceIdx] = 1;
+    return shuffle(adjusted);
+  };
+
   const poolsForCount = DIFFICULTY_POOLS[cityType]?.[normalQuestCount];
   if (!poolsForCount || poolsForCount.length === 0) {
     // 回退：全部为1星
-    return Array(normalQuestCount).fill(1);
+    return ensureAtLeastOneEasyQuest(Array(normalQuestCount).fill(1));
   }
   const totalWeight = poolsForCount.reduce((s, p) => s + p.weight, 0);
   let roll = Math.random() * totalWeight;
   for (const entry of poolsForCount) {
     roll -= entry.weight;
-    if (roll <= 0) return shuffle([...entry.pool]);
+    if (roll <= 0) return ensureAtLeastOneEasyQuest(shuffle([...entry.pool]));
   }
-  return shuffle([...poolsForCount[poolsForCount.length - 1].pool]);
+  return ensureAtLeastOneEasyQuest(shuffle([...poolsForCount[poolsForCount.length - 1].pool]));
 };
 
 // 任务模板类型定义

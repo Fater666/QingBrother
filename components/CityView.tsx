@@ -987,7 +987,13 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
                                 {city.quests && city.quests.length > 0 ? (
                                     <div className="space-y-4">
-                                        {city.quests.map(quest => {
+                                        {[...city.quests]
+                                          // 酒肆展示：先按星级（低到高），再按报酬（高到低）
+                                          .sort((a, b) => {
+                                            if (a.difficulty !== b.difficulty) return a.difficulty - b.difficulty;
+                                            return b.rewardGold - a.rewardGold;
+                                          })
+                                          .map(quest => {
                                             const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
                                             const isDisabled = !!party.activeQuest || reputationLocked;
                                             
