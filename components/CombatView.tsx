@@ -146,7 +146,7 @@ const getAbilityIcon = (ability: Ability | null | undefined): string => {
   return ability.icon || '✦';
 };
 
-const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; turnIndex: number }> = ({ unit, isActive, isHit, turnIndex }) => {
+const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; turnIndex: number; dodgeDirection?: 'left' | 'right' | null }> = ({ unit, isActive, isHit, turnIndex, dodgeDirection = null }) => {
   // 血量百分比和颜色（用 hex 避免 Android WebView 下 oklch/渐变不显示）
   const hpPercent = (unit.hp / unit.maxHp) * 100;
   const hpBarColor = hpPercent > 50 ? '#22c55e' : hpPercent > 25 ? '#eab308' : '#dc2626';
@@ -207,7 +207,10 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; 
   };
 
   return (
-    <div className="relative" style={{ width: '80px' }}>
+    <div
+      className={`relative ${dodgeDirection === 'left' ? 'anim-dodge-left' : dodgeDirection === 'right' ? 'anim-dodge-right' : ''}`}
+      style={{ width: '80px' }}
+    >
       {/* 主卡片 */}
       <div
         className={`
@@ -387,6 +390,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   // ==================== 新增：战斗特效状态 ====================
   const [hitUnits, setHitUnits] = useState<Set<string>>(new Set());
+  const [dodgingUnits, setDodgingUnits] = useState<Map<string, 'left' | 'right'>>(new Map());
   const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none');
   const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>([]);
   const [centerBanner, setCenterBanner] = useState<CenterBanner | null>(null);
@@ -463,6 +467,24 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }, 400);
   }, []);
 
+  /** 触发闪避位移（未命中反馈） */
+  const triggerDodgeEffect = useCallback((targetUnitId: string, attackerPos: { q: number; r: number }, targetPos: { q: number; r: number }) => {
+    const direction: 'left' | 'right' = attackerPos.q <= targetPos.q ? 'right' : 'left';
+    setDodgingUnits(prev => {
+      const next = new Map(prev);
+      next.set(targetUnitId, direction);
+      return next;
+    });
+    setTimeout(() => {
+      setDodgingUnits(prev => {
+        if (!prev.has(targetUnitId)) return prev;
+        const next = new Map(prev);
+        next.delete(targetUnitId);
+        return next;
+      });
+    }, 320);
+  }, []);
+
   /** 触发屏幕震动 */
   const triggerScreenShake = useCallback((intensity: 'light' | 'heavy') => {
     setScreenShake(intensity);
@@ -494,6 +516,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     setCenterBanner(banner);
     setTimeout(() => setCenterBanner(prev => prev?.id === banner.id ? null : prev), 2200);
   }, []);
+
+  /** 统一处理“行动点不足”提示：日志 + 横幅 + 轻微震屏 */
+  const showInsufficientActionPoints = useCallback((ability: Ability, unit = activeUnit) => {
+    if (!unit) return;
+    const required = ability.apCost ?? 0;
+    const current = unit.currentAP ?? 0;
+    addToLog(`行动点不足！${ability.name} 需要 ${required} 点，当前仅 ${current} 点。`, 'info');
+    showCenterBanner(`行动点不足 ${current}/${required}`, '#ef4444', '⚠️');
+    triggerScreenShake('light');
+  }, [activeUnit, showCenterBanner, triggerScreenShake]);
 
   // --- 风格常量 ---
   const HEX_SIZE = 45;
@@ -1880,6 +1912,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             
             if (!aiIsHit) {
               // ==================== AI未命中 ====================
+              triggerDodgeEffect(target.id, currentPos, target.combatPos);
               setFloatingTexts(prev => [...prev, {
                 id: Date.now(),
                 text: 'MISS',
@@ -2192,7 +2225,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const hoveredHex = hoveredHexRef.current;
       if (hoveredHex || overrideAbility) {
         if (ability.id === 'SHIELDWALL') {
-          if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
           if (!window.confirm(`确认让 ${activeUnit.name} 架起盾墙吗？`)) {
             return;
@@ -2210,7 +2243,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           return;
         }
         if (ability.id === 'SPEARWALL') {
-          if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           const enemyAdjacent = state.units.some(u =>
             !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
           );
@@ -2245,7 +2278,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     // ==================== 自身目标技能处理 ====================
     // 调息 (recover): 清除50%疲劳
     if (ability.id === 'RECOVER_SKILL') {
-      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+      if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
@@ -2263,7 +2296,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 血勇 (adrenaline): 下回合行动顺序提前至最先
     if (ability.id === 'ADRENALINE_SKILL') {
-      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+      if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
@@ -2285,7 +2318,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 振军 (rally): 提高范围内盟友士气
     if (ability.id === 'RALLY_SKILL') {
-      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+      if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
       setState(prev => {
         // 提升自身和周围4格内盟友的士气
         const affectedAllies = prev.units.filter(u =>
@@ -2326,7 +2359,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 挑衅 (taunt): 迫使周围敌人攻击自己
     if (ability.id === 'TAUNT_SKILL') {
-      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+      if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
@@ -2348,7 +2381,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     // 不屈 (indomitable): 受到伤害减半1回合
     if (ability.id === 'INDOMITABLE_SKILL') {
-      if (activeUnit.currentAP < ability.apCost) { addToLog('AP不足！'); return; }
+      if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => {
@@ -2380,7 +2413,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       // 检查AP和疲劳是否足够
       if (activeUnit.currentAP < ability.apCost) {
-        addToLog('AP不足！');
+        showInsufficientActionPoints(ability);
         return;
       }
       
@@ -2427,7 +2460,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         return;
       }
       if (activeUnit.currentAP < ability.apCost) {
-        addToLog('AP不足！');
+        showInsufficientActionPoints(ability);
         return;
       }
       
@@ -2478,7 +2511,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
             }
             
-            if (activeUnit.currentAP < apCost) return;
+            if (activeUnit.currentAP < apCost) {
+              showInsufficientActionPoints({ ...ability, apCost });
+              return;
+            }
             
             // === 武器精通：疲劳消耗修正 ===
             const fatigueMult = getWeaponMasteryFatigueMultiplier(activeUnit);
@@ -2507,6 +2543,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             if (!isHit) {
               // ==================== 未命中 ====================
               const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+              triggerDodgeEffect(target.id, activeUnit.combatPos, target.combatPos);
               // 临机应变(fast_adaptation)：未命中叠层 +1
               if (hasPerk(activeUnit, 'fast_adaptation')) {
                 setState(prev => ({
@@ -2632,7 +2669,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               showCenterBanner(`${target.name} 被 ${activeUnit.name} 击杀！`, '#f59e0b', '💀');
               addToLog(`💀 ${target.name} 阵亡！`, 'kill');
               
-              // === 狂战 (berserk): 击杀回复AP ===
+              // === 狂战 (berserk): 击杀回复行动点 ===
               const berserkAP = getBerserkAPRecovery(activeUnit);
               if (berserkAP > 0) {
                 setState(prev => ({
@@ -2641,7 +2678,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     ? { ...u, currentAP: Math.min(9, u.currentAP + berserkAP) }
                     : u)
                 }));
-                addToLog(`😡 ${activeUnit.name} 狂战发动！回复 ${berserkAP} AP！`, 'skill');
+                addToLog(`😡 ${activeUnit.name} 狂战发动！回复 ${berserkAP} 点行动点！`, 'skill');
               }
               
               // === 杀意 (killing_frenzy): 击杀后伤害加成 ===
@@ -3089,7 +3126,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   </div>
                 )}
                 {activeUnit.currentAP < mobileAttackTarget.ability.apCost && (
-                  <div className="text-red-500 text-[9px] mt-1 font-bold">AP不足!</div>
+                  <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
                 )}
               </div>
               <div className="text-slate-400 text-[9px]">
@@ -3114,7 +3151,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 className="absolute"
                 style={{ width: '80px', height: 'auto' }}
               >
-                <UnitCard unit={u} isActive={activeUnit?.id === u.id} isHit={hitUnits.has(u.id)} turnIndex={turnIndex} />
+                <UnitCard
+                  unit={u}
+                  isActive={activeUnit?.id === u.id}
+                  isHit={hitUnits.has(u.id)}
+                  turnIndex={turnIndex}
+                  dodgeDirection={dodgingUnits.get(u.id) || null}
+                />
               </div>
             );
           })}
@@ -3203,7 +3246,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     </div>
                   )}
                   {activeUnit.currentAP < (selectedAbility!.apCost || 4) && (
-                    <div className="text-red-500 text-[9px] mt-1 font-bold">AP不足!</div>
+                    <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
                   )}
                 </div>
               )}
@@ -3216,7 +3259,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
                 </div>
               )}
-              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, hoveredHex), hasPerk(activeUnit, 'pathfinder')).apCost} AP{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
+              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, hoveredHex), hasPerk(activeUnit, 'pathfinder')).apCost} 行动点{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
               
               {/* 控制区警告 */}
               {willTriggerZoC && (
@@ -3256,7 +3299,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               <div className="flex flex-col">
                 <span className="text-xl font-bold text-amber-500 tracking-widest">{activeUnit.name}</span>
                 <div className="flex gap-4 mt-1 text-[10px] font-mono">
-                  <span className="text-slate-400">AP <b className="text-white">{activeUnit.currentAP}</b></span>
+                  <span className="text-slate-400">行动点 <b className="text-white">{activeUnit.currentAP}</b></span>
                   <span className="text-slate-400">生命 <b className="text-white">{activeUnit.hp}/{activeUnit.maxHp}</b></span>
                 </div>
                 {/* 士气状态显示 */}
@@ -3361,7 +3404,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           <div className="flex items-center justify-between mb-2">
             <div className="text-amber-400 font-bold text-sm">{selectedAbility.name}</div>
             <div className="flex gap-2 text-[9px]">
-              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">AP {selectedAbility.apCost}</span>
+              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">行动点 {selectedAbility.apCost}</span>
               <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {selectedAbility.fatCost}</span>
             </div>
           </div>
