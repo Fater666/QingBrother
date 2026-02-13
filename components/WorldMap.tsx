@@ -880,98 +880,6 @@ const drawTargetPath = (
   ctx.stroke();
 };
 
-// ============================================================================
-// 追踪系统 - 足迹绘制（仿战场兄弟）
-// ============================================================================
-
-const TRACK_RADIUS = 18;  // 足迹可见范围（比视野大很多）
-
-// 在目标实体附近已探索的格子上绘制足迹标记
-const drawTrackMarkers = (
-  ctx: CanvasRenderingContext2D,
-  targetEntity: WorldEntity,
-  tiles: WorldTile[],
-  partyX: number,
-  partyY: number,
-  toScreen: (wx: number, wy: number) => { x: number; y: number },
-  tileSize: number,
-  rectWidth: number,
-  rectHeight: number,
-  animTime: number
-) => {
-  const tx = targetEntity.x;
-  const ty = targetEntity.y;
-  const distToPlayer = Math.hypot(tx - partyX, ty - partyY);
-  
-  // 只在视野外但追踪范围内显示足迹
-  if (distToPlayer <= VISION_RADIUS || distToPlayer > TRACK_RADIUS * 1.5) return;
-  
-  // 在从目标向玩家方向上散布足迹点
-  const dx = partyX - tx;
-  const dy = partyY - ty;
-  const dist = Math.hypot(dx, dy);
-  const ndx = dx / dist;
-  const ndy = dy / dist;
-  
-  // 生成足迹点：从目标位置往玩家方向排列
-  const trackCount = Math.min(8, Math.floor(dist / 2));
-  
-  for (let i = 1; i <= trackCount; i++) {
-    const t = i / (trackCount + 1);
-    // 沿方向线偏移 + 小幅随机扰动
-    const baseX = tx + ndx * dist * t;
-    const baseY = ty + ndy * dist * t;
-    // 使用确定性伪随机（根据坐标和索引）
-    const offsetX = Math.sin(baseX * 12.9898 + baseY * 78.233 + i * 43.12) * 1.5;
-    const offsetY = Math.cos(baseX * 78.233 + baseY * 12.9898 + i * 17.45) * 1.5;
-    const fx = Math.floor(baseX + offsetX);
-    const fy = Math.floor(baseY + offsetY);
-    
-    if (fx < 0 || fx >= MAP_SIZE || fy < 0 || fy >= MAP_SIZE) continue;
-    
-    const tile = tiles[fy * MAP_SIZE + fx];
-    if (!tile || !tile.explored) continue;
-    
-    // 只在玩家追踪范围内的格子上显示
-    const distFromPlayer = Math.hypot(fx - partyX, fy - partyY);
-    if (distFromPlayer > TRACK_RADIUS || distFromPlayer <= VISION_RADIUS - 1) continue;
-    
-    const pos = toScreen(fx + 0.5, fy + 0.5);
-    if (pos.x < -tileSize || pos.x > rectWidth + tileSize || 
-        pos.y < -tileSize || pos.y > rectHeight + tileSize) continue;
-    
-    // 绘制足迹标记 - 小爪印/脚印符号
-    const alpha = 0.4 + Math.sin(animTime * 2 + i * 1.5) * 0.15;
-    const markerSize = tileSize * 0.15;
-    
-    // 方向朝向目标
-    const angle = Math.atan2(ty - fy, tx - fx);
-    
-    ctx.save();
-    ctx.translate(pos.x, pos.y);
-    ctx.rotate(angle);
-    
-    // 足迹本体 - 两个椭圆（鞋印形状）
-    ctx.fillStyle = `rgba(180, 100, 50, ${alpha})`;
-    ctx.beginPath();
-    ctx.ellipse(-markerSize * 0.4, -markerSize * 0.3, markerSize * 0.5, markerSize * 0.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(-markerSize * 0.4, markerSize * 0.3, markerSize * 0.5, markerSize * 0.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 脚趾印 - 前方小点
-    ctx.fillStyle = `rgba(160, 80, 40, ${alpha * 0.8})`;
-    for (let j = -1; j <= 1; j++) {
-      ctx.beginPath();
-      ctx.arc(markerSize * 0.5, j * markerSize * 0.35, markerSize * 0.15, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    
-    ctx.restore();
-  }
-};
-
 // 绘制任务目标实体的高亮光环
 const drawQuestTargetGlow = (
   ctx: CanvasRenderingContext2D,
@@ -1571,7 +1479,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         drawCityLabel(ctx, city, pos.x - tileSize / 2, pos.y - tileSize / 2, tileSize);
       }
 
-      // ===== 追踪系统：足迹标记 =====
       animTimeRef.current += 0.016; // ~60fps
       const animTime = animTimeRef.current;
       
@@ -1590,11 +1497,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         }
       }
       
-      // 绘制足迹追踪标记
-      if (questTargetEntity) {
-        drawTrackMarkers(ctx, questTargetEntity, tiles, party.x, party.y, toScreen, tileSize, rect.width, rect.height, animTime);
-      }
-
       // 巡逻点标记（PATROL）
       if (
         party.activeQuest &&
@@ -1748,14 +1650,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
     return '东北';
   };
 
-  // 距离描述
-  const getDistanceText = (dist: number): string => {
-    if (dist <= VISION_RADIUS) return '已发现目标！';
-    if (dist <= 10) return '足迹清晰 · 近在咫尺';
-    if (dist <= TRACK_RADIUS) return '足迹可见 · 尚有距离';
-    return '足迹模糊 · 距离较远';
-  };
-
   return (
     <div className="relative w-full h-full bg-[#0a0a0a] overflow-hidden select-none">
       <canvas 
@@ -1889,21 +1783,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                         <span className="text-slate-600 ml-1.5">约 {Math.round(questTargetDist)} 格</span>
                       </div>
                     </div>
-                  </div>
-                  {/* 足迹状态 */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px]">
-                      {questTargetDist <= VISION_RADIUS ? '👁' : questTargetDist <= TRACK_RADIUS ? '👣' : '❓'}
-                    </span>
-                    <span className={`text-[10px] ${
-                      questTargetDist <= VISION_RADIUS 
-                        ? 'text-red-400 font-bold' 
-                        : questTargetDist <= TRACK_RADIUS 
-                          ? 'text-amber-500' 
-                          : 'text-slate-500'
-                    }`}>
-                      {getDistanceText(questTargetDist)}
-                    </span>
                   </div>
                 </div>
               )}
