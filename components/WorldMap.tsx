@@ -1715,6 +1715,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
 
   const questTargetDist = questTarget ? Math.hypot(questTarget.x - party.x, questTarget.y - party.y) : null;
   const questTargetAngle = questTarget ? Math.atan2(questTarget.y - party.y, questTarget.x - party.x) : null;
+  const deliveryTargetCity = (() => {
+    if (!party.activeQuest || party.activeQuest.type !== 'DELIVERY') return null;
+    if (party.activeQuest.targetCityId) {
+      const city = cities.find(c => c.id === party.activeQuest!.targetCityId);
+      if (city) return city;
+    }
+    if (party.activeQuest.targetCityName) {
+      return cities.find(c => c.name === party.activeQuest!.targetCityName) || null;
+    }
+    return null;
+  })();
+  const deliveryTargetDist = deliveryTargetCity ? Math.hypot(deliveryTargetCity.x - party.x, deliveryTargetCity.y - party.y) : null;
+  const deliveryTargetAngle = deliveryTargetCity ? Math.atan2(deliveryTargetCity.y - party.y, deliveryTargetCity.x - party.x) : null;
   const patrolTargetDist = (party.activeQuest && party.activeQuest.type === 'PATROL' && typeof party.activeQuest.patrolTargetX === 'number' && typeof party.activeQuest.patrolTargetY === 'number')
     ? Math.hypot(party.activeQuest.patrolTargetX - party.x, party.activeQuest.patrolTargetY - party.y)
     : null;
@@ -1903,6 +1916,26 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                       )}
                       <div className="text-[10px] text-amber-500">目标：先抵达巡逻点</div>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* 未完成：运送任务（前往目标城市） */}
+              {!party.activeQuest.isCompleted && party.activeQuest.type === 'DELIVERY' && (
+                <div className="mt-1.5 pt-1.5 border-t border-amber-900/20 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-sky-700 uppercase tracking-widest">运送目的地</span>
+                    <span className="text-sky-400 text-xs font-bold">
+                      {deliveryTargetCity?.name || party.activeQuest.targetCityName || '待指派'}
+                    </span>
+                  </div>
+                  {deliveryTargetDist !== null && deliveryTargetAngle !== null ? (
+                    <div className="text-[10px] text-slate-400">
+                      方向 <span className="text-amber-500 font-bold">{getDirectionText(deliveryTargetAngle)}</span>
+                      <span className="text-slate-600 ml-1.5">约 {Math.round(deliveryTargetDist)} 格</span>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-600 italic">正在确认交付城市…</div>
                   )}
                 </div>
               )}

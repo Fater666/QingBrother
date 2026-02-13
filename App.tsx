@@ -1246,39 +1246,6 @@ export const App: React.FC = () => {
         }
         if (
           activePatrolQuest &&
-          (typeof activePatrolQuest.patrolTargetX !== 'number' || typeof activePatrolQuest.patrolTargetY !== 'number')
-        ) {
-          const sourceCity = cities.find(c => c.id === activePatrolQuest.sourceCityId);
-          const cx = sourceCity?.x ?? party.x;
-          const cy = sourceCity?.y ?? party.y;
-          const fallbackX = Math.max(2, Math.min(MAP_SIZE - 3, cx + 5));
-          const fallbackY = cy;
-          setParty(prevParty => {
-            if (
-              !prevParty.activeQuest ||
-              prevParty.activeQuest.id !== activePatrolQuest.id ||
-              prevParty.activeQuest.type !== 'PATROL' ||
-              prevParty.activeQuest.isCompleted
-            ) {
-              return prevParty;
-            }
-            return {
-              ...prevParty,
-              activeQuest: {
-                ...prevParty.activeQuest,
-                patrolTargetX: fallbackX,
-                patrolTargetY: fallbackY,
-                patrolTargetName: prevParty.activeQuest.patrolTargetName || `${sourceCity?.name || '城镇'}外官道`,
-                patrolRadius: prevParty.activeQuest.patrolRadius ?? 1.4,
-                patrolKillsRequired: prevParty.activeQuest.patrolKillsRequired ?? (prevParty.activeQuest.difficulty === 1 ? 4 : prevParty.activeQuest.difficulty === 2 ? 6 : 8),
-                patrolKillsDone: prevParty.activeQuest.patrolKillsDone || 0,
-                patrolArrived: !!prevParty.activeQuest.patrolArrived,
-              }
-            };
-          });
-        }
-        if (
-          activePatrolQuest &&
           !activePatrolQuest.patrolArrived &&
           typeof activePatrolQuest.patrolTargetX === 'number' &&
           typeof activePatrolQuest.patrolTargetY === 'number'
@@ -1316,6 +1283,25 @@ export const App: React.FC = () => {
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
                 if (city) {
+                  if (party.activeQuest && !party.activeQuest.isCompleted && party.activeQuest.type === 'DELIVERY' && party.activeQuest.targetCityId === city.id) {
+                    setParty(prevParty => {
+                      if (
+                        !prevParty.activeQuest ||
+                        prevParty.activeQuest.type !== 'DELIVERY' ||
+                        prevParty.activeQuest.isCompleted ||
+                        prevParty.activeQuest.targetCityId !== city.id
+                      ) {
+                        return prevParty;
+                      }
+                      return {
+                        ...prevParty,
+                        activeQuest: {
+                          ...prevParty.activeQuest,
+                          isCompleted: true,
+                        }
+                      };
+                    });
+                  }
                   setCurrentCity(city);
                   setView('CITY');
                   setTimeScale(0);
@@ -2378,7 +2364,24 @@ export const App: React.FC = () => {
                                 setEntities(prev => [...prev, escortEntity]);
                                 linkedQuest.targetEntityId = escortEntityId;
                                 linkedQuest.targetCityId = destinationCity.id;
+                                linkedQuest.targetCityName = destinationCity.name;
                             }
+                        }
+                    }
+                    if (q.type === 'DELIVERY') {
+                        const sourceCity = cities.find(c => c.id === q.sourceCityId);
+                        const fromX = sourceCity?.x ?? party.x;
+                        const fromY = sourceCity?.y ?? party.y;
+                        const destinationCity = cities
+                          .filter(c => c.id !== (sourceCity?.id || q.sourceCityId))
+                          .sort((a, b) => {
+                            const da = Math.hypot(a.x - fromX, a.y - fromY);
+                            const db = Math.hypot(b.x - fromX, b.y - fromY);
+                            return da - db;
+                          })[0];
+                        if (destinationCity) {
+                          linkedQuest.targetCityId = destinationCity.id;
+                          linkedQuest.targetCityName = destinationCity.name;
                         }
                     }
                     setParty(p => ({ ...p, activeQuest: linkedQuest }));

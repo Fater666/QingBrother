@@ -261,10 +261,10 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; 
         <div className={`text-[7px] truncate drop-shadow-sm mb-0.5 ${isEnemy ? 'text-red-300/70' : 'text-blue-300/70'}`}>
           {unit.name.slice(0, 4)}{typeName ? ` · ${typeName}` : ''}</div>
 
-        {/* 头甲条 - 内联样式兼容 Android WebView */}
+        {/* 头甲条 - 内联样式兼容 Android WebView，图标用 7px+min-w 避免消失 */}
         {helmet && (
           <div className="flex items-center gap-0.5 mb-0.5">
-            <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🪖</span>
+            <span className="text-[7px] text-slate-400 min-w-[14px] w-3 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>⛑</span>
             <div className="flex-1 h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
               <div className="h-full transition-all relative" style={{ width: `${helmetPercent}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
                 <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
@@ -274,10 +274,10 @@ const UnitCard: React.FC<{ unit: CombatUnit; isActive: boolean; isHit: boolean; 
           </div>
         )}
 
-        {/* 体甲条 - 内联样式兼容 Android WebView */}
+        {/* 体甲条 - 内联样式兼容 Android WebView，图标用 7px+min-w 避免消失 */}
         {armor && (
           <div className="flex items-center gap-0.5 mb-0.5">
-            <span className="text-[6px] text-slate-400 w-3 flex-shrink-0">🛡</span>
+            <span className="text-[7px] text-slate-400 min-w-[14px] w-3 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>🛡</span>
             <div className="flex-1 h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
               <div className="h-full transition-all relative" style={{ width: `${armorPercent}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
                 <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />

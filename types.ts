@@ -169,6 +169,7 @@ export interface Quest {
     rewardGold: number;
     sourceCityId: string;
     targetCityId?: string; 
+    targetCityName?: string;
     targetEntityId?: string; 
     targetEntityName?: string; // 目标敌人名称（杀敌任务用）
     isCompleted: boolean;

@@ -1074,7 +1074,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             <h3 className="text-lg font-bold text-emerald-300">{party.activeQuest.title}</h3>
                                         </div>
                                         <p className="text-sm text-slate-400 italic mb-3 border-l-2 border-emerald-800/50 pl-3">
-                                            目标已消灭，委托人对你的表现非常满意。
+                                            {party.activeQuest.type === 'DELIVERY'
+                                                ? '货物已安全送达，委托人对你的表现非常满意。'
+                                                : '目标已消灭，委托人对你的表现非常满意。'}
                                         </p>
                                         <div className="flex items-center justify-between mb-4">
                                             <div className="text-sm text-slate-400">
@@ -1082,6 +1084,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 <span className="text-amber-600">{party.activeQuest.type === 'HUNT' ? '讨伐' : party.activeQuest.type === 'ESCORT' ? '护送' : party.activeQuest.type === 'PATROL' ? '巡逻' : '押运'}</span>
                                                 {party.activeQuest.targetEntityName && (
                                                     <span className="ml-3 text-red-400">目标:「{party.activeQuest.targetEntityName}」</span>
+                                                )}
+                                                {party.activeQuest.type === 'DELIVERY' && (
+                                                    <span className="ml-3 text-sky-400">目的地: {party.activeQuest.targetCityName || '待指派'}</span>
                                                 )}
                                                 {party.activeQuest.type === 'PATROL' && (
                                                     <span className="ml-3 text-amber-400">
