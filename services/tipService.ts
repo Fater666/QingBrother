@@ -88,7 +88,7 @@ export const GAME_TIPS: Record<string, GameTipData> = {
   // ===== 队伍管理 =====
   squad_first_open: {
     id: 'squad_first_open',
-    text: '在此管理阵型与装备。拖动佣兵调整站位，将装备拖至佣兵身上进行装备。',
+    text: '在此管理阵型与装备。拖动佣兵调整站位，点击仓库物资中的物品进行装备。',
     duration: 8000,
     position: 'top',
   },

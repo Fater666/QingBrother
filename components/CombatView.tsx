@@ -447,6 +447,40 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
 
+  // ==================== 底栏操作预览消耗计算 ====================
+  const previewCosts = useMemo(() => {
+    if (!activeUnit || !isPlayerTurn) return null;
+
+    // 选中技能时显示技能消耗
+    if (selectedAbility && selectedAbility.id !== 'MOVE') {
+      let apCost = selectedAbility.apCost || 4;
+      let fatigueCost = selectedAbility.fatCost || 0;
+
+      const masteryEffects = getWeaponMasteryEffects(activeUnit);
+      if (masteryEffects.reducedApCost) {
+        apCost = Math.min(apCost, masteryEffects.reducedApCost);
+      }
+      if (masteryEffects.daggerReducedAp && selectedAbility.type === 'ATTACK') {
+        apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
+      }
+      const fatigueMult = getWeaponMasteryFatigueMultiplier(activeUnit);
+      fatigueCost = Math.floor(fatigueCost * fatigueMult);
+
+      return { apCost, fatigueCost };
+    }
+
+    // 未选技能时悬停格子显示移动消耗
+    if (hoveredHex) {
+      const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+      if (dist > 0) {
+        const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
+        return { apCost: moveCost.apCost, fatigueCost: moveCost.fatigueCost };
+      }
+    }
+
+    return null;
+  }, [activeUnit, isPlayerTurn, selectedAbility, hoveredHex]);
+
   // ==================== 玩法提示触发 ====================
   const tipPrevUnitsRef = useRef(state.units);
   const tipFirstAttackFired = useRef(false);
@@ -3579,20 +3613,51 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       </div>
 
       <div className={`${isMobile ? 'h-28 px-3' : 'h-32 px-10'} bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center justify-between shrink-0 shadow-2xl`}>
-        <div className="flex items-center gap-4 w-72">
-          {activeUnit && (
-            <>
-              <div className="flex flex-col">
-                <span className="text-xl font-bold text-amber-500 tracking-widest">{activeUnit.name}</span>
-                <div className="flex gap-4 mt-1 text-[10px] font-mono">
-                  <span className="text-slate-400">行动点 <b className="text-white">{activeUnit.currentAP}</b></span>
-                  <span className="text-slate-400">生命 <b className="text-white">{activeUnit.hp}/{activeUnit.maxHp}</b></span>
-                </div>
-                {/* 士气状态显示 */}
-                <div className="flex items-center gap-2 mt-1">
-                  <span 
-                    className="text-[11px] font-bold px-1.5 py-0.5 rounded"
-                    style={{ 
+        <div className={`flex items-center gap-4 ${isMobile ? 'w-64' : 'w-80'}`}>
+          {activeUnit && (() => {
+            const helmet = activeUnit.equipment.helmet;
+            const helmetDur = helmet?.durability ?? 0;
+            const helmetMax = helmet?.maxDurability ?? 0;
+            const helmetPct = helmetMax > 0 ? (helmetDur / helmetMax) * 100 : 0;
+
+            const armor = activeUnit.equipment.armor;
+            const armorDur = armor?.durability ?? 0;
+            const armorMax = armor?.maxDurability ?? 0;
+            const armorPct = armorMax > 0 ? (armorDur / armorMax) * 100 : 0;
+
+            const hpPct = (activeUnit.hp / activeUnit.maxHp) * 100;
+            const hpColor = hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#eab308' : '#dc2626';
+
+            const maxFat = activeUnit.maxFatigue;
+            const remaining = maxFat - activeUnit.fatigue;
+            const staminaPct = maxFat > 0 ? (remaining / maxFat) * 100 : 0;
+            // 疲劳预览
+            const previewFatAfter = previewCosts
+              ? Math.min(maxFat, activeUnit.fatigue + previewCosts.fatigueCost)
+              : activeUnit.fatigue;
+            const previewRemaining = maxFat - previewFatAfter;
+            const previewStaminaPct = maxFat > 0 ? (previewRemaining / maxFat) * 100 : 0;
+            const ghostWidth = staminaPct - previewStaminaPct;
+
+            // AP预览
+            const totalAP = 9;
+            const currentAP = activeUnit.currentAP;
+            const previewAPAfter = previewCosts
+              ? Math.max(0, currentAP - previewCosts.apCost)
+              : currentAP;
+
+            const barH = isMobile ? '8px' : '10px';
+
+            return (
+              <div className="flex flex-col flex-1 gap-0.5">
+                {/* 第1行：名字 + 士气 */}
+                <div className="flex items-center gap-2">
+                  <span className={`${isMobile ? 'text-sm' : 'text-base'} font-bold text-amber-500 tracking-widest truncate`}>
+                    {activeUnit.name}
+                  </span>
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                    style={{
                       color: MORALE_COLORS[activeUnit.morale],
                       backgroundColor: `${MORALE_COLORS[activeUnit.morale]}20`,
                       border: `1px solid ${MORALE_COLORS[activeUnit.morale]}40`
@@ -3604,9 +3669,104 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <span className="text-[9px] text-red-400 animate-pulse">无法控制!</span>
                   )}
                 </div>
+
+                {/* 第2行：头甲 + 护甲 */}
+                <div className="flex gap-3">
+                  {/* 头甲 */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <span className="text-[9px] text-cyan-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>⛑</span>
+                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                      <div className="h-full transition-all relative" style={{ width: `${helmetPct}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
+                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
+                      </div>
+                    </div>
+                    <span className="text-[8px] font-bold text-cyan-400 flex-shrink-0" style={{ minWidth: '30px', textAlign: 'right' }}>{helmetDur}/{helmetMax}</span>
+                  </div>
+                  {/* 护甲 */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <span className="text-[9px] text-slate-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>🛡</span>
+                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                      <div className="h-full transition-all relative" style={{ width: `${armorPct}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
+                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
+                      </div>
+                    </div>
+                    <span className="text-[8px] font-bold text-slate-300 flex-shrink-0" style={{ minWidth: '30px', textAlign: 'right' }}>{armorDur}/{armorMax}</span>
+                  </div>
+                </div>
+
+                {/* 第3行：生命 + 疲劳（含ghost预览） */}
+                <div className="flex gap-3">
+                  {/* 生命 */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <span className="text-[9px] w-3 flex-shrink-0 text-center" style={{ color: hpColor, display: 'inline-block' }}>♥</span>
+                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                      <div className="h-full transition-all relative" style={{ width: `${hpPct}%`, backgroundColor: hpColor }}>
+                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
+                      </div>
+                    </div>
+                    <span className="text-[8px] font-bold flex-shrink-0" style={{ color: hpColor, minWidth: '30px', textAlign: 'right' }}>{activeUnit.hp}/{activeUnit.maxHp}</span>
+                  </div>
+                  {/* 疲劳（显示剩余体力） */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <span className="text-[9px] text-teal-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>💪</span>
+                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50 relative" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                      <div className="h-full absolute left-0 top-0 transition-all" style={{ width: `${staminaPct}%` }}>
+                        {/* Ghost预览段：将被消耗的体力 */}
+                        {ghostWidth > 0 && (
+                          <div className="absolute right-0 top-0 h-full" style={{
+                            width: `${staminaPct > 0 ? (ghostWidth / staminaPct) * 100 : 0}%`,
+                            backgroundColor: 'rgba(245, 158, 11, 0.5)',
+                            borderLeft: '1px solid rgba(245, 158, 11, 0.8)'
+                          }} />
+                        )}
+                        {/* 实际剩余体力 */}
+                        <div className="h-full relative" style={{
+                          width: ghostWidth > 0 && staminaPct > 0 ? `${(previewStaminaPct / staminaPct) * 100}%` : '100%',
+                          background: 'linear-gradient(to right, #0d9488, #2dd4bf)'
+                        }}>
+                          <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[8px] font-bold text-teal-400 flex-shrink-0" style={{ minWidth: '30px', textAlign: 'right' }}>{remaining}/{maxFat}</span>
+                  </div>
+                </div>
+
+                {/* 第4行：AP圆点（含ghost预览） */}
+                <div className="flex items-center gap-[3px] mt-0.5">
+                  <span className="text-[9px] text-amber-500 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>⚡</span>
+                  {Array.from({ length: totalAP }, (_, i) => {
+                    const isFilled = i < currentAP;
+                    const isGhost = i >= previewAPAfter && i < currentAP;
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-full border"
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          backgroundColor: isGhost
+                            ? 'rgba(245, 158, 11, 0.35)'
+                            : isFilled
+                              ? '#f59e0b'
+                              : 'rgba(0,0,0,0.5)',
+                          borderColor: isGhost
+                            ? 'rgba(245, 158, 11, 0.7)'
+                            : isFilled
+                              ? '#fbbf24'
+                              : '#334155',
+                          boxShadow: isFilled && !isGhost
+                            ? '0 0 4px rgba(245,158,11,0.5)'
+                            : undefined,
+                        }}
+                      />
+                    );
+                  })}
+                  <span className="text-[9px] font-bold text-amber-500 ml-1">{currentAP}/{totalAP}</span>
+                </div>
               </div>
-            </>
-          )}
+            );
+          })()}
         </div>
 
         <div className="flex gap-3">
