@@ -11,7 +11,7 @@ interface CityViewProps {
   onUpdateParty: (party: Party) => void;
   onUpdateCity: (city: City) => void;
   onAcceptQuest: (quest: Quest) => void;
-  onCompleteQuest: () => void; // 交付已完成的任务（返回接取城市时调用）
+  onCompleteQuest: () => void; // 交付已完成的任务
   onTriggerTip?: (tipId: string) => void;
 }
 
@@ -211,18 +211,26 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const MARKET_PAGE_SIZE = 6; // 固定每页6个，2列x3行，不滚动
   // Interaction State (for recruit)
   const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
+  const canTurnInActiveQuestHere = useMemo(() => {
+      const quest = party.activeQuest;
+      if (!quest || !quest.isCompleted) return false;
+      if (quest.type === 'DELIVERY') {
+          return quest.targetCityId === city.id || quest.targetCityName === city.name;
+      }
+      return quest.sourceCityId === city.id;
+  }, [party.activeQuest, city.id, city.name]);
 
   const showNotification = (msg: string) => {
       setNotification(msg);
       setTimeout(() => setNotification(null), 2000);
   };
 
-  // 自动跳转：进入接取任务的城市且任务已完成时，自动切换到酒肆
+  // 自动跳转：进入可交付城市且任务已完成时，自动切换到酒肆
   useEffect(() => {
-      if (party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id) {
+      if (canTurnInActiveQuestHere) {
           setSubView('TAVERN');
       }
-  }, []); // 仅在进入城市时检查一次
+  }, [canTurnInActiveQuestHere]); // 进入城市后检查当前城市是否可交付
 
   // 切换市集标签或筛选时重置分页
   useEffect(() => {
@@ -930,15 +938,17 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         </span>
                                     </div>
                                 )}
-                                {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId !== city.id && (
+                                {party.activeQuest && party.activeQuest.isCompleted && !canTurnInActiveQuestHere && (
                                     <div className="mt-2 text-xs text-amber-400 font-bold bg-amber-950/20 py-1 px-3 inline-block border border-amber-900/40">
-                                        契约已完成，请返回接取城市交付
+                                        {party.activeQuest.type === 'DELIVERY'
+                                            ? '契约已完成，请前往目的地城市交付'
+                                            : '契约已完成，请返回接取城市交付'}
                                     </div>
                                 )}
                             </div>
                             <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
-                                {/* ===== 已完成任务交付面板（仿战场兄弟：返回接取城市交付） ===== */}
-                                {party.activeQuest && party.activeQuest.isCompleted && party.activeQuest.sourceCityId === city.id && (
+                                {/* ===== 已完成任务交付面板 ===== */}
+                                {party.activeQuest && party.activeQuest.isCompleted && canTurnInActiveQuestHere && (
                                     <div className="mb-5 border-2 border-emerald-700/60 bg-emerald-950/20 p-5 relative animate-pulse-slow">
                                         <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 border border-emerald-600/50 text-emerald-400 bg-emerald-900/30 font-bold tracking-wider">
                                             任务完成

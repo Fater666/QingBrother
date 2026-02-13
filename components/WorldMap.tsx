@@ -1819,7 +1819,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
               <span className={`text-[9px] uppercase tracking-[0.2em] font-bold ${
                 party.activeQuest.isCompleted ? 'text-emerald-500' : 'text-amber-700'
               }`}>
-                {party.activeQuest.isCompleted ? '契约完成 - 返回交付' : '当前契约'}
+                {party.activeQuest.isCompleted
+                  ? (party.activeQuest.type === 'DELIVERY' ? '契约完成 - 前往目的地交付' : '契约完成 - 返回交付')
+                  : '当前契约'}
               </span>
             </div>
             <div className="px-3 py-2 space-y-1.5">
@@ -1845,10 +1847,14 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                 <div className="mt-1.5 pt-1.5 border-t border-emerald-900/30 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-emerald-500 text-xs">&#10003;</span>
-                    <span className="text-[10px] text-emerald-400 font-bold">目标已消灭</span>
+                    <span className="text-[10px] text-emerald-400 font-bold">
+                      {party.activeQuest.type === 'DELIVERY' ? '货物已送达' : '目标已消灭'}
+                    </span>
                   </div>
                   <div className="text-[10px] text-slate-400 italic">
-                    返回接取契约的城市交付以领取报酬
+                    {party.activeQuest.type === 'DELIVERY'
+                      ? '前往目的地城市酒肆交付以领取报酬'
+                      : '返回接取契约的城市交付以领取报酬'}
                   </div>
                 </div>
               )}
