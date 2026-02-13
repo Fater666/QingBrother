@@ -187,62 +187,11 @@ const STATE_FLAVOR: Record<City['state'], string> = {
     'PROSPEROUS': '商贾云集，一片繁荣景象。',
 };
 
-// 城墙样式配置
-const WALL_STYLE: Record<City['type'], { border: string; size: string; hasTowers: boolean; gateSize: string; wallLabel: string }> = {
-    'VILLAGE': {
-        border: 'border-2 border-dashed border-amber-900/50',
-        size: 'w-[92vw] max-w-[420px] aspect-[21/19]',
-        hasTowers: false,
-        gateSize: 'w-14 sm:w-16',
-        wallLabel: '木栅',
-    },
-    'TOWN': {
-        border: 'border-[3px] border-solid border-amber-800/60',
-        size: 'w-[94vw] max-w-[500px] aspect-[25/22]',
-        hasTowers: true,
-        gateSize: 'w-16 sm:w-20',
-        wallLabel: '土墙',
-    },
-    'CAPITAL': {
-        border: 'border-4 border-double border-amber-600/70',
-        size: 'w-[95vw] max-w-[580px] aspect-[29/25]',
-        hasTowers: true,
-        gateSize: 'w-20 sm:w-24',
-        wallLabel: '城墙',
-    },
-};
-
-// 建筑在城墙内的布局位置（根据设施数量动态排列）
-const getBuildingPositions = (facilities: CityFacility[]): Record<CityFacility, { top: string; left: string }> => {
-    const positions: Record<string, { top: string; left: string }> = {};
-    const count = facilities.length;
-    
-    if (count === 1) {
-        positions[facilities[0]] = { top: '38%', left: '50%' };
-    } else if (count === 2) {
-        positions[facilities[0]] = { top: '35%', left: '30%' };
-        positions[facilities[1]] = { top: '35%', left: '70%' };
-    } else if (count === 3) {
-        positions[facilities[0]] = { top: '25%', left: '28%' };
-        positions[facilities[1]] = { top: '25%', left: '72%' };
-        positions[facilities[2]] = { top: '58%', left: '50%' };
-    } else {
-        // 4个设施 - 2x2 网格
-        positions[facilities[0]] = { top: '22%', left: '30%' };
-        positions[facilities[1]] = { top: '22%', left: '70%' };
-        positions[facilities[2]] = { top: '58%', left: '30%' };
-        positions[facilities[3]] = { top: '58%', left: '70%' };
-    }
-    
-    return positions as Record<CityFacility, { top: string; left: string }>;
-};
-
 type SubView = 'MAP' | CityFacility;
 
 export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpdateParty, onUpdateCity, onAcceptQuest, onCompleteQuest }) => {
   const [subView, setSubView] = useState<SubView>('MAP');
   const [notification, setNotification] = useState<string | null>(null);
-  const [hoveredBuilding, setHoveredBuilding] = useState<CityFacility | null>(null);
   const [activeTraitTooltip, setActiveTraitTooltip] = useState<string | null>(null);
   const activeTrait = activeTraitTooltip ? TRAIT_TEMPLATES[activeTraitTooltip] : null;
   
@@ -402,8 +351,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
   const goBack = () => { setSubView('MAP'); setSelectedItem(null); setSelectedRecruit(null); };
 
-  const wallStyle = WALL_STYLE[city.type];
-  const buildingPositions = getBuildingPositions(city.facilities);
   const cityTypeName = city.type === 'CAPITAL' ? '王都' : city.type === 'TOWN' ? '县镇' : '村落';
   const facilityLabel = subView !== 'MAP' ? FACILITY_CONFIG[subView as CityFacility]?.label : '';
 
@@ -429,150 +376,65 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
         {subView === 'MAP' && (
             <div className="flex-1 min-h-0 flex flex-col relative z-10">
                 {/* 顶部信息栏 */}
-                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-3 sm:px-8 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-lg sm:text-2xl font-bold text-amber-500 tracking-[0.12em] sm:tracking-[0.2em]">{city.name}</h1>
-                        <div className="hidden sm:flex gap-2 text-[10px]">
+                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-3 sm:px-6 gap-2 shrink-0">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <h1 className="text-base sm:text-xl font-bold text-amber-500 tracking-[0.08em] sm:tracking-[0.14em] truncate">{city.name}</h1>
+                        <div className="flex gap-1.5 text-[9px] sm:text-[10px] shrink-0">
                             <span className="text-amber-700 border border-amber-900/40 px-2 py-0.5">{cityTypeName}</span>
                             <span className="text-slate-500 border border-slate-800/40 px-2 py-0.5">{city.faction}</span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="flex gap-2 sm:gap-4 text-[10px] sm:text-xs font-mono">
+                    <div className="flex items-center">
+                        <div className="flex gap-1.5 sm:gap-3 text-[10px] sm:text-xs font-mono whitespace-nowrap">
                             <span className="text-amber-500">💰 {party.gold}</span>
                             <span className="text-emerald-500">🌾 {party.food}</span>
                             <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'} hidden sm:inline`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
                             <span className={`${party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'} hidden sm:inline`} title={`修甲材料 ${party.repairSupplies}`}>🔧 {party.repairSupplies}</span>
-                            <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
+                            <span className="text-slate-400 hidden md:inline">伍: {party.mercenaries.length}人</span>
                         </div>
                     </div>
                 </div>
 
-                {/* 城市俯视地图主区域 */}
-                <div className="city-map-scroll flex-1 min-h-0 flex items-center justify-center relative overflow-y-auto overflow-x-hidden touch-pan-y px-2 pb-20 sm:pb-16">
-                    {/* 地面纹理 */}
-                    <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-                         style={{
-                             backgroundImage: `radial-gradient(circle at 50% 50%, rgba(139, 90, 43, 0.3) 0%, transparent 70%)`
-                         }}
-                    />
-
-                    {/* 城墙容器 */}
-                    <div className={`relative ${wallStyle.size} ${wallStyle.border} bg-[#0e0c09] shadow-[0_0_60px_rgba(139,90,43,0.08)]`}>
-                        
-                        {/* 城墙内部地面纹理 */}
-                        <div className="absolute inset-0 opacity-[0.06] pointer-events-none"
-                             style={{
-                                 backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(139, 90, 43, 0.2) 8px, rgba(139, 90, 43, 0.2) 9px),
-                                                   repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(139, 90, 43, 0.2) 8px, rgba(139, 90, 43, 0.2) 9px)`
-                             }}
-                        />
-
-                        {/* 角楼 (仅 TOWN / CAPITAL) */}
-                        {wallStyle.hasTowers && (
-                            <>
-                                <TowerMarker position="top-left" type={city.type} />
-                                <TowerMarker position="top-right" type={city.type} />
-                                <TowerMarker position="bottom-left" type={city.type} />
-                                <TowerMarker position="bottom-right" type={city.type} />
-                            </>
-                        )}
-
-                        {/* 城墙标记文字 (左侧) */}
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full pr-3">
-                            <span className="text-[9px] text-amber-900/40 tracking-[0.3em] writing-mode-vertical"
-                                  style={{ writingMode: 'vertical-rl' }}>
-                                {wallStyle.wallLabel}
-                            </span>
-                        </div>
-
-                        {/* 道路连接线 (建筑之间) */}
-                        <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" style={{ overflow: 'visible' }}>
-                            {/* 中心到城门的主路 */}
-                            <line x1="50%" y1="50%" x2="50%" y2="100%" 
-                                  stroke="rgba(139, 90, 43, 0.15)" strokeWidth="3" strokeDasharray="6 4" />
-                            {/* 十字路 */}
-                            <line x1="20%" y1="50%" x2="80%" y2="50%" 
-                                  stroke="rgba(139, 90, 43, 0.1)" strokeWidth="2" strokeDasharray="4 4" />
-                            <line x1="50%" y1="15%" x2="50%" y2="85%" 
-                                  stroke="rgba(139, 90, 43, 0.1)" strokeWidth="2" strokeDasharray="4 4" />
-                        </svg>
-
-                        {/* 建筑方块 */}
-                        {city.facilities.map((facility) => {
-                            const pos = buildingPositions[facility];
-                            const config = FACILITY_CONFIG[facility];
-                            if (!pos) return null;
-                            const isHovered = hoveredBuilding === facility;
-                            return (
-                                <div
-                                    key={facility}
-                                    className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-200 group
-                                        ${isHovered ? 'scale-110' : 'scale-100'}
-                                    `}
-                                    style={{ top: pos.top, left: pos.left }}
-                                    onClick={() => { setSubView(facility); setSelectedItem(null); }}
-                                    onMouseEnter={() => setHoveredBuilding(facility)}
-                                    onMouseLeave={() => setHoveredBuilding(null)}
-                                >
-                                    <div className={`w-20 h-16 sm:w-24 sm:h-20 border-2 flex flex-col items-center justify-center gap-1 relative transition-all duration-200
-                                        ${isHovered 
-                                            ? 'bg-amber-900/30 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)]' 
-                                            : 'bg-[#141210] border-amber-900/40 hover:border-amber-700/60 shadow-[0_0_10px_rgba(0,0,0,0.5)]'
-                                        }
-                                    `}>
-                                        {/* 屋顶效果 */}
-                                        <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-[110%] h-2 transition-colors duration-200
-                                            ${isHovered ? 'bg-amber-700/60' : 'bg-amber-900/30'}
-                                        `} style={{ clipPath: 'polygon(10% 100%, 50% 0%, 90% 100%)' }} />
-                                        
-                                        <span className={`text-[10px] sm:text-xs font-bold tracking-[0.1em] sm:tracking-[0.15em] transition-colors duration-200
-                                            ${isHovered ? 'text-amber-300' : 'text-amber-600/80'}
-                                        `}>{config.label}</span>
-                                    </div>
-                                    
-                                    {/* 悬停提示 */}
-                                    {isHovered && (
-                                        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                            <span className="text-[10px] text-amber-500/70 tracking-wider">{config.desc}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-
-                        {/* 城门 (底部居中) */}
-                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-20">
-                            <button
-                                onClick={onLeave}
-                                className={`${wallStyle.gateSize} h-10 bg-[#1a1610] border-2 border-amber-800/50 hover:border-amber-500 hover:bg-amber-900/30 
-                                           flex items-center justify-center gap-1.5 transition-all duration-200 group shadow-[0_0_15px_rgba(0,0,0,0.5)]`}
-                            >
-                                <span className="text-sm group-hover:text-amber-400 transition-colors">🚪</span>
-                                <span className="text-[10px] text-slate-500 group-hover:text-amber-400 tracking-widest font-bold transition-colors">城门</span>
-                            </button>
-                        </div>
-
-                        {/* 城市名牌 (顶部) */}
-                        <div className="absolute -top-10 left-1/2 -translate-x-1/2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-8 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
-                                <span className="text-xs text-amber-700/50 tracking-[0.3em] whitespace-nowrap">{city.name}</span>
-                                <div className="w-8 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 城墙外部装饰 — 氛围文字 */}
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
-                        <p className="text-xs text-slate-600/60 italic tracking-[0.2em] text-center">
+                {/* 横屏入口布局：信息条 + 一行设施卡片 + 离开按钮 */}
+                <div className="flex-1 min-h-0 px-3 sm:px-4 py-3 sm:py-4 flex flex-col gap-3 sm:gap-4">
+                    <div className="shrink-0 border border-amber-900/30 bg-black/30 px-3 py-2.5">
+                        <p className="text-[11px] sm:text-xs text-slate-500 italic tracking-[0.1em] text-center">
                             {STATE_FLAVOR[city.state]}
                         </p>
                     </div>
 
-                    {/* 离开城镇提示 */}
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
-                        <p className="text-[10px] text-slate-700/40 tracking-widest">点击建筑进入 · 点击城门离开</p>
+                    <div className="flex-1 min-h-0 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 content-center">
+                        {city.facilities.map((facility) => {
+                            const config = FACILITY_CONFIG[facility];
+                            return (
+                                <button
+                                    key={facility}
+                                    type="button"
+                                    onClick={() => { setSubView(facility); setSelectedItem(null); }}
+                                    className="group border border-amber-900/40 bg-[#141210] hover:bg-amber-900/20 hover:border-amber-600/60 active:scale-[0.98] transition-all duration-200 shadow-[0_0_10px_rgba(0,0,0,0.45)] min-h-[92px] sm:min-h-[108px] px-2 py-2 flex flex-col items-center justify-center gap-1.5"
+                                >
+                                    <span className="text-xl sm:text-2xl leading-none">{config.icon}</span>
+                                    <span className="text-[12px] sm:text-sm font-bold tracking-[0.14em] text-amber-500 group-hover:text-amber-300">
+                                        {config.label}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 group-hover:text-slate-300 truncate max-w-full">
+                                        {config.desc}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="shrink-0 flex items-center justify-center">
+                        <button
+                            onClick={onLeave}
+                            className="min-w-[180px] h-11 px-5 bg-[#1a1610] border border-amber-800/50 hover:border-amber-500 hover:bg-amber-900/30 flex items-center justify-center gap-2 transition-all duration-200 group shadow-[0_0_14px_rgba(0,0,0,0.45)]"
+                        >
+                            <span className="text-sm group-hover:text-amber-400 transition-colors">🚪</span>
+                            <span className="text-xs text-slate-400 group-hover:text-amber-400 tracking-[0.25em] font-bold transition-colors">
+                                离开城镇
+                            </span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1292,24 +1154,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 };
 
 // ==================== Helper Components ====================
-
-// 角楼标记组件
-const TowerMarker: React.FC<{ position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; type: City['type'] }> = ({ position, type }) => {
-    const posClass: Record<string, string> = {
-        'top-left': '-top-2 -left-2',
-        'top-right': '-top-2 -right-2',
-        'bottom-left': '-bottom-2 -left-2',
-        'bottom-right': '-bottom-2 -right-2',
-    };
-    const size = type === 'CAPITAL' ? 'w-5 h-5' : 'w-4 h-4';
-    const bg = type === 'CAPITAL' ? 'bg-amber-800/60 border-amber-600/50' : 'bg-amber-900/40 border-amber-800/40';
-    
-    return (
-        <div className={`absolute ${posClass[position]} ${size} ${bg} border z-10 flex items-center justify-center`}>
-            <span className="text-[8px] text-amber-500/70">◉</span>
-        </div>
-    );
-};
 
 // 属性条
 interface StatBarSmallProps {

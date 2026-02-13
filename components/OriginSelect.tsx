@@ -177,91 +177,93 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
         }}
       />
 
-      {/* 标题区域 */}
-      <div className="shrink-0 pt-4 sm:pt-6 lg:pt-8 pb-3 sm:pb-4 text-center relative z-10 px-4">
-        <h1 className="text-2xl sm:text-3xl font-bold text-amber-600 tracking-[0.25em] sm:tracking-[0.4em] font-serif"
+      {/* 标题栏（紧凑单行） */}
+      <div className="shrink-0 h-10 flex items-center justify-center gap-3 relative z-10 border-b border-amber-900/20">
+        <div className="w-8 h-px bg-gradient-to-r from-transparent to-amber-800/30" />
+        <h1 className="text-sm sm:text-lg font-bold text-amber-600 tracking-[0.2em] sm:tracking-[0.3em] font-serif"
           style={{ textShadow: '0 0 30px rgba(217, 119, 6, 0.2)' }}>
           选择你的来历
         </h1>
-        <p className="text-xs sm:text-sm text-amber-900/50 mt-2 sm:mt-3 tracking-widest">
-          每段过往，皆是命运的伏笔
-        </p>
-        <div className="w-40 sm:w-48 h-px bg-gradient-to-r from-transparent via-amber-800/40 to-transparent mx-auto mt-3 sm:mt-4" />
+        <span className="text-[10px] text-amber-900/50 tracking-widest hidden sm:inline">每段过往，皆是命运的伏笔</span>
+        <div className="w-8 h-px bg-gradient-to-l from-transparent to-amber-800/30" />
       </div>
 
-      {/* 卡片区域 */}
-      <div className="flex-1 min-h-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-4 relative z-10 overflow-y-auto">
-        <div className="mx-auto grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 max-w-[1580px]">
+      {/* 卡片区域（横屏4列） */}
+      <div className="flex-1 min-h-0 px-2 sm:px-4 py-2 relative z-10 overflow-y-auto">
+        <div className="mx-auto grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 h-full content-center max-w-[960px]">
         {ORIGIN_CONFIGS.map((origin) => {
           const isSelected = selectedId === origin.id;
           return (
             <div
               key={origin.id}
               onClick={() => handleSelect(origin.id)}
-              className={`relative w-full cursor-pointer transition-all duration-500 group
+              className={`relative w-full cursor-pointer transition-all duration-300 group
                 ${isSelected
-                  ? 'scale-[1.01]'
-                  : 'hover:scale-[1.005] opacity-80 hover:opacity-100'
+                  ? 'scale-[1.02]'
+                  : 'hover:scale-[1.01] opacity-75 hover:opacity-100'
                 }`}
             >
               {/* 卡片主体 */}
-              <div className={`border p-3 sm:p-4 lg:p-5 transition-all duration-500 bg-gradient-to-b from-[#141210] to-[#0a0908] h-full
+              <div className={`border p-2.5 sm:p-3 transition-all duration-300 bg-gradient-to-b from-[#141210] to-[#0a0908] h-full flex flex-col
                 ${isSelected
-                  ? 'border-amber-600/80 shadow-[0_0_30px_rgba(217,119,6,0.15)]'
+                  ? 'border-amber-600/80 shadow-[0_0_25px_rgba(217,119,6,0.15)]'
                   : 'border-amber-900/30 hover:border-amber-800/50'
                 }`}>
-                {/* 标签 */}
-                <div className={`text-[10px] tracking-[0.3em] uppercase mb-3 transition-colors duration-300
+                {/* 副标题 + 名称 */}
+                <div className={`text-[9px] tracking-[0.2em] uppercase mb-1 transition-colors duration-300
                   ${isSelected ? 'text-amber-500' : 'text-amber-800/60'}`}>
                   {origin.subtitle}
                 </div>
-
-                {/* 名称 */}
-                <h2 className={`text-lg sm:text-xl lg:text-2xl font-bold tracking-[0.15em] sm:tracking-[0.2em] font-serif mb-2 sm:mb-3 transition-colors duration-300
+                <h2 className={`text-base sm:text-lg font-bold tracking-[0.12em] font-serif mb-1.5 transition-colors duration-300
                   ${isSelected ? 'text-amber-400' : 'text-amber-100/70'}`}
                   style={isSelected ? { textShadow: '0 0 15px rgba(217, 119, 6, 0.3)' } : {}}>
                   {origin.name}
                 </h2>
 
-                {/* 描述 */}
-                <p className="text-xs text-slate-500 leading-relaxed mb-3 sm:mb-4 min-h-[4.5rem] sm:min-h-[5rem] max-h-[6.2rem] overflow-hidden">
-                  {origin.description}
-                </p>
+                {/* 背景故事：点击卡片后展开全文 */}
+                {isSelected ? (
+                  <div className="text-[10px] sm:text-[11px] text-slate-400 leading-relaxed mb-2 max-h-24 sm:max-h-28 overflow-y-auto pr-1 custom-scrollbar">
+                    {origin.introStory.map((line, idx) => (
+                      <p key={idx} className="mb-1 last:mb-0">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 leading-relaxed mb-2 line-clamp-2">
+                    {origin.description}
+                  </p>
+                )}
 
                 {/* 分隔线 */}
-                <div className="h-px bg-gradient-to-r from-transparent via-amber-900/30 to-transparent mb-4" />
+                <div className="h-px bg-gradient-to-r from-transparent via-amber-900/30 to-transparent mb-2" />
 
-                {/* 初始资源 */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-600">初始金币</span>
+                {/* 初始资源（横向紧凑） */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] mb-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">金币</span>
                     <span className="text-amber-500 font-mono font-bold">{origin.gold}</span>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-600">初始粮食</span>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">粮食</span>
                     <span className="text-emerald-500 font-mono font-bold">{origin.food}</span>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-600">医药储备</span>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">人数</span>
+                    <span className="text-sky-400 font-mono font-bold">{origin.mercenaries.length}人</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">医药</span>
                     <span className="text-sky-400 font-mono font-bold">40</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-600">修甲材料</span>
-                    <span className="text-orange-400 font-mono font-bold">50</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-600">起始人数</span>
-                    <span className="text-sky-400 font-mono font-bold">{origin.mercenaries.length} 人</span>
                   </div>
                 </div>
 
-                {/* 成员构成 */}
-                <div className="mt-3 pt-2 border-t border-white/5">
-                  <div className="text-[10px] text-slate-700 uppercase tracking-widest mb-2">起始成员</div>
-                  <div className="flex flex-wrap gap-1">
+                {/* 成员构成（紧凑） */}
+                <div className="mt-auto pt-1.5 border-t border-white/5">
+                  <div className="flex flex-wrap gap-0.5">
                     {origin.mercenaries.map((m, i) => (
-                      <span key={i} className="text-[10px] px-2 py-0.5 bg-amber-950/40 border border-amber-900/20 text-amber-600/80">
-                        {m.name} · {m.bg === 'DESERTER' ? '逃兵' : m.bg === 'NOBLE' ? '士族' : m.bg === 'FARMER' ? '农夫' : m.bg === 'HUNTER' ? '猎户' : m.bg === 'NOMAD' ? '胡人' : m.bg}
+                      <span key={i} className="text-[9px] px-1.5 py-0.5 bg-amber-950/40 border border-amber-900/20 text-amber-600/80 truncate max-w-full">
+                        {m.name}
                       </span>
                     ))}
                   </div>
@@ -269,8 +271,8 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
 
                 {/* 选中标识 */}
                 {isSelected && (
-                  <div className="absolute top-3 right-3">
-                    <div className="w-3 h-3 bg-amber-500 rotate-45" />
+                  <div className="absolute top-2 right-2">
+                    <div className="w-2.5 h-2.5 bg-amber-500 rotate-45" />
                   </div>
                 )}
               </div>
@@ -280,48 +282,46 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
         </div>
       </div>
 
-      {/* 底部：命名 & 确认 */}
+      {/* 底部：命名 & 确认（紧凑横排） */}
       {showNameInput && selectedOrigin && (
-        <div className="shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-5 sm:pt-8 pb-5 sm:pb-8 px-4 sm:px-8 relative z-20">
-          <div className="max-w-xl mx-auto">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 sm:gap-6">
-              {/* 命名输入 */}
-              <div className="flex-1">
-                <label className="text-[10px] text-amber-800/60 uppercase tracking-[0.3em] block mb-2">
-                  为你的首领命名
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={leaderName}
-                    onChange={(e) => setLeaderName(e.target.value)}
-                    maxLength={8}
-                    className="w-full bg-black/80 border border-amber-900/40 text-amber-100 text-xl font-serif tracking-[0.2em] px-4 py-3 focus:outline-none focus:border-amber-600 transition-colors placeholder:text-slate-800"
-                    placeholder="输入姓名..."
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-600/30 to-transparent" />
-                </div>
+        <div className="shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-2 pb-2 sm:pb-3 px-3 sm:px-6 relative z-20 border-t border-amber-900/20">
+          <div className="max-w-lg mx-auto flex items-center gap-3">
+            {/* 命名输入 */}
+            <div className="flex-1 min-w-0">
+              <label className="text-[9px] text-amber-800/60 uppercase tracking-[0.2em] block mb-1">
+                首领姓名
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={leaderName}
+                  onChange={(e) => setLeaderName(e.target.value)}
+                  maxLength={8}
+                  className="w-full bg-black/80 border border-amber-900/40 text-amber-100 text-base font-serif tracking-[0.15em] px-3 py-1.5 focus:outline-none focus:border-amber-600 transition-colors placeholder:text-slate-800"
+                  placeholder="输入姓名..."
+                />
+                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-600/30 to-transparent" />
               </div>
-
-              {/* 确认按钮 */}
-              <button
-                onClick={handleConfirm}
-                className="group w-full sm:w-auto px-6 sm:px-10 py-3 sm:py-4 border border-amber-700/60 bg-amber-900/20 hover:bg-amber-800/40 transition-all duration-500 relative overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                <span className="text-amber-500 text-base sm:text-lg font-bold tracking-[0.3em] sm:tracking-[0.5em] font-serif relative z-10">
-                  踏上征途
-                </span>
-              </button>
             </div>
+
+            {/* 确认按钮 */}
+            <button
+              onClick={handleConfirm}
+              className="group shrink-0 px-5 sm:px-8 py-2 border border-amber-700/60 bg-amber-900/20 hover:bg-amber-800/40 transition-all duration-300 relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <span className="text-amber-500 text-sm sm:text-base font-bold tracking-[0.2em] sm:tracking-[0.35em] font-serif relative z-10">
+                踏上征途
+              </span>
+            </button>
           </div>
         </div>
       )}
 
       {/* 未选择时的底部提示 */}
       {!showNameInput && (
-        <div className="shrink-0 pb-10 text-center">
-          <p className="text-xs text-slate-700 tracking-widest animate-pulse">
+        <div className="shrink-0 pb-3 text-center">
+          <p className="text-[10px] text-slate-700 tracking-widest animate-pulse">
             — 选择一段过往 —
           </p>
         </div>
