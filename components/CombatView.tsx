@@ -2072,6 +2072,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     setHoveredHex(null);
   };
   const handleMouseUp = () => isDraggingRef.current = false;
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    // 在模拟器/触控板场景下，阻止浏览器将滚轮手势解释为页面滚动。
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pointerX = e.clientX - rect.left - rect.width / 2;
+    const pointerY = e.clientY - rect.top - rect.height / 2;
+
+    // 以指针位置为锚点缩放，避免看起来像“镜头被推着走”。
+    const worldBeforeX = pointerX / zoom - cameraRef.current.x;
+    const worldBeforeY = pointerY / zoom - cameraRef.current.y;
+    const wheelScale = Math.max(-0.25, Math.min(0.25, -e.deltaY * 0.0015));
+    const nextZoom = Math.max(0.4, Math.min(2, zoom + wheelScale));
+
+    if (nextZoom === zoom) return;
+
+    setZoom(nextZoom);
+    cameraRef.current.x = pointerX / nextZoom - worldBeforeX;
+    cameraRef.current.y = pointerY / nextZoom - worldBeforeY;
+  };
 
   // ==================== 触控手势处理 ====================
   // 注意：不使用 useCallback，避免捕获到 performAttack/performMove 的过期闭包
@@ -3146,7 +3167,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })}
       </div>
 
-      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onWheel={e => setZoom(z => Math.max(0.4, Math.min(2, z - Math.sign(e.deltaY) * 0.05)))} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
+      <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onWheel={handleWheel} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={isMobile ? undefined : performAttack} onContextMenu={isMobile ? undefined : performMove} />
 
         {/* 移动端操作提示 */}

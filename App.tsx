@@ -1278,7 +1278,7 @@ export const App: React.FC = () => {
             const dx = party.targetX - party.x, dy = party.targetY - party.y, dist = Math.hypot(dx, dy);
             if (dist > 0.1) {
                 const step = 1.8 * timeScale * dt;
-                setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.012 * timeScale }));
+                setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.003 * timeScale }));
             } else {
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
@@ -1854,6 +1854,18 @@ export const App: React.FC = () => {
                         className="px-3 py-1.5 text-left text-[11px] text-amber-400 border border-transparent hover:border-amber-700/50 hover:bg-amber-900/20 transition-all"
                       >
                         联系开发者
+                      </button>
+                      <div className="my-1 border-t border-amber-900/40" />
+                      <button
+                        onClick={() => {
+                          if (window.confirm('返回主菜单将结束当前游戏，未保存的进度会丢失。确定继续？')) {
+                            setShowSystemMenu(false);
+                            setView('MAIN_MENU');
+                          }
+                        }}
+                        className="px-3 py-1.5 text-left text-[11px] text-slate-400 border border-transparent hover:border-slate-600 hover:bg-slate-800/40 transition-all"
+                      >
+                        返回主菜单
                       </button>
                     </div>
                   )}
