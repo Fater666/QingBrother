@@ -388,6 +388,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [zoom, setZoom] = useState(0.8);
   const [hoveredHex, setHoveredHex] = useState<{q:number, r:number} | null>(null);
   const hoveredHexRef = useRef<{q:number, r:number} | null>(null);
+  const [pendingMoveHex, setPendingMoveHex] = useState<{q:number, r:number} | null>(null);
   const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
 
   // ==================== 新增：战斗特效状态 ====================
@@ -446,6 +447,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
+  const movePreviewHex = pendingMoveHex ?? hoveredHex;
 
   // ==================== 底栏操作预览消耗计算 ====================
   const previewCosts = useMemo(() => {
@@ -469,9 +471,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return { apCost, fatigueCost };
     }
 
-    // 未选技能时悬停格子显示移动消耗
-    if (hoveredHex) {
-      const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+    // 未选技能时显示移动消耗（优先使用首次点击确认的目标）
+    if (movePreviewHex) {
+      const dist = getHexDistance(activeUnit.combatPos, movePreviewHex);
       if (dist > 0) {
         const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
         return { apCost: moveCost.apCost, fatigueCost: moveCost.fatigueCost };
@@ -479,7 +481,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
 
     return null;
-  }, [activeUnit, isPlayerTurn, selectedAbility, hoveredHex]);
+  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewHex]);
+
+  useEffect(() => {
+    // 回合切换/模式切换时清空待确认移动，避免误触二次确认。
+    setPendingMoveHex(null);
+  }, [activeUnit?.id, selectedAbility?.id, isPlayerTurn]);
 
   // ==================== 玩法提示触发 ====================
   const tipPrevUnitsRef = useRef(state.units);
@@ -898,7 +905,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         
         const { x, y } = getPixelPos(q, r);
         const isVisible = visibleSet.has(key);
-        const isHovered = hoveredHex?.q === q && hoveredHex?.r === r;
+        const moveTargetHex = !selectedAbility && pendingMoveHex ? pendingMoveHex : hoveredHex;
+        const isHovered = moveTargetHex?.q === q && moveTargetHex?.r === r;
         const terrain = TERRAIN_TYPES[data.type];
         const heightOffset = data.height * HEIGHT_MULTIPLIER; // 高度偏移
 
@@ -1209,7 +1217,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [terrainData, visibleSet, hoveredHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile]);
+  }, [terrainData, visibleSet, hoveredHex, pendingMoveHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile]);
 
   // DOM 图层同步 - 考虑地形高度 + 平滑移动动画 + 活动单位z-index
   const activeUnitId = state.turnOrder[state.currentUnitIndex];
@@ -2261,6 +2269,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         u.combatPos.q === q && u.combatPos.r === r
     );
     if (targetAlly) {
+      setPendingMoveHex(null);
       setMobileAttackTarget(null);
       const pos = getPixelPos(targetAlly.combatPos.q, targetAlly.combatPos.r);
       cameraRef.current.x = -pos.x;
@@ -3034,6 +3043,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (activeUnit.currentAP < apCost || state.units.some(u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
       return;
     }
+
+    const isSamePendingTarget =
+      pendingMoveHex?.q === hoveredHex.q &&
+      pendingMoveHex?.r === hoveredHex.r;
+    if (!isSamePendingTarget) {
+      // 第一次点击仅标记目标并刷新预览；第二次点击同格才真正移动。
+      setPendingMoveHex(hoveredHex);
+      return;
+    }
+    setPendingMoveHex(null);
     
     // ==================== 控制区检查 ====================
     const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
@@ -3410,7 +3429,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <span>{selectedAbility.name} - 点击目标</span>
                     <button onClick={() => { setSelectedAbility(null); setMobileAttackTarget(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
-              : <span>点击地面移动 | 选择技能后点击敌人攻击</span>
+              : <span>双击地面移动 | 选择技能后点击敌人攻击</span>
             }
           </div>
         )}
@@ -3509,18 +3528,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           })}
         </div>
 
-        {!isMobile && hoveredHex && isPlayerTurn && activeUnit && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`) && (() => {
-          const terrainAtHover = terrainData.get(`${hoveredHex.q},${hoveredHex.r}`);
+        {!isMobile && (selectedAbility ? hoveredHex : movePreviewHex) && isPlayerTurn && activeUnit && (() => {
+          const infoHex = selectedAbility ? hoveredHex! : movePreviewHex!;
+          if (!visibleSet.has(`${infoHex.q},${infoHex.r}`)) return null;
+          const terrainAtHover = terrainData.get(`${infoHex.q},${infoHex.r}`);
           const terrainInfo = terrainAtHover ? TERRAIN_TYPES[terrainAtHover.type] : null;
           const heightDiff = terrainAtHover ? terrainAtHover.height - (terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0) : 0;
           
           // 检查当前单位是否在敌方控制区内（移动会触发截击）
-          const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
+          const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, infoHex, state);
           const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
           
           // 攻击命中率计算（使用统一函数，含合围加成）
-          const targetUnit = state.units.find(u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r);
-          const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
+          const targetUnit = state.units.find(u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === infoHex.q && u.combatPos.r === infoHex.r);
+          const dist = getHexDistance(activeUnit.combatPos, infoHex);
           const canAttack = isAttackLikeAbility(selectedAbility) && targetUnit && 
             dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] && activeUnit.currentAP >= selectedAbility.apCost;
           
@@ -3579,7 +3600,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
                 </div>
               )}
-              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, hoveredHex), hasPerk(activeUnit, 'pathfinder')).apCost} 行动点{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
+              <div className="font-bold">移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, infoHex), hasPerk(activeUnit, 'pathfinder')).apCost} 行动点{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}</div>
               
               {/* 控制区警告 */}
               {willTriggerZoC && (
@@ -3603,7 +3624,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               )}
               
               <div className="text-slate-400 mt-1.5 text-[9px] border-t border-white/10 pt-1.5">
-                <span className="bg-slate-700 px-1 rounded mr-1">右键</span> 移动
+                <span className="bg-slate-700 px-1 rounded mr-1">右键×2</span> 移动
                 <span className="mx-2">|</span>
                 <span className="bg-slate-700 px-1 rounded mr-1">左键</span> 攻击
               </div>
