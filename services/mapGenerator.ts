@@ -720,18 +720,19 @@ export const generateCityQuests = (
     }
     
     // 普通任务生成
-    // 决定任务类型：前几个优先 HUNT（因为其他类型暂时只有描述没有完整玩法），但也有概率出其他类型
+    // 任务类型分布：HUNT 保持较高占比，但不再固定首槽
     const availableTypes: QuestType[] = ['HUNT'];
     if (biomeTemplates.PATROL) availableTypes.push('PATROL');
     if (biomeTemplates.ESCORT) availableTypes.push('ESCORT');
     if (biomeTemplates.DELIVERY) availableTypes.push('DELIVERY');
     
-    // HUNT 权重更高（70%），其他类型平分剩余
+    // HUNT 权重 45%，其余类型平分剩余
     let questType: QuestType;
-    if (qi === 0 || Math.random() < 0.7) {
+    const nonHuntTypes = availableTypes.filter(type => type !== 'HUNT');
+    if (nonHuntTypes.length === 0 || Math.random() < 0.45) {
       questType = 'HUNT';
     } else {
-      questType = pick(availableTypes);
+      questType = pick(nonHuntTypes);
     }
     
     // 难度：从预生成的分布池中取值（保证同城市难度多样性）

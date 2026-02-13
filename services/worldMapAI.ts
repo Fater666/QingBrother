@@ -593,6 +593,13 @@ const executeTraderBehavior = (
     const distToDest = getDistance(entity.x, entity.y, destCity.x, destCity.y);
     
     if (distToDest < 1) {
+      // 任务护送商队到站后原地等待，交由任务系统判定完成并移除
+      if (entity.id.startsWith('escort-trader-')) {
+        newEntity.aiState = 'IDLE';
+        newEntity.targetX = null;
+        newEntity.targetY = null;
+        return newEntity;
+      }
       // 到达目的地，选择新的目的地
       newEntity.linkedCityId = destCity.id;
       const otherCities = cities.filter(c => c.id !== destCity!.id);
