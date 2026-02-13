@@ -2,11 +2,21 @@
 setlocal
 
 cd /d "%~dp0"
-set "APK_PATH=%~dp0android\app\build\outputs\apk\debug\app-debug.apk"
+
+REM 可选: release 或 dev（默认 dev）
+set "BUILD=dev"
+if /I "%1"=="release" set "BUILD=release"
+if /I "%1"=="dev"     set "BUILD=dev"
+
+if "%BUILD%"=="release" (
+    set "APK_PATH=%~dp0android\app\build\outputs\apk\release\app-release.apk"
+) else (
+    set "APK_PATH=%~dp0android\app\build\outputs\apk\debug\app-debug.apk"
+)
 
 echo.
-echo ==> Start Android packaging...
-powershell -ExecutionPolicy Bypass -File ".\scripts\package-android.ps1"
+echo ==> Start Android packaging [%BUILD%]...
+powershell -ExecutionPolicy Bypass -File ".\scripts\package-android.ps1" -BuildType %BUILD%
 set "exitCode=%ERRORLEVEL%"
 
 if not "%exitCode%"=="0" (

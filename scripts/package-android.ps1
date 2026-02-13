@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('dev', 'release')]
+    [string]$BuildType = 'dev'
+)
+
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -50,7 +55,17 @@ function Invoke-Step {
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $androidDir = Join-Path $projectRoot "android"
-$apkPath = Join-Path $androidDir "app\build\outputs\apk\debug\app-debug.apk"
+
+if ($BuildType -eq 'release') {
+    $apkSubDir = "release"
+    $apkName = "app-release.apk"
+    $gradleTask = "assembleRelease"
+} else {
+    $apkSubDir = "debug"
+    $apkName = "app-debug.apk"
+    $gradleTask = "assembleDebug"
+}
+$apkPath = Join-Path $androidDir "app\build\outputs\apk\$apkSubDir\$apkName"
 $buildStartTime = Get-Date
 
 if (-not (Test-Path $androidDir)) {
@@ -76,14 +91,14 @@ try {
         Convert-ToUtf8NoBom (Join-Path $androidDir "app\build.gradle")
     }
 
-    Invoke-Step "Assemble Android debug APK" {
+    Invoke-Step "Assemble Android $BuildType APK" {
         if (Test-Path $apkPath) {
             Remove-Item $apkPath -Force
         }
 
         Push-Location $androidDir
         try {
-            Invoke-ExternalCommand ".\gradlew.bat" @("assembleDebug")
+            Invoke-ExternalCommand ".\gradlew.bat" @($gradleTask)
         }
         finally {
             Pop-Location
