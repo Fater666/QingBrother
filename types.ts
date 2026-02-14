@@ -362,7 +362,7 @@ export interface BattleResult {
   roundsTotal: number;
   enemyName: string;
   // 阶段一：伤亡与经验
-  casualties: { name: string; background: string }[];
+  casualties: { id: string; name: string; background: string }[];
   survivors: { id: string; name: string; background: string; hpBefore: number; hpAfter: number; maxHp: number; xpGained: number }[];
   enemiesKilled: number;
   enemiesRouted: number;

@@ -214,6 +214,18 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const MARKET_PAGE_SIZE = 6; // 固定每页6个，2列x3行，不滚动
   // Interaction State (for recruit)
   const [selectedRecruit, setSelectedRecruit] = useState<number | null>(null);
+  const [selectedTavernQuestId, setSelectedTavernQuestId] = useState<string | null>(null);
+  const sortedTavernQuests = useMemo(() => {
+      if (!city.quests) return [];
+      return [...city.quests].sort((a, b) => {
+          if (a.difficulty !== b.difficulty) return a.difficulty - b.difficulty;
+          return b.rewardGold - a.rewardGold;
+      });
+  }, [city.quests]);
+  const selectedTavernQuest = useMemo(
+      () => sortedTavernQuests.find(q => q.id === selectedTavernQuestId) || null,
+      [sortedTavernQuests, selectedTavernQuestId]
+  );
   const canTurnInActiveQuestHere = useMemo(() => {
       const quest = party.activeQuest;
       if (!quest || !quest.isCompleted) return false;
@@ -243,6 +255,18 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   useEffect(() => {
       setActiveTraitTooltip(null);
   }, [selectedRecruit, subView, city.id]);
+
+  useEffect(() => {
+      if (subView !== 'TAVERN') return;
+      if (sortedTavernQuests.length === 0) {
+          setSelectedTavernQuestId(null);
+          return;
+      }
+      const hasSelected = sortedTavernQuests.some(q => q.id === selectedTavernQuestId);
+      if (!hasSelected) {
+          setSelectedTavernQuestId(sortedTavernQuests[0].id);
+      }
+  }, [subView, sortedTavernQuests, selectedTavernQuestId]);
 
   useEffect(() => {
       const detectMobileLayout = () => {
@@ -423,16 +447,40 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
         {subView === 'MAP' && (
             <div className="flex-1 min-h-0 flex flex-col relative z-10">
                 {/* 顶部信息栏 */}
-                <div className="h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between px-3 sm:px-6 gap-2 shrink-0">
+                <div
+                    className={`bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex items-center justify-between gap-2 shrink-0 ${isCompactLandscape ? '' : 'h-14 px-3 sm:px-6'}`}
+                    style={isCompactLandscape ? {
+                        minHeight: `${Math.max(34, Math.round(44 * compactFontScale))}px`,
+                        paddingLeft: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingRight: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingTop: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+                        paddingBottom: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+                    } : undefined}
+                >
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                        <h1 className="text-base sm:text-xl font-bold text-amber-500 tracking-[0.08em] sm:tracking-[0.14em] truncate">{city.name}</h1>
+                        <h1
+                            className={`font-bold text-amber-500 tracking-[0.08em] sm:tracking-[0.14em] truncate ${isCompactLandscape ? '' : 'text-base sm:text-xl'}`}
+                            style={isCompactLandscape ? { fontSize: `clamp(0.66rem, ${1.25 * compactFontScale}vw, 0.84rem)` } : undefined}
+                        >
+                            {city.name}
+                        </h1>
                         <div className="flex gap-1.5 text-[9px] sm:text-[10px] shrink-0">
-                            <span className="text-amber-700 border border-amber-900/40 px-2 py-0.5">{cityTypeName}</span>
-                            <span className="text-slate-500 border border-slate-800/40 px-2 py-0.5">{city.faction}</span>
+                            <span
+                                className="text-amber-700 border border-amber-900/40 px-2 py-0.5"
+                                style={isCompactLandscape ? { fontSize: `clamp(0.48rem, ${0.85 * compactFontScale}vw, 0.58rem)` } : undefined}
+                            >
+                                {cityTypeName}
+                            </span>
+                            <span
+                                className="text-slate-500 border border-slate-800/40 px-2 py-0.5"
+                                style={isCompactLandscape ? { fontSize: `clamp(0.48rem, ${0.85 * compactFontScale}vw, 0.58rem)` } : undefined}
+                            >
+                                {city.faction}
+                            </span>
                         </div>
                     </div>
                     <div className="flex items-center">
-                        <div className="flex gap-1.5 sm:gap-3 text-[10px] sm:text-xs font-mono whitespace-nowrap">
+                        <div className={`flex ${isCompactLandscape ? 'gap-1.5' : 'gap-1.5 sm:gap-3'} text-[10px] sm:text-xs font-mono whitespace-nowrap`}>
                             <span className="text-amber-500">💰 {party.gold}</span>
                             <span className="text-emerald-500">🌾 {party.food}</span>
                             <span className={`${party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'} hidden sm:inline`} title={`医药储备 ${party.medicine}`}>💊 {party.medicine}</span>
@@ -443,14 +491,26 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                 </div>
 
                 {/* 横屏入口布局：信息条 + 一行设施卡片 + 离开按钮 */}
-                <div className="flex-1 min-h-0 px-3 sm:px-4 py-3 sm:py-4 flex flex-col gap-3 sm:gap-4">
-                    <div className="shrink-0 border border-amber-900/30 bg-black/30 px-3 py-2.5">
-                        <p className="text-[11px] sm:text-xs text-slate-500 italic tracking-[0.1em] text-center">
+                <div
+                    className={`flex-1 min-h-0 flex flex-col ${isCompactLandscape ? '' : 'px-3 sm:px-4 py-3 sm:py-4 gap-3 sm:gap-4'}`}
+                    style={isCompactLandscape ? {
+                        paddingLeft: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingRight: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingTop: `${Math.max(3, Math.round(7 * compactFontScale))}px`,
+                        paddingBottom: `${Math.max(3, Math.round(7 * compactFontScale))}px`,
+                        gap: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                    } : undefined}
+                >
+                    <div className={`shrink-0 border border-amber-900/30 bg-black/30 ${isCompactLandscape ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
+                        <p
+                            className="text-slate-500 italic tracking-[0.1em] text-center"
+                            style={isCompactLandscape ? { fontSize: `clamp(0.54rem, ${0.96 * compactFontScale}vw, 0.66rem)` } : undefined}
+                        >
                             {STATE_FLAVOR[city.state]}
                         </p>
                     </div>
 
-                    <div className="flex-1 min-h-0 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 content-center">
+                    <div className={`flex-1 min-h-0 grid grid-cols-2 sm:grid-cols-4 ${isCompactLandscape ? 'gap-1.5 content-start' : 'gap-2 sm:gap-3 content-center'}`}>
                         {city.facilities.map((facility) => {
                             const config = FACILITY_CONFIG[facility];
                             return (
@@ -458,13 +518,16 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     key={facility}
                                     type="button"
                                     onClick={() => { setSubView(facility); setSelectedItem(null); }}
-                                    className="group border border-amber-900/40 bg-[#141210] hover:bg-amber-900/20 hover:border-amber-600/60 active:scale-[0.98] transition-all duration-200 shadow-[0_0_10px_rgba(0,0,0,0.45)] min-h-[92px] sm:min-h-[108px] px-2 py-2 flex flex-col items-center justify-center gap-1.5"
+                                    className={`group border border-amber-900/40 bg-[#141210] hover:bg-amber-900/20 hover:border-amber-600/60 active:scale-[0.98] transition-all duration-200 shadow-[0_0_10px_rgba(0,0,0,0.45)] px-2 flex flex-col items-center justify-center ${isCompactLandscape ? 'min-h-[68px] py-1.5 gap-1' : 'min-h-[92px] sm:min-h-[108px] py-2 gap-1.5'}`}
                                 >
-                                    <span className="text-xl sm:text-2xl leading-none">{config.icon}</span>
-                                    <span className="text-[12px] sm:text-sm font-bold tracking-[0.14em] text-amber-500 group-hover:text-amber-300">
+                                    <span className={`${isCompactLandscape ? 'text-base' : 'text-xl sm:text-2xl'} leading-none`}>{config.icon}</span>
+                                    <span
+                                        className={`${isCompactLandscape ? 'text-[10px]' : 'text-[12px] sm:text-sm'} font-bold tracking-[0.14em] text-amber-500 group-hover:text-amber-300`}
+                                        style={isCompactLandscape ? { fontSize: `clamp(0.56rem, ${1.0 * compactFontScale}vw, 0.68rem)` } : undefined}
+                                    >
                                         {config.label}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 group-hover:text-slate-300 truncate max-w-full">
+                                    <span className={`${isCompactLandscape ? 'text-[8px]' : 'text-[10px]'} text-slate-500 group-hover:text-slate-300 truncate max-w-full`}>
                                         {config.desc}
                                     </span>
                                 </button>
@@ -475,10 +538,13 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     <div className="shrink-0 flex items-center justify-center">
                         <button
                             onClick={onLeave}
-                            className="min-w-[180px] h-11 px-5 bg-[#1a1610] border border-amber-800/50 hover:border-amber-500 hover:bg-amber-900/30 flex items-center justify-center gap-2 transition-all duration-200 group shadow-[0_0_14px_rgba(0,0,0,0.45)]"
+                            className={`${isCompactLandscape ? 'min-w-[132px] h-8 px-3 gap-1.5' : 'min-w-[180px] h-11 px-5 gap-2'} bg-[#1a1610] border border-amber-800/50 hover:border-amber-500 hover:bg-amber-900/30 flex items-center justify-center transition-all duration-200 group shadow-[0_0_14px_rgba(0,0,0,0.45)]`}
                         >
-                            <span className="text-sm group-hover:text-amber-400 transition-colors">🚪</span>
-                            <span className="text-xs text-slate-400 group-hover:text-amber-400 tracking-[0.25em] font-bold transition-colors">
+                            <span className={`${isCompactLandscape ? 'text-xs' : 'text-sm'} group-hover:text-amber-400 transition-colors`}>🚪</span>
+                            <span
+                                className={`${isCompactLandscape ? 'text-[10px]' : 'text-xs'} text-slate-400 group-hover:text-amber-400 tracking-[0.25em] font-bold transition-colors`}
+                                style={isCompactLandscape ? { fontSize: `clamp(0.5rem, ${0.9 * compactFontScale}vw, 0.62rem)` } : undefined}
+                            >
                                 离开城镇
                             </span>
                         </button>
@@ -922,7 +988,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                                     setActiveTraitTooltip(prev => prev === tid ? null : tid);
                                                                 }}
                                                             >
-                                                                <span>{trait.icon}</span>
                                                                 <span>{trait.name}</span>
                                                             </button>
                                                         );
@@ -931,7 +996,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             )}
                                             {activeTrait && (
                                                 <div className={`${isCompactLandscape ? 'mb-2 px-2 py-1.5 text-[11px]' : 'mb-4 px-3 py-2 text-xs'} shrink-0 bg-black/70 border border-amber-900/40 rounded text-slate-300`}>
-                                                    <div className="font-bold text-amber-400 mb-1">{activeTrait.icon} {activeTrait.name}</div>
+                                                    <div className="font-bold text-amber-400 mb-1">{activeTrait.name}</div>
                                                     <div>{activeTrait.description}</div>
                                                 </div>
                                             )}
@@ -976,11 +1041,21 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     {/* ===== 酒肆 ===== */}
                     {subView === 'TAVERN' && (
                         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                            <div className="shrink-0 mb-4 text-center">
-                                <h2 className="text-lg font-bold text-amber-600 tracking-widest">契约公告</h2>
-                                <p className="text-xs text-slate-600 mt-1">在此处接取工作，赚取金币与声望</p>
+                            <div className={`shrink-0 text-center ${isCompactLandscape ? 'mb-2' : 'mb-4'}`}>
+                                <h2
+                                    className={`${isCompactLandscape ? 'text-sm' : 'text-lg'} font-bold text-amber-600 tracking-widest`}
+                                    style={isCompactLandscape ? { fontSize: `clamp(0.68rem, ${1.15 * compactFontScale}vw, 0.84rem)` } : undefined}
+                                >
+                                    契约公告
+                                </h2>
+                                <p
+                                    className={`${isCompactLandscape ? 'text-[10px] mt-0.5' : 'text-xs mt-1'} text-slate-600`}
+                                    style={isCompactLandscape ? { fontSize: `clamp(0.54rem, ${0.95 * compactFontScale}vw, 0.66rem)` } : undefined}
+                                >
+                                    在此处接取工作，赚取金币与声望
+                                </p>
                                 {party.activeQuest && !party.activeQuest.isCompleted && (
-                                    <div className="mt-2 inline-flex items-center gap-3 text-xs font-bold bg-red-950/20 py-1 px-3 border border-red-900/40">
+                                    <div className={`${isCompactLandscape ? 'mt-1.5 gap-2 py-0.5 px-2 text-[10px]' : 'mt-2 gap-3 py-1 px-3 text-xs'} inline-flex items-center font-bold bg-red-950/20 border border-red-900/40`}>
                                         <span className="text-red-400">已有在身契约，需先完成当前任务</span>
                                         <span className={`font-mono ${party.activeQuest.daysLeft <= 1 ? 'text-red-300' : party.activeQuest.daysLeft <= 2 ? 'text-amber-300' : 'text-amber-400'}`}>
                                             时限 {party.activeQuest.daysLeft} 天
@@ -988,198 +1063,341 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     </div>
                                 )}
                                 {party.activeQuest && party.activeQuest.isCompleted && !canTurnInActiveQuestHere && (
-                                    <div className="mt-2 text-xs text-amber-400 font-bold bg-amber-950/20 py-1 px-3 inline-block border border-amber-900/40">
+                                    <div className={`${isCompactLandscape ? 'mt-1.5 py-0.5 px-2 text-[10px]' : 'mt-2 py-1 px-3 text-xs'} text-amber-400 font-bold bg-amber-950/20 inline-block border border-amber-900/40`}>
                                         {party.activeQuest.type === 'DELIVERY'
                                             ? '契约已完成，请前往目的地城市交付'
                                             : '契约已完成，请返回接取城市交付'}
                                     </div>
                                 )}
                             </div>
-                            <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
-                                {/* ===== 已完成任务交付面板 ===== */}
-                                {party.activeQuest && party.activeQuest.isCompleted && canTurnInActiveQuestHere && (
-                                    <div className="mb-5 border-2 border-emerald-700/60 bg-emerald-950/20 p-5 relative animate-pulse-slow">
-                                        <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 border border-emerald-600/50 text-emerald-400 bg-emerald-900/30 font-bold tracking-wider">
-                                            任务完成
+                            {isCompactLandscape ? (
+                                <div className="flex-1 min-h-0 flex flex-row gap-2 overflow-hidden">
+                                    <div className="flex-[11] min-w-0 border border-amber-900/25 bg-black/30 p-2 flex flex-col min-h-0 overflow-hidden">
+                                        <div className="text-[10px] text-amber-700 uppercase tracking-[0.18em] mb-1.5 pb-1 border-b border-amber-900/20">
+                                            契约列表
                                         </div>
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-emerald-500 text-lg">&#10003;</span>
-                                            <h3 className="text-lg font-bold text-emerald-300">{party.activeQuest.title}</h3>
+                                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 space-y-1.5">
+                                            {sortedTavernQuests.length > 0 ? (
+                                                sortedTavernQuests.map(quest => {
+                                                    const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
+                                                    const isSelected = selectedTavernQuestId === quest.id;
+                                                    const mult = getReputationRewardMultiplier(party.reputation);
+                                                    const boosted = Math.floor(quest.rewardGold * mult);
+                                                    return (
+                                                        <button
+                                                            key={quest.id}
+                                                            type="button"
+                                                            onClick={() => setSelectedTavernQuestId(quest.id)}
+                                                            className={`w-full text-left border px-2 py-1.5 transition-all ${
+                                                                isSelected
+                                                                    ? 'border-amber-500 bg-amber-900/25'
+                                                                    : 'border-slate-800/50 bg-black/30 hover:border-amber-800/60'
+                                                            } ${reputationLocked ? 'opacity-70' : ''}`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="text-[10px] text-amber-700">{getQuestTypeName(quest.type)}</span>
+                                                                <span className={`text-[10px] font-mono ${reputationLocked ? 'text-slate-600' : 'text-amber-500'}`}>
+                                                                    {reputationLocked ? '???' : boosted} 金
+                                                                </span>
+                                                            </div>
+                                                            <div className={`text-[11px] font-bold truncate ${reputationLocked ? 'text-slate-500' : 'text-amber-100'}`}>{quest.title}</div>
+                                                            <div className="text-[9px] text-slate-600 mt-0.5">
+                                                                难度 {'★'.repeat(quest.difficulty)}{'☆'.repeat(3 - quest.difficulty)} · 时限 {quest.daysLeft} 天
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center text-slate-700 text-[11px]">
+                                                    暂无可接委托
+                                                </div>
+                                            )}
                                         </div>
-                                        <p className="text-sm text-slate-400 italic mb-3 border-l-2 border-emerald-800/50 pl-3">
-                                            {party.activeQuest.type === 'DELIVERY'
-                                                ? '货物已安全送达，委托人对你的表现非常满意。'
-                                                : '目标已消灭，委托人对你的表现非常满意。'}
-                                        </p>
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="text-sm text-slate-400">
-                                                <span className="text-slate-600">类型: </span>
-                                                <span className="text-amber-600">{party.activeQuest.type === 'HUNT' ? '讨伐' : party.activeQuest.type === 'ESCORT' ? '护送' : party.activeQuest.type === 'PATROL' ? '巡逻' : '押运'}</span>
-                                                {party.activeQuest.targetEntityName && (
-                                                    <span className="ml-3 text-red-400">目标:「{party.activeQuest.targetEntityName}」</span>
-                                                )}
-                                                {party.activeQuest.type === 'DELIVERY' && (
-                                                    <span className="ml-3 text-sky-400">目的地: {party.activeQuest.targetCityName || '待指派'}</span>
-                                                )}
-                                                {party.activeQuest.type === 'PATROL' && (
-                                                    <span className="ml-3 text-amber-400">
-                                                        清剿: {party.activeQuest.patrolKillsDone || 0}/{party.activeQuest.patrolKillsRequired || 0}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-xl font-mono text-amber-500 font-bold">{party.activeQuest.rewardGold}</div>
-                                                <div className="text-[10px] text-amber-700">金币报酬</div>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                onCompleteQuest();
-                                                showNotification(`契约完成！获得 ${party.activeQuest!.rewardGold} 金币`);
-                                            }}
-                                            className="w-full py-3 bg-emerald-800/80 hover:bg-emerald-600 border border-emerald-500/60 text-white font-bold tracking-[0.3em] uppercase transition-all shadow-lg"
-                                        >
-                                            交付契约
-                                        </button>
                                     </div>
-                                )}
 
-                                {city.quests && city.quests.length > 0 ? (
-                                    <div className="space-y-4">
-                                        {[...city.quests]
-                                          // 酒肆展示：先按星级（低到高），再按报酬（高到低）
-                                          .sort((a, b) => {
-                                            if (a.difficulty !== b.difficulty) return a.difficulty - b.difficulty;
-                                            return b.rewardGold - a.rewardGold;
-                                          })
-                                          .map(quest => {
-                                            const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
-                                            const isDisabled = !!party.activeQuest || reputationLocked;
-                                            
-                                            return (
-                                            <div key={quest.id} className={`border p-4 relative transition-all ${
-                                                reputationLocked
-                                                    ? 'bg-slate-950/60 border-slate-800/40 opacity-70'
-                                                    : 'bg-black/40 border-amber-900/30 hover:border-amber-600/50'
-                                            }`}>
-                                                {/* 声望门槛标签 */}
-                                                {quest.requiredReputation && (
-                                                    <div className={`absolute top-2 right-2 text-[9px] px-2 py-0.5 border tracking-wider font-bold ${
-                                                        reputationLocked
-                                                            ? 'border-red-900/50 text-red-500/80 bg-red-950/30'
-                                                            : 'border-amber-600/50 text-amber-400 bg-amber-900/20'
-                                                    }`}>
-                                                        {reputationLocked ? `需声望 ${quest.requiredReputation}` : '高级委托'}
+                                    <div className="flex-[10] min-w-0 border border-amber-900/25 bg-[#0d0b08] p-2 flex flex-col min-h-0 overflow-hidden">
+                                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                                            {party.activeQuest && party.activeQuest.isCompleted && canTurnInActiveQuestHere ? (
+                                                <div className="border-2 border-emerald-700/60 bg-emerald-950/20 p-2.5 relative">
+                                                    <div className="absolute top-2 right-2 text-[9px] px-1.5 py-0.5 border border-emerald-600/50 text-emerald-400 bg-emerald-900/30 font-bold tracking-wider">
+                                                        任务完成
                                                     </div>
-                                                )}
-                                                
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <div>
-                                                        <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2 mb-1.5">
+                                                        <span className="text-emerald-500 text-base">&#10003;</span>
+                                                        <h3 className="text-sm font-bold text-emerald-300">{party.activeQuest.title}</h3>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400 italic mb-2 border-l-2 border-emerald-800/50 pl-2">
+                                                        {party.activeQuest.type === 'DELIVERY'
+                                                            ? '货物已安全送达，委托人对你的表现非常满意。'
+                                                            : '目标已消灭，委托人对你的表现非常满意。'}
+                                                    </p>
+                                                    <button
+                                                        onClick={() => {
+                                                            onCompleteQuest();
+                                                            showNotification(`契约完成！获得 ${party.activeQuest!.rewardGold} 金币`);
+                                                        }}
+                                                        className="w-full py-2 text-xs bg-emerald-800/80 hover:bg-emerald-600 border border-emerald-500/60 text-white font-bold tracking-[0.2em] uppercase transition-all shadow-lg"
+                                                    >
+                                                        交付契约
+                                                    </button>
+                                                </div>
+                                            ) : selectedTavernQuest ? (() => {
+                                                const quest = selectedTavernQuest;
+                                                const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
+                                                const isDisabled = !!party.activeQuest || reputationLocked;
+                                                const mult = getReputationRewardMultiplier(party.reputation);
+                                                const boosted = Math.floor(quest.rewardGold * mult);
+                                                const hasBonus = mult > 1;
+                                                return (
+                                                    <div className={`border p-2.5 relative ${reputationLocked ? 'bg-slate-950/60 border-slate-800/40 opacity-70' : 'bg-black/40 border-amber-900/30'}`}>
+                                                        {quest.requiredReputation && (
+                                                            <div className={`absolute top-2 right-2 text-[9px] px-2 py-0.5 border tracking-wider font-bold ${
+                                                                reputationLocked
+                                                                    ? 'border-red-900/50 text-red-500/80 bg-red-950/30'
+                                                                    : 'border-amber-600/50 text-amber-400 bg-amber-900/20'
+                                                            }`}>
+                                                                {reputationLocked ? `需声望 ${quest.requiredReputation}` : '高级委托'}
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center gap-2 mb-1.5">
                                                             <span className={`text-[10px] px-2 py-0.5 border uppercase tracking-widest ${
                                                                 reputationLocked ? 'border-slate-700 text-slate-600' : 'border-amber-900/40 text-amber-700'
                                                             }`}>
                                                                 {getQuestTypeName(quest.type)}
                                                             </span>
-                                                            <h3 className={`text-lg font-bold ${reputationLocked ? 'text-slate-500' : 'text-amber-100'}`}>{quest.title}</h3>
+                                                            <h3 className={`text-sm font-bold ${reputationLocked ? 'text-slate-500' : 'text-amber-100'}`}>{quest.title}</h3>
                                                         </div>
-                                                        <div className="flex items-center gap-4 mt-2">
-                                                            <div className={`flex text-xs tracking-widest ${reputationLocked ? 'text-slate-600' : 'text-amber-600'}`}>
-                                                                <span className="text-slate-500 mr-2">难度:</span>
-                                                                {'★'.repeat(quest.difficulty)}<span className="text-slate-700">{'★'.repeat(3 - quest.difficulty)}</span>
+                                                        <div className="text-[10px] text-slate-500 mb-2">
+                                                            难度 {'★'.repeat(quest.difficulty)}{'☆'.repeat(3 - quest.difficulty)} · 时限 {quest.daysLeft} 天
+                                                        </div>
+                                                        <p className={`text-xs mb-2 italic border-l-2 pl-2 leading-relaxed ${
+                                                            reputationLocked ? 'text-slate-600 border-slate-800' : 'text-slate-500 border-amber-900/30'
+                                                        }`}>
+                                                            {reputationLocked ? '「此委托只接受声名远扬的战团。你们……还不够格。」' : `"${quest.description}"`}
+                                                        </p>
+                                                        {!reputationLocked && quest.type === 'PATROL' && (
+                                                            <div className="text-[10px] text-amber-600 mb-2">
+                                                                任务目标：前往指定巡逻路段并击杀
+                                                                <span className="text-red-400 font-bold mx-1">{quest.patrolKillsRequired || (quest.difficulty === 1 ? 4 : quest.difficulty === 2 ? 6 : 8)}</span>
+                                                                名敌人
                                                             </div>
-                                                            {quest.requiredReputation && (
-                                                                <div className={`text-[10px] ${reputationLocked ? 'text-red-500/70' : 'text-amber-600'}`}>
-                                                                    需要声望: {quest.requiredReputation}
-                                                                </div>
+                                                        )}
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="text-sm font-mono font-bold text-amber-500">{reputationLocked ? '???' : boosted}</div>
+                                                            {!reputationLocked && hasBonus && (
+                                                                <div className="text-[10px] text-emerald-600">声望+{Math.round((mult - 1) * 100)}%</div>
                                                             )}
                                                         </div>
+                                                        <button
+                                                            onClick={() => !isDisabled && handleQuestTake(quest)}
+                                                            disabled={isDisabled}
+                                                            className={`w-full py-2 text-xs border font-bold tracking-widest uppercase transition-all
+                                                                ${reputationLocked
+                                                                    ? 'bg-slate-950/30 border-slate-800 text-slate-700 cursor-not-allowed'
+                                                                    : party.activeQuest
+                                                                        ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                                        : 'bg-amber-900/20 border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white'
+                                                                }
+                                                            `}
+                                                        >
+                                                            {reputationLocked ? `声望不足（需 ${quest.requiredReputation}）` : party.activeQuest ? '无法接受' : '接受委托'}
+                                                        </button>
                                                     </div>
-                                                    <div className="text-right">
-                                                        {(() => {
-                                                          if (reputationLocked) {
-                                                            return <>
-                                                              <div className="text-xl font-mono text-slate-600 font-bold">???</div>
-                                                              <div className="text-[10px] text-slate-700">声望不足</div>
-                                                            </>;
-                                                          }
-                                                          const mult = getReputationRewardMultiplier(party.reputation);
-                                                          const boosted = Math.floor(quest.rewardGold * mult);
-                                                          const hasBonus = mult > 1;
-                                                          return <>
-                                                            <div className="text-xl font-mono text-amber-500 font-bold">{boosted}</div>
-                                                            <div className="text-[10px] text-amber-700">
-                                                              金币报酬{hasBonus && <span className="text-emerald-600 ml-1">(声望+{Math.round((mult - 1) * 100)}%)</span>}
-                                                            </div>
-                                                            <div className="text-[10px] text-slate-500 mt-0.5">
-                                                              时限 {quest.daysLeft} 天
-                                                            </div>
-                                                          </>;
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                                <p className={`text-sm italic mb-4 border-l-2 pl-3 leading-relaxed ${
-                                                    reputationLocked ? 'text-slate-600 border-slate-800' : 'text-slate-500 border-amber-900/30'
-                                                }`}>
-                                                    {reputationLocked 
-                                                        ? '「此委托只接受声名远扬的战团。你们……还不够格。」' 
-                                                        : `"${quest.description}"`
-                                                    }
-                                                </p>
-                                                {!reputationLocked && quest.type === 'PATROL' && (
-                                                    <div className="text-[11px] text-amber-600 mb-3">
-                                                        任务目标：前往指定巡逻路段并击杀
-                                                        <span className="text-red-400 font-bold mx-1">{quest.patrolKillsRequired || (quest.difficulty === 1 ? 4 : quest.difficulty === 2 ? 6 : 8)}</span>
-                                                        名敌人
-                                                    </div>
-                                                )}
-                                                <button 
-                                                    onClick={() => !isDisabled && handleQuestTake(quest)}
-                                                    disabled={isDisabled}
-                                                    className={`w-full py-3 border font-bold tracking-widest uppercase transition-all
-                                                        ${reputationLocked
-                                                            ? 'bg-slate-950/30 border-slate-800 text-slate-700 cursor-not-allowed'
-                                                            : party.activeQuest 
-                                                                ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed' 
-                                                                : 'bg-amber-900/20 border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white'
-                                                        }
-                                                    `}
-                                                >
-                                                    {reputationLocked 
-                                                        ? `声望不足（需 ${quest.requiredReputation}）` 
-                                                        : party.activeQuest ? '无法接受' : '接受委托'
-                                                    }
-                                                </button>
+                                                );
+                                            })() : (
+                                                <div className="h-full flex items-center justify-center text-slate-700 text-[11px]">请选择左侧契约</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
+                                    {/* ===== 已完成任务交付面板 ===== */}
+                                    {party.activeQuest && party.activeQuest.isCompleted && canTurnInActiveQuestHere && (
+                                        <div className="mb-5 p-5 border-2 border-emerald-700/60 bg-emerald-950/20 relative animate-pulse-slow">
+                                            <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 border border-emerald-600/50 text-emerald-400 bg-emerald-900/30 font-bold tracking-wider">
+                                                任务完成
                                             </div>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div className="h-full flex flex-col items-center justify-center text-slate-700">
-                                        <p className="text-lg tracking-widest">暂无可接委托</p>
-                                        <p className="text-xs mt-1 text-slate-800">过几日再来看看，也许会有新的任务</p>
-                                    </div>
-                                )}
-                            </div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="text-emerald-500 text-lg">&#10003;</span>
+                                                <h3 className="text-lg font-bold text-emerald-300">{party.activeQuest.title}</h3>
+                                            </div>
+                                            <p className="text-sm mb-3 text-slate-400 italic border-l-2 border-emerald-800/50 pl-3">
+                                                {party.activeQuest.type === 'DELIVERY'
+                                                    ? '货物已安全送达，委托人对你的表现非常满意。'
+                                                    : '目标已消灭，委托人对你的表现非常满意。'}
+                                            </p>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="text-sm text-slate-400">
+                                                    <span className="text-slate-600">类型: </span>
+                                                    <span className="text-amber-600">{party.activeQuest.type === 'HUNT' ? '讨伐' : party.activeQuest.type === 'ESCORT' ? '护送' : party.activeQuest.type === 'PATROL' ? '巡逻' : '押运'}</span>
+                                                    {party.activeQuest.targetEntityName && (
+                                                        <span className="ml-3 text-red-400">目标:「{party.activeQuest.targetEntityName}」</span>
+                                                    )}
+                                                    {party.activeQuest.type === 'DELIVERY' && (
+                                                        <span className="ml-3 text-sky-400">目的地: {party.activeQuest.targetCityName || '待指派'}</span>
+                                                    )}
+                                                    {party.activeQuest.type === 'PATROL' && (
+                                                        <span className="ml-3 text-amber-400">
+                                                            清剿: {party.activeQuest.patrolKillsDone || 0}/{party.activeQuest.patrolKillsRequired || 0}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-xl font-mono text-amber-500 font-bold">{party.activeQuest.rewardGold}</div>
+                                                    <div className="text-[10px] text-amber-700">金币报酬</div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    onCompleteQuest();
+                                                    showNotification(`契约完成！获得 ${party.activeQuest!.rewardGold} 金币`);
+                                                }}
+                                                className="w-full py-3 bg-emerald-800/80 hover:bg-emerald-600 border border-emerald-500/60 text-white font-bold tracking-[0.3em] uppercase transition-all shadow-lg"
+                                            >
+                                                交付契约
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {sortedTavernQuests.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {sortedTavernQuests.map(quest => {
+                                                const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
+                                                const isDisabled = !!party.activeQuest || reputationLocked;
+                                                return (
+                                                <div key={quest.id} className={`border p-4 relative transition-all ${
+                                                    reputationLocked
+                                                        ? 'bg-slate-950/60 border-slate-800/40 opacity-70'
+                                                        : 'bg-black/40 border-amber-900/30 hover:border-amber-600/50'
+                                                }`}>
+                                                    {quest.requiredReputation && (
+                                                        <div className={`absolute top-2 right-2 text-[9px] px-2 py-0.5 border tracking-wider font-bold ${
+                                                            reputationLocked
+                                                                ? 'border-red-900/50 text-red-500/80 bg-red-950/30'
+                                                                : 'border-amber-600/50 text-amber-400 bg-amber-900/20'
+                                                        }`}>
+                                                            {reputationLocked ? `需声望 ${quest.requiredReputation}` : '高级委托'}
+                                                        </div>
+                                                    )}
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div>
+                                                            <div className="flex items-center gap-3">
+                                                                <span className={`text-[10px] px-2 py-0.5 border uppercase tracking-widest ${
+                                                                    reputationLocked ? 'border-slate-700 text-slate-600' : 'border-amber-900/40 text-amber-700'
+                                                                }`}>
+                                                                    {getQuestTypeName(quest.type)}
+                                                                </span>
+                                                                <h3 className={`text-lg font-bold ${reputationLocked ? 'text-slate-500' : 'text-amber-100'}`}>{quest.title}</h3>
+                                                            </div>
+                                                            <div className="flex items-center gap-4 mt-2">
+                                                                <div className={`flex text-xs tracking-widest ${reputationLocked ? 'text-slate-600' : 'text-amber-600'}`}>
+                                                                    <span className="text-slate-500 mr-2">难度:</span>
+                                                                    {'★'.repeat(quest.difficulty)}<span className="text-slate-700">{'★'.repeat(3 - quest.difficulty)}</span>
+                                                                </div>
+                                                                {quest.requiredReputation && (
+                                                                    <div className={`text-[10px] ${reputationLocked ? 'text-red-500/70' : 'text-amber-600'}`}>
+                                                                        需要声望: {quest.requiredReputation}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            {(() => {
+                                                              if (reputationLocked) {
+                                                                return <>
+                                                                  <div className="text-xl font-mono text-slate-600 font-bold">???</div>
+                                                                  <div className="text-[10px] text-slate-700">声望不足</div>
+                                                                </>;
+                                                              }
+                                                              const mult = getReputationRewardMultiplier(party.reputation);
+                                                              const boosted = Math.floor(quest.rewardGold * mult);
+                                                              const hasBonus = mult > 1;
+                                                              return <>
+                                                                <div className="text-xl font-mono text-amber-500 font-bold">{boosted}</div>
+                                                                <div className="text-[10px] text-amber-700">
+                                                                  金币报酬{hasBonus && <span className="text-emerald-600 ml-1">(声望+{Math.round((mult - 1) * 100)}%)</span>}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                                                  时限 {quest.daysLeft} 天
+                                                                </div>
+                                                              </>;
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                    <p className={`text-sm mb-4 italic border-l-2 pl-3 leading-relaxed ${
+                                                        reputationLocked ? 'text-slate-600 border-slate-800' : 'text-slate-500 border-amber-900/30'
+                                                    }`}>
+                                                        {reputationLocked 
+                                                            ? '「此委托只接受声名远扬的战团。你们……还不够格。」' 
+                                                            : `"${quest.description}"`
+                                                        }
+                                                    </p>
+                                                    {!reputationLocked && quest.type === 'PATROL' && (
+                                                        <div className="text-[11px] text-amber-600 mb-3">
+                                                            任务目标：前往指定巡逻路段并击杀
+                                                            <span className="text-red-400 font-bold mx-1">{quest.patrolKillsRequired || (quest.difficulty === 1 ? 4 : quest.difficulty === 2 ? 6 : 8)}</span>
+                                                            名敌人
+                                                        </div>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => !isDisabled && handleQuestTake(quest)}
+                                                        disabled={isDisabled}
+                                                        className={`w-full py-3 border font-bold tracking-widest uppercase transition-all
+                                                            ${reputationLocked
+                                                                ? 'bg-slate-950/30 border-slate-800 text-slate-700 cursor-not-allowed'
+                                                                : party.activeQuest 
+                                                                    ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed' 
+                                                                    : 'bg-amber-900/20 border-amber-700/50 text-amber-500 hover:bg-amber-700 hover:border-amber-500 hover:text-white'
+                                                            }
+                                                        `}
+                                                    >
+                                                        {reputationLocked 
+                                                            ? `声望不足（需 ${quest.requiredReputation}）` 
+                                                            : party.activeQuest ? '无法接受' : '接受委托'
+                                                        }
+                                                    </button>
+                                                </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-700">
+                                            <p className="text-lg tracking-widest">暂无可接委托</p>
+                                            <p className="text-xs mt-1 text-slate-800">过几日再来看看，也许会有新的任务</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {/* ===== 医馆 ===== */}
                     {subView === 'TEMPLE' && (
                         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                            <div className="text-center mb-4 shrink-0">
-                                <h2 className="text-lg font-bold text-emerald-600 tracking-widest">医馆治疗</h2>
-                                <p className="text-slate-600 text-xs mt-1">支付费用治疗伤员，费用取决于伤势轻重</p>
+                            <div className={`text-center ${isCompactLandscape ? 'mb-2' : 'mb-4'} shrink-0`}>
+                                <h2
+                                    className={`${isCompactLandscape ? 'text-sm' : 'text-lg'} font-bold text-emerald-600 tracking-widest`}
+                                    style={isCompactLandscape ? { fontSize: `clamp(0.68rem, ${1.15 * compactFontScale}vw, 0.84rem)` } : undefined}
+                                >
+                                    医馆治疗
+                                </h2>
+                                <p
+                                    className={`text-slate-600 ${isCompactLandscape ? 'text-[10px] mt-0.5' : 'text-xs mt-1'}`}
+                                    style={isCompactLandscape ? { fontSize: `clamp(0.54rem, ${0.95 * compactFontScale}vw, 0.66rem)` } : undefined}
+                                >
+                                    支付费用治疗伤员，费用取决于伤势轻重
+                                </p>
                             </div>
                             <div className="city-panel-scroll flex-1 overflow-y-auto min-h-0 custom-scrollbar touch-pan-y">
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div className={`grid ${isCompactLandscape ? 'grid-cols-1 gap-2' : 'grid-cols-1 lg:grid-cols-2 gap-3'}`}>
                                     {party.mercenaries.map((merc, i) => {
                                         const missingHp = merc.maxHp - merc.hp;
                                         const healCost = missingHp * 2;
                                         const isInjured = missingHp > 0;
                                         const hpPct = (merc.hp / merc.maxHp) * 100;
                                         return (
-                                            <div key={merc.id} className={`flex items-center gap-4 p-4 border bg-black/40 ${isInjured ? 'border-red-900/30' : 'border-emerald-900/20 opacity-60'}`}>
+                                            <div key={merc.id} className={`flex items-center ${isCompactLandscape ? 'gap-2 p-2' : 'gap-4 p-4'} border bg-black/40 ${isInjured ? 'border-red-900/30' : 'border-emerald-900/20 opacity-60'}`}>
                                                 <div className="flex-1">
                                                     <div className="flex justify-between items-center mb-2">
                                                         <div>
@@ -1190,7 +1408,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                             {isInjured ? '受伤' : '健康'}
                                                         </span>
                                                     </div>
-                                                    <div className="h-3 w-full bg-black/60 overflow-hidden border border-white/5 relative">
+                                                    <div className={`${isCompactLandscape ? 'h-2' : 'h-3'} w-full bg-black/60 overflow-hidden border border-white/5 relative`}>
                                                         <div className={`h-full transition-all ${isInjured ? 'bg-red-800' : 'bg-emerald-800'}`} style={{ width: `${hpPct}%` }} />
                                                     </div>
                                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
@@ -1201,10 +1419,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 {isInjured ? (
                                                     <button 
                                                         onClick={() => handleHeal(merc, i)}
-                                                        className="px-4 py-2 bg-emerald-900/20 border border-emerald-700/50 text-emerald-400 hover:bg-emerald-700 hover:border-emerald-500 hover:text-white transition-all text-xs font-bold whitespace-nowrap"
+                                                        className={`${isCompactLandscape ? 'px-2.5 py-1.5 text-[10px]' : 'px-4 py-2 text-xs'} bg-emerald-900/20 border border-emerald-700/50 text-emerald-400 hover:bg-emerald-700 hover:border-emerald-500 hover:text-white transition-all font-bold whitespace-nowrap`}
                                                     >治疗 (-{healCost} 金)</button>
                                                 ) : (
-                                                    <div className="px-4 py-2 text-slate-700 text-xs font-bold">无须治疗</div>
+                                                    <div className={`${isCompactLandscape ? 'px-2.5 py-1.5 text-[10px]' : 'px-4 py-2 text-xs'} text-slate-700 font-bold`}>无须治疗</div>
                                                 )}
                                             </div>
                                         );

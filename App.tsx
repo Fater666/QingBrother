@@ -416,6 +416,7 @@ const generateBattleResult = (
   const casualties = playerUnitsBeforeCombat
     .filter(m => deadPlayerIds.has(m.id))
     .map(m => ({
+      id: m.id,
       name: m.name,
       background: BACKGROUNDS[m.background]?.name || m.background,
     }));
@@ -1902,25 +1903,25 @@ export const App: React.FC = () => {
   return (
     <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
-      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && view !== 'CAMP' && (
-          <nav className="bg-black border-b border-amber-900/40 px-3 sm:px-6 py-2 sm:py-0 sm:h-14 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-             <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && view !== 'CAMP' && view !== 'CITY' && (
+          <nav className="bg-black border-b border-amber-900/40 px-2 sm:px-3 py-1 sm:py-0 sm:h-8 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+             <div className="flex flex-wrap items-center gap-1 sm:gap-2">
                 <button
                   onClick={() => setView('CAMP')}
-                  className="px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
+                  className="px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
                 >
                   战团营地
                 </button>
                 <button
                   onClick={() => setView('WORLD_MAP')}
-                  className="px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
+                  className="px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
                 >
                   返回地图
                 </button>
                 <div className="relative sm:ml-2" ref={systemMenuRef}>
                   <button
                     onClick={() => setShowSystemMenu(v => !v)}
-                    className={`px-3 sm:px-4 py-1 text-[11px] sm:text-xs font-bold transition-all border uppercase tracking-[0.25em] ${
+                    className={`px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border uppercase tracking-[0.2em] ${
                       showSystemMenu
                         ? 'bg-amber-600 text-white border-amber-500'
                         : 'text-amber-500 border-amber-700/60 hover:border-amber-500 hover:bg-amber-900/20'
@@ -2259,10 +2260,7 @@ export const App: React.FC = () => {
                 onComplete={(selectedLoot, goldReward, xpMap) => {
                     setParty(p => {
                       // 移除阵亡者
-                      const deadIds = new Set(battleResult.casualties.map(c => {
-                        const merc = p.mercenaries.find(m => m.name === c.name);
-                        return merc?.id;
-                      }).filter(Boolean));
+                      const deadIds = new Set(battleResult.casualties.map(c => c.id));
 
                       const updatedMercs = p.mercenaries
                         .filter(m => !deadIds.has(m.id))

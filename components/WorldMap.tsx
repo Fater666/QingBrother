@@ -1161,6 +1161,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
   const [compactFontScale, setCompactFontScale] = useState(1);
   const [isMinimapVisible, setIsMinimapVisible] = useState(true);
+  const [isRightTopPanelCollapsed, setIsRightTopPanelCollapsed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
   const minimapFrameCounter = useRef(0);
@@ -1622,10 +1623,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   const zoomPercent = Math.round((1 - (viewportWidth - 10) / (MAP_SIZE - 10)) * 100);
   const hudScale = Math.max(0.8, Math.min(1.2, compactFontScale * (isCompactLandscape ? 0.95 : 1.08)));
   const minimapSize = isCompactLandscape
-    ? Math.max(44, Math.round(BASE_MINIMAP_SIZE * compactFontScale * 0.32))
-    : BASE_MINIMAP_SIZE;
+    ? Math.max(22, Math.round(BASE_MINIMAP_SIZE * compactFontScale * 0.16))
+    : Math.round(BASE_MINIMAP_SIZE * 0.5);
   const ambitionPanelWidth = Math.max(148, Math.round((isCompactLandscape ? 190 : 200) * hudScale));
   const ambitionPanelMaxWidth = Math.max(190, Math.round((isCompactLandscape ? 235 : 250) * hudScale));
+  const questPanelWidth = Math.max(170, Math.round((isCompactLandscape ? 210 : 230) * hudScale));
+  const questPanelMaxWidth = Math.max(220, Math.round((isCompactLandscape ? 260 : 300) * hudScale));
 
   // 查找任务目标实体（用于HUD显示）
   const questTarget = (() => {
@@ -1734,12 +1737,36 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       
       {/* 左上角资源面板已移至顶部导航栏统一显示 */}
 
-      {/* ===== 当前任务面板 (Quest HUD) ===== */}
-      {party.activeQuest && (
-        <div className="absolute top-4 right-4 z-50 pointer-events-none">
-          <div className={`bg-[#0f0d0a]/85 border backdrop-blur-sm shadow-xl min-w-[220px] max-w-[280px] ${
+      {/* ===== 右上角信息面板：契约 + 志向（上下 + 收起） ===== */}
+      {(party.activeQuest || party.ambitionState.currentAmbition) && (
+        <div
+          className={`absolute ${isCompactLandscape ? 'top-1 right-1' : 'top-3 right-3'} z-50 pointer-events-auto`}
+          style={{
+            maxWidth: isCompactLandscape ? 'min(96vw, 620px)' : 'min(94vw, 760px)',
+            transform: `scale(${isCompactLandscape ? 0.9 : 0.82})`,
+            transformOrigin: 'top right',
+          }}
+        >
+          <div className="bg-black/35 border border-amber-900/35 backdrop-blur-sm shadow-xl">
+            <div className={`${isCompactLandscape ? 'px-2 py-1' : 'px-3 py-1.5'} border-b border-amber-900/30 flex items-center gap-2`}>
+              <span className="text-[10px] text-amber-600 font-bold tracking-[0.2em] uppercase">信息面板</span>
+              <span className="text-[9px] text-slate-500 ml-auto">{party.activeQuest ? '契约' : ''}{party.activeQuest && party.ambitionState.currentAmbition ? ' | ' : ''}{party.ambitionState.currentAmbition ? '志向' : ''}</span>
+              <button
+                type="button"
+                onClick={() => setIsRightTopPanelCollapsed(v => !v)}
+                className="text-[10px] text-slate-400 hover:text-amber-400 transition-colors"
+                title={isRightTopPanelCollapsed ? '展开面板' : '收起面板'}
+              >
+                {isRightTopPanelCollapsed ? '▶' : '▼'}
+              </button>
+            </div>
+
+            {!isRightTopPanelCollapsed && (
+              <div className={`flex flex-col items-stretch ${isCompactLandscape ? 'gap-1.5 p-1.5' : 'gap-2 p-2'}`}>
+                {party.activeQuest && (
+                  <div className={`bg-[#0f0d0a]/85 border backdrop-blur-sm shadow-xl ${
             party.activeQuest.isCompleted ? 'border-emerald-700/60' : 'border-amber-900/50'
-          }`}>
+          }`} style={{ minWidth: questPanelWidth, maxWidth: questPanelMaxWidth }}>
             <div className={`px-3 py-1.5 border-b flex items-center gap-2 ${
               party.activeQuest.isCompleted 
                 ? 'bg-emerald-900/20 border-emerald-900/30' 
@@ -1889,17 +1916,14 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
+                  </div>
+                )}
 
-      {/* ===== 当前野心进度面板 (Ambition HUD) ===== */}
-      {party.ambitionState.currentAmbition && (
-        <div className={`absolute ${party.activeQuest ? (isCompactLandscape ? 'top-[154px]' : 'top-[200px]') : (isCompactLandscape ? 'top-3' : 'top-4')} ${isCompactLandscape ? 'right-2' : 'right-4'} z-50 pointer-events-none`}>
-          <div
-            className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl"
-            style={{ minWidth: ambitionPanelWidth, maxWidth: ambitionPanelMaxWidth }}
-          >
+                {party.ambitionState.currentAmbition && (
+                  <div
+                    className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl"
+                    style={{ minWidth: ambitionPanelWidth, maxWidth: ambitionPanelMaxWidth }}
+                  >
             <div className={`${isCompactLandscape ? 'px-2 py-0.5' : 'px-3 py-1'} bg-amber-900/15 border-b border-amber-900/25 flex items-center gap-2`}>
               <span
                 className="text-amber-700/80 uppercase tracking-[0.2em]"
@@ -1957,6 +1981,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                 ) : null;
               })()}
             </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
