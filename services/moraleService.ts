@@ -521,6 +521,40 @@ export const getFleeTargetPosition = (
 };
 
 /**
+ * 获取主动撤退单位的移动目标位置
+ * 撤退单位会优先朝战场边缘方向移动
+ */
+export const getRetreatTargetPosition = (
+  unit: CombatUnit
+): { q: number; r: number } => {
+  const dirQ = unit.combatPos.q;
+  const dirR = unit.combatPos.r;
+  const length = Math.sqrt(dirQ * dirQ + dirR * dirR);
+
+  if (length < 0.1) {
+    const retreatDirections = [
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+    ];
+    const randomDirection = retreatDirections[Math.floor(Math.random() * retreatDirections.length)];
+    return {
+      q: unit.combatPos.q + randomDirection.q * 2,
+      r: unit.combatPos.r + randomDirection.r * 2,
+    };
+  }
+
+  const moveDistance = 2;
+  return {
+    q: Math.round(unit.combatPos.q + (dirQ / length) * moveDistance),
+    r: Math.round(unit.combatPos.r + (dirR / length) * moveDistance),
+  };
+};
+
+/**
  * 检查崩溃状态单位是否跳过行动
  */
 export const shouldSkipAction = (unit: CombatUnit): boolean => {

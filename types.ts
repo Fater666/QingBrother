@@ -143,6 +143,7 @@ export interface Character {
   };
   traits: string[];
   perkPoints: number;
+  pendingLevelUps: number;
   perks: string[]; 
   equipment: {
     mainHand: Item | null;
@@ -359,6 +360,7 @@ export interface CombatState {
 // 战斗结算数据
 export interface BattleResult {
   victory: boolean;
+  isRetreat?: boolean; // 是否为主动撤退结算
   roundsTotal: number;
   enemyName: string;
   // 阶段一：伤亡与经验

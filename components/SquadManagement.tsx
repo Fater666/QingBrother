@@ -1,7 +1,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Party, Character, Item, Perk, Trait } from '../types.ts';
-import { BACKGROUNDS, PERK_TREE, TRAIT_TEMPLATES, getXPForNextLevel } from '../constants';
+import {
+    BACKGROUNDS,
+    PERK_TREE,
+    TRAIT_TEMPLATES,
+    getXPForNextLevel,
+    generateLevelUpRolls,
+    type LevelUpRolls,
+    type LevelUpStatKey,
+} from '../constants';
 
 interface SquadManagementProps {
   party: Party;
@@ -44,6 +52,27 @@ const getItemTypeName = (type: Item['type']): string => {
     return typeNames[type] || type;
 };
 
+const getItemRarityName = (rarity?: Item['rarity']): string => {
+    const rarityNames: Record<NonNullable<Item['rarity']>, string> = {
+        COMMON: '凡品',
+        UNCOMMON: '良品',
+        RARE: '珍品',
+        EPIC: '史诗',
+        LEGENDARY: '传说',
+        UNIQUE: '传世',
+    };
+    return rarity ? rarityNames[rarity] : '凡品';
+};
+
+const getItemRarityClass = (rarity?: Item['rarity']): string => {
+    if (rarity === 'UNIQUE') return 'text-red-400 border-red-800/40 bg-red-950/20';
+    if (rarity === 'LEGENDARY') return 'text-amber-300 border-amber-700/40 bg-amber-950/20';
+    if (rarity === 'EPIC') return 'text-purple-300 border-purple-800/40 bg-purple-950/20';
+    if (rarity === 'RARE') return 'text-sky-300 border-sky-800/40 bg-sky-950/20';
+    if (rarity === 'UNCOMMON') return 'text-emerald-300 border-emerald-800/40 bg-emerald-950/20';
+    return 'text-slate-300 border-slate-700/40 bg-slate-900/20';
+};
+
 // 获取物品的简短属性描述
 const getItemBrief = (item: Item): string => {
     if (item.type === 'CONSUMABLE' && item.subType) {
@@ -75,12 +104,33 @@ const canEquipToSlot = (item: Item, slot: keyof Character['equipment'], char?: C
     return slotTypeMap[slot].includes(item.type);
 };
 
+const LEVEL_UP_STAT_CONFIG: Array<{
+    key: LevelUpStatKey;
+    label: string;
+    getValue: (char: Character) => number;
+    starsKey: keyof Character['stars'];
+}> = [
+    { key: 'hp', label: '生命值', getValue: (char) => char.maxHp, starsKey: 'hp' },
+    { key: 'fatigue', label: '体力值', getValue: (char) => char.maxFatigue, starsKey: 'fatigue' },
+    { key: 'resolve', label: '胆识', getValue: (char) => char.stats.resolve, starsKey: 'resolve' },
+    { key: 'initiative', label: '先手值', getValue: (char) => char.stats.initiative, starsKey: 'initiative' },
+    { key: 'meleeSkill', label: '近战命中', getValue: (char) => char.stats.meleeSkill, starsKey: 'meleeSkill' },
+    { key: 'rangedSkill', label: '远程命中', getValue: (char) => char.stats.rangedSkill, starsKey: 'rangedSkill' },
+    { key: 'meleeDefense', label: '近战防御', getValue: (char) => char.stats.meleeDefense, starsKey: 'meleeDefense' },
+    { key: 'rangedDefense', label: '远程防御', getValue: (char) => char.stats.rangedDefense, starsKey: 'rangedDefense' },
+];
+
 export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdateParty, onClose, onTriggerTip }) => {
   const [selectedMerc, setSelectedMerc] = useState<Character | null>(party.mercenaries[0] || null);
-  const [rightTab, setRightTab] = useState<'STASH' | 'PERKS' | 'FORMATION'>('STASH');
+  const [rightTab, setRightTab] = useState<'STASH' | 'PERKS' | 'FORMATION' | 'LEVELUP'>('STASH');
   const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
   const [hoveredPerk, setHoveredPerk] = useState<Perk | null>(null);
   const [selectedTraitId, setSelectedTraitId] = useState<string | null>(null);
+  const [selectedEquipSlot, setSelectedEquipSlot] = useState<keyof Character['equipment'] | null>(null);
+  const [inspectedItem, setInspectedItem] = useState<Item | null>(null);
+  const [levelUpRolls, setLevelUpRolls] = useState<LevelUpRolls | null>(null);
+  const [selectedLevelUpStats, setSelectedLevelUpStats] = useState<LevelUpStatKey[]>([]);
+  const [levelUpBatchTotal, setLevelUpBatchTotal] = useState(0);
 
   // 玩法提示：首次打开队伍管理
   useEffect(() => {
@@ -130,7 +180,81 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
   useEffect(() => {
       setSelectedTraitId(null);
+      setSelectedEquipSlot(null);
+      setInspectedItem(null);
+      setSelectedLevelUpStats([]);
+      setLevelUpRolls(null);
+      setLevelUpBatchTotal(selectedMerc?.pendingLevelUps ?? 0);
+      if ((selectedMerc?.pendingLevelUps ?? 0) > 0) {
+          setRightTab('LEVELUP');
+      }
   }, [selectedMerc?.id]);
+
+  useEffect(() => {
+      if (!selectedMerc || rightTab !== 'LEVELUP') return;
+      if (selectedMerc.pendingLevelUps <= 0) {
+          setSelectedLevelUpStats([]);
+          setLevelUpRolls(null);
+          return;
+      }
+      if (!levelUpRolls) {
+          setLevelUpRolls(generateLevelUpRolls(selectedMerc.stars));
+          setSelectedLevelUpStats([]);
+      }
+  }, [rightTab, selectedMerc, levelUpRolls]);
+
+  const toggleLevelUpStat = (key: LevelUpStatKey) => {
+      setSelectedLevelUpStats(prev => {
+          if (prev.includes(key)) {
+              return prev.filter(s => s !== key);
+          }
+          if (prev.length >= 3) return prev;
+          return [...prev, key];
+      });
+  };
+
+  const handleConfirmLevelUp = () => {
+      if (!selectedMerc || !levelUpRolls || selectedLevelUpStats.length !== 3) return;
+
+      const newMercs = party.mercenaries.map(m => {
+          if (m.id !== selectedMerc.id) return m;
+
+          const updatedStats = { ...m.stats };
+          const updatedMerc: Character = {
+              ...m,
+              stats: updatedStats,
+              pendingLevelUps: Math.max(0, (m.pendingLevelUps ?? 0) - 1),
+          };
+
+          selectedLevelUpStats.forEach((key) => {
+              const gain = levelUpRolls[key];
+              if (key === 'hp') {
+                  updatedMerc.maxHp += gain;
+                  updatedMerc.hp += gain;
+                  return;
+              }
+              if (key === 'fatigue') {
+                  updatedMerc.maxFatigue += gain;
+                  updatedMerc.fatigue += gain;
+                  return;
+              }
+              updatedStats[key as keyof Character['stats']] += gain;
+          });
+
+          return updatedMerc;
+      });
+
+      const updatedParty = { ...party, mercenaries: newMercs };
+      const nextSelectedMerc = newMercs.find(m => m.id === selectedMerc.id) || null;
+      onUpdateParty(updatedParty);
+      setSelectedMerc(nextSelectedMerc);
+      setSelectedLevelUpStats([]);
+      if (nextSelectedMerc && nextSelectedMerc.pendingLevelUps > 0) {
+          setLevelUpRolls(generateLevelUpRolls(nextSelectedMerc.stars));
+      } else {
+          setLevelUpRolls(null);
+      }
+  };
 
   const handleDragStart = (e: React.DragEvent, data: DragData) => {
       e.dataTransfer.setData('text/plain', JSON.stringify(data));
@@ -166,6 +290,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
       setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
       setSelectedStashItem(null);
+      setSelectedEquipSlot(slot);
+      setInspectedItem(data.item);
   };
 
   // 点击式装备
@@ -195,6 +321,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
       setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
       setSelectedStashItem(null);
+      setSelectedEquipSlot(slot);
+      setInspectedItem(selectedStashItem.item);
   };
 
   // 双击自动穿戴逻辑
@@ -229,6 +357,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
         onUpdateParty({ ...party, mercenaries: newMercs, inventory: newInv });
         setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
         setSelectedStashItem(null);
+        setSelectedEquipSlot(targetSlot);
+        setInspectedItem(item);
     }
   };
 
@@ -250,6 +380,28 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
           inventory: [...party.inventory, item]
       });
       setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
+      setSelectedEquipSlot(null);
+      setInspectedItem(item);
+  };
+
+  const handleEquipSlotClick = (slot: keyof Character['equipment']) => {
+      if (!selectedMerc) return;
+      if (selectedStashItem) {
+          handleEquipFromStash(slot);
+          return;
+      }
+      const slotItem = selectedMerc.equipment[slot];
+      if (!slotItem) {
+          setSelectedEquipSlot(slot);
+          return;
+      }
+      if (selectedEquipSlot === slot) {
+          handleUnequip(slot);
+          return;
+      }
+      setSelectedEquipSlot(slot);
+      setInspectedItem(slotItem);
+      setHoveredItem(null);
   };
 
   // 将角色加入战阵（找第一个空位）
@@ -565,9 +717,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="头盔" 
                                 item={selectedMerc.equipment.helmet}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('helmet') : handleUnequip('helmet')}
+                                onClick={() => handleEquipSlotClick('helmet')}
                                 onDrop={(e) => handleDropOnEquip(e, 'helmet')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'helmet', selectedMerc)}
+                                isSelected={selectedEquipSlot === 'helmet' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
@@ -578,9 +731,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="主手" 
                                 item={selectedMerc.equipment.mainHand}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('mainHand') : handleUnequip('mainHand')}
+                                onClick={() => handleEquipSlotClick('mainHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'mainHand')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'mainHand', selectedMerc)}
+                                isSelected={selectedEquipSlot === 'mainHand' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
@@ -588,9 +742,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="身甲" 
                                 item={selectedMerc.equipment.armor}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('armor') : handleUnequip('armor')}
+                                onClick={() => handleEquipSlotClick('armor')}
                                 onDrop={(e) => handleDropOnEquip(e, 'armor')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'armor', selectedMerc)}
+                                isSelected={selectedEquipSlot === 'armor' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
@@ -598,10 +753,11 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="副手" 
                                 item={selectedMerc.equipment.offHand}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('offHand') : handleUnequip('offHand')}
+                                onClick={() => handleEquipSlotClick('offHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'offHand')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'offHand', selectedMerc)}
                                 locked={!!selectedMerc.equipment.mainHand?.twoHanded}
+                                isSelected={selectedEquipSlot === 'offHand' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
@@ -611,9 +767,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="弹药" 
                                 item={selectedMerc.equipment.ammo}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('ammo') : handleUnequip('ammo')}
+                                onClick={() => handleEquipSlotClick('ammo')}
                                 onDrop={(e) => handleDropOnEquip(e, 'ammo')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'ammo', selectedMerc)}
+                                isSelected={selectedEquipSlot === 'ammo' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
@@ -622,13 +779,26 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 label="饰品" 
                                 item={selectedMerc.equipment.accessory}
                                 onHover={setHoveredItem}
-                                onClick={() => selectedStashItem ? handleEquipFromStash('accessory') : handleUnequip('accessory')}
+                                onClick={() => handleEquipSlotClick('accessory')}
                                 onDrop={(e) => handleDropOnEquip(e, 'accessory')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory', selectedMerc)}
+                                isSelected={selectedEquipSlot === 'accessory' && !selectedStashItem}
                                 dense={isCompactLandscape}
                                 compactFontScale={compactFontScale}
                             />
                         </div>
+                    </div>
+
+                    <div
+                        className={`${isCompactLandscape ? '' : 'px-4 pb-2'} border-b border-amber-900/20`}
+                        style={isCompactLandscape ? {
+                            paddingLeft: `${Math.max(3, Math.round(6 * compactFontScale))}px`,
+                            paddingRight: `${Math.max(3, Math.round(6 * compactFontScale))}px`,
+                            paddingBottom: `${Math.max(2, Math.round(5 * compactFontScale))}px`,
+                        } : undefined}
+                    >
+                        <h3 className={`text-[10px] text-amber-700 uppercase tracking-[0.2em] ${isCompactLandscape ? 'mb-1.5' : 'mb-2'} border-b border-amber-900/20 pb-1`}>装备详情</h3>
+                        <ItemDetailPanel item={inspectedItem} dense={isCompactLandscape} compactFontScale={compactFontScale} />
                     </div>
 
                     {/* === 行军被动效果状态面板 === */}
@@ -895,6 +1065,16 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                     >
                         战阵布置
                     </button>
+                    <button
+                        onClick={() => { setRightTab('LEVELUP'); setSelectedStashItem(null); }}
+                        className={`${isCompactLandscape ? 'px-2.5 text-[10px]' : 'px-3 sm:px-6 md:px-8 text-[11px] md:text-xs'} uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'LEVELUP' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        style={isCompactLandscape ? { fontSize: `clamp(0.56rem, ${1.0 * compactFontScale}vw, 0.68rem)` } : undefined}
+                    >
+                        升级加点
+                        {(selectedMerc?.pendingLevelUps ?? 0) > 0 && (
+                            <span className="ml-1.5 text-[9px] text-red-400 font-mono">({selectedMerc?.pendingLevelUps})</span>
+                        )}
+                    </button>
                 </div>
 
                 <div
@@ -916,7 +1096,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             key={`${item.id}-${i}`}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, { type: 'INVENTORY', index: i, item })}
-                                            onClick={() => setSelectedStashItem(selectedStashItem?.index === i ? null : { item, index: i })}
+                                            onClick={() => {
+                                                const next = selectedStashItem?.index === i ? null : { item, index: i };
+                                                setSelectedStashItem(next);
+                                                setSelectedEquipSlot(null);
+                                                setInspectedItem(next?.item ?? item);
+                                            }}
                                             onDoubleClick={() => handleDoubleClickStashItem(item, i)}
                                             onMouseEnter={() => setHoveredItem(item)}
                                             onMouseLeave={() => setHoveredItem(null)}
@@ -1016,6 +1201,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                             style={isCompactLandscape ? { fontSize: `clamp(0.5rem, ${0.9 * compactFontScale}vw, 0.6rem)` } : undefined}
                                                         >
                                                             {char.name}
+                                                            {(char.pendingLevelUps ?? 0) > 0 && <span className="ml-1 text-[8px] text-red-400">▲</span>}
                                                         </span>
                                                         <span
                                                             className={`text-slate-600 truncate w-full ${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'}`}
@@ -1063,7 +1249,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                 }`}
                                             >
                                                 <div className={`text-xs font-bold truncate ${selectedMerc?.id === m.id ? 'text-amber-400' : 'text-slate-400'}`}>{m.name}</div>
-                                                <div className="text-[9px] text-slate-600">{m.background} · Lv.{m.level}</div>
+                                                <div className="text-[9px] text-slate-600">
+                                                    {m.background} · Lv.{m.level}
+                                                    {(m.pendingLevelUps ?? 0) > 0 && (
+                                                        <span className="ml-1 text-red-400 font-mono">可升级{m.pendingLevelUps}</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         ))
                                     ) : (
@@ -1074,6 +1265,80 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    ) : rightTab === 'LEVELUP' ? (
+                        <div className={`${isCompactLandscape ? 'space-y-2' : 'space-y-4'}`}>
+                            {!selectedMerc ? (
+                                <div className="py-12 text-center text-slate-700 italic">
+                                    <p>请先选择一名战友</p>
+                                </div>
+                            ) : selectedMerc.pendingLevelUps <= 0 ? (
+                                <div className="py-12 text-center text-slate-700 italic">
+                                    <p>当前角色暂无可分配升级点</p>
+                                    <p className="text-xs mt-1">战斗后获得经验并升级可进入此面板</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className={`text-center ${isCompactLandscape ? 'mb-2' : 'mb-4'}`}>
+                                        <h3 className="text-amber-600 font-bold tracking-[0.2em] mb-1">升级加点</h3>
+                                        <p className="text-[10px] text-slate-600">
+                                            第 {Math.max(1, levelUpBatchTotal - selectedMerc.pendingLevelUps + 1)} 次升级（剩余 {selectedMerc.pendingLevelUps} 次）
+                                        </p>
+                                        <p className="text-[10px] text-slate-500 mt-1">请选择 3 项属性并确认</p>
+                                    </div>
+                                    <div className={`grid ${isCompactLandscape ? 'grid-cols-2 gap-1.5' : 'grid-cols-2 gap-2'}`}>
+                                        {LEVEL_UP_STAT_CONFIG.map((stat) => {
+                                            const gain = levelUpRolls?.[stat.key] ?? 0;
+                                            const isPicked = selectedLevelUpStats.includes(stat.key);
+                                            const canPick = isPicked || selectedLevelUpStats.length < 3;
+                                            return (
+                                                <button
+                                                    key={stat.key}
+                                                    type="button"
+                                                    onClick={() => canPick && toggleLevelUpStat(stat.key)}
+                                                    className={`text-left border transition-all ${isCompactLandscape ? 'px-2 py-1.5' : 'px-3 py-2'} ${
+                                                        isPicked
+                                                            ? 'border-emerald-500 bg-emerald-950/20 shadow'
+                                                            : canPick
+                                                                ? 'border-slate-700 bg-black/40 hover:border-slate-500'
+                                                                : 'border-slate-800/60 bg-black/20 opacity-60 cursor-not-allowed'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className={`${isCompactLandscape ? 'text-[10px]' : 'text-xs'} ${isPicked ? 'text-emerald-300' : 'text-slate-300'}`}>
+                                                            {stat.label}
+                                                        </span>
+                                                        <span className={`${isCompactLandscape ? 'text-[10px]' : 'text-xs'} font-mono ${isPicked ? 'text-emerald-300' : 'text-amber-400'}`}>
+                                                            +{gain}
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-1 flex items-center justify-between text-[10px] text-slate-600">
+                                                        <span>当前: {stat.getValue(selectedMerc)}</span>
+                                                        <span>{'★'.repeat(selectedMerc.stars[stat.starsKey])}{'☆'.repeat(3 - selectedMerc.stars[stat.starsKey])}</span>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="pt-2 border-t border-amber-900/20 flex items-center justify-between">
+                                        <span className="text-[10px] text-slate-500">
+                                            已选择 {selectedLevelUpStats.length}/3
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={handleConfirmLevelUp}
+                                            disabled={selectedLevelUpStats.length !== 3}
+                                            className={`px-3 py-1.5 text-xs border transition-all ${
+                                                selectedLevelUpStats.length === 3
+                                                    ? 'border-emerald-600 text-emerald-300 bg-emerald-950/20 hover:bg-emerald-900/20'
+                                                    : 'border-slate-800 text-slate-600 bg-black/30 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            确认加点
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div className={`${isCompactLandscape ? 'space-y-2' : 'space-y-4'}`}>
@@ -1215,6 +1480,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               >
                   {m.name}
                   {m.formationIndex === null && <span className="ml-1 text-[8px] text-red-500">[备]</span>}
+                  {(m.pendingLevelUps ?? 0) > 0 && <span className="ml-1 text-[8px] text-emerald-400">[升{m.pendingLevelUps}]</span>}
               </button>
           ))}
       </div>
@@ -1334,12 +1600,13 @@ interface EquipSlotTextProps {
     onClick: () => void;
     onDrop: (e: React.DragEvent) => void;
     isTarget?: boolean;
+    isSelected?: boolean;
     locked?: boolean; // 双手武器锁定副手
     dense?: boolean;
     compactFontScale?: number;
 }
 
-const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget, locked, dense = false, compactFontScale = 1 }) => (
+const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget, isSelected, locked, dense = false, compactFontScale = 1 }) => (
     <div 
         onClick={locked ? undefined : onClick}
         onDragOver={(e) => e.preventDefault()}
@@ -1351,6 +1618,8 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
                 ? 'border-slate-800/30 bg-slate-950/40 cursor-not-allowed opacity-50'
                 : isTarget 
                     ? 'border-amber-600 bg-amber-950/20 hover:bg-amber-900/30 cursor-pointer' 
+                    : isSelected
+                        ? 'border-amber-500 bg-amber-950/35 ring-1 ring-amber-700/40 cursor-pointer'
                     : item 
                         ? 'border-amber-900/40 bg-black/30 hover:border-amber-700 cursor-pointer' 
                         : 'border-slate-800/50 bg-black/20 hover:border-slate-700 cursor-pointer'
@@ -1393,6 +1662,80 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
                 — {label} —
             </span>
         )}
+    </div>
+);
+
+interface ItemDetailPanelProps {
+    item: Item | null;
+    dense?: boolean;
+    compactFontScale?: number;
+}
+
+const ItemDetailPanel: React.FC<ItemDetailPanelProps> = ({ item, dense = false, compactFontScale = 1 }) => {
+    if (!item) {
+        return (
+            <div className={`${dense ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs'} border border-slate-800/60 bg-black/25 text-slate-600`}>
+                选择仓库或装备栏中的一件装备查看详细属性
+            </div>
+        );
+    }
+
+    return (
+        <div className={`${dense ? 'px-2 py-1.5' : 'px-3 py-2'} border border-amber-900/40 bg-black/40 space-y-1.5`}>
+            <div className="flex justify-between items-center gap-2">
+                <span
+                    className={`font-bold truncate ${dense ? 'text-xs' : 'text-sm'} ${
+                        item.rarity === 'UNIQUE' ? 'text-red-400'
+                        : item.rarity === 'LEGENDARY' ? 'text-amber-300'
+                        : item.rarity === 'EPIC' ? 'text-purple-300'
+                        : item.rarity === 'RARE' ? 'text-sky-300'
+                        : 'text-amber-400'
+                    }`}
+                    style={dense ? { fontSize: `clamp(0.58rem, ${1.0 * compactFontScale}vw, 0.72rem)` } : undefined}
+                >
+                    {item.name}
+                </span>
+                <span className={`shrink-0 px-1.5 py-0.5 text-[9px] border ${getItemRarityClass(item.rarity)}`}>
+                    {getItemRarityName(item.rarity)}
+                </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                <span>{getItemTypeName(item.type)}</span>
+                <span>·</span>
+                <span>价值 {item.value}</span>
+                <span>·</span>
+                <span>负重 {item.weight}</span>
+            </div>
+            <div className={`${dense ? 'text-[10px]' : 'text-[11px]'} text-slate-400 leading-relaxed italic`}>「{item.description}」</div>
+            <div className={`${dense ? 'text-[10px]' : 'text-[11px]'} text-slate-300 space-y-0.5`}>
+                {item.damage && <div>基础杀伤：<span className="text-red-400 font-mono">{item.damage[0]}-{item.damage[1]}</span></div>}
+                {item.armorPen !== undefined && <div>穿甲能力：<span className="text-sky-400 font-mono">{Math.round(item.armorPen * 100)}%</span></div>}
+                {item.armorDmg !== undefined && <div>破甲效率：<span className="text-amber-400 font-mono">{Math.round(item.armorDmg * 100)}%</span></div>}
+                {item.hitChanceMod !== undefined && <div>命中修正：<span className={`${item.hitChanceMod >= 0 ? 'text-emerald-400' : 'text-red-400'} font-mono`}>{item.hitChanceMod >= 0 ? '+' : ''}{item.hitChanceMod}%</span></div>}
+                {item.range !== undefined && <div>攻击距离：<span className="text-slate-200 font-mono">{item.range}</span></div>}
+                {item.defenseBonus !== undefined && <div>近战防御：<span className="text-emerald-400 font-mono">+{item.defenseBonus}</span></div>}
+                {item.rangedBonus !== undefined && <div>远程防御：<span className="text-emerald-400 font-mono">+{item.rangedBonus}</span></div>}
+                {item.durability !== undefined && item.maxDurability > 1 && <div>耐久：<span className="text-slate-200 font-mono">{item.durability}/{item.maxDurability}</span></div>}
+                {item.maxFatiguePenalty !== undefined && <div>负重惩罚：<span className="text-red-400 font-mono">-{item.maxFatiguePenalty}</span></div>}
+                {item.fatigueCost !== undefined && <div>技能体耗：<span className="text-purple-400 font-mono">+{item.fatigueCost}</span></div>}
+                {item.twoHanded && <div className="text-amber-500">双手武器（占用副手）</div>}
+                {item.type === 'CONSUMABLE' && item.effectValue !== undefined && (
+                    <div>
+                        效果：
+                        <span className="text-amber-400 font-mono">
+                            {item.subType === 'FOOD' ? ` 粮食 +${item.effectValue}` : item.subType === 'MEDICINE' ? ` 医药 +${item.effectValue}` : item.subType === 'REPAIR_KIT' ? ` 修甲材料 +${item.effectValue}` : ` +${item.effectValue}`}
+                        </span>
+                    </div>
+                )}
+            </div>
+            {selectedHintText(dense)}
+        </div>
+    );
+};
+
+const selectedHintText = (dense: boolean) => (
+    <div className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-600 pt-1 border-t border-amber-900/20`}>
+        点一次装备看详情，再点同一槽位可穿卸
     </div>
 );
 

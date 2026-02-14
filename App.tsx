@@ -20,6 +20,7 @@ import { ConfirmDialog } from './components/ConfirmDialog.tsx';
 import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
 import { GameTip } from './components/GameTip.tsx';
 import { GameTipData, GAME_TIPS, markTipShown } from './services/tipService.ts';
+import { GMPanel } from './components/GMPanel.tsx';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -100,7 +101,7 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
     maxFatigue: baseFat, morale: MoraleStatus.STEADY,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
-    traits, perks: [], perkPoints: 0,
+    traits, perks: [], perkPoints: 0, pendingLevelUps: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet, ammo: null, accessory: null },
     bag: [null, null, null, null], salary, hireCost, formationIndex
   };
@@ -400,7 +401,8 @@ const generateBattleResult = (
   rounds: number,
   enemyName: string,
   playerUnitsBeforeCombat: Character[],
-  bossLootIds: string[] = []  // Boss巢穴掉落池（红装ID列表）
+  bossLootIds: string[] = [],  // Boss巢穴掉落池（红装ID列表）
+  isRetreat: boolean = false
 ): BattleResult => {
   const enemiesKilled = enemyUnits.filter(u => u.isDead).length;
   const enemiesRouted = enemyUnits.filter(u => !u.isDead && u.morale === MoraleStatus.FLEEING).length;
@@ -522,6 +524,7 @@ const generateBattleResult = (
 
   return {
     victory,
+    isRetreat,
     roundsTotal: rounds,
     enemyName,
     casualties,
@@ -753,6 +756,8 @@ export const App: React.FC = () => {
   const [showContact, setShowContact] = useState(false);
   const [showSystemMenu, setShowSystemMenu] = useState(false);
   const [showReturnMainMenuConfirm, setShowReturnMainMenuConfirm] = useState(false);
+  const [gmOpen, setGmOpen] = useState(false);
+  const gmTapRef = useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
   const systemMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 每日消耗/恢复追踪
@@ -996,6 +1001,10 @@ export const App: React.FC = () => {
           medicine: migratedMedicine,
           repairSupplies: migratedRepair,
           inventory: migratedInventory,
+          mercenaries: (data.party.mercenaries || []).map((merc: Character) => ({
+            ...merc,
+            pendingLevelUps: merc.pendingLevelUps ?? Math.max(0, (merc.level || 1) - 1),
+          })),
           reputation: data.party.reputation ?? 0,
           ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
           moraleModifier: data.party.moraleModifier ?? 0,
@@ -1889,6 +1898,23 @@ export const App: React.FC = () => {
   // 是否是游戏前的菜单/叙事阶段
   const isPreGameView = view === 'MAIN_MENU' || view === 'PROLOGUE' || view === 'ORIGIN_SELECT' || view === 'INTRO_STORY';
 
+  const handleGmTap = useCallback(() => {
+    gmTapRef.current.count += 1;
+    if (gmTapRef.current.timer) {
+      window.clearTimeout(gmTapRef.current.timer);
+    }
+    if (gmTapRef.current.count >= 5) {
+      setGmOpen(true);
+      gmTapRef.current.count = 0;
+      gmTapRef.current.timer = null;
+      return;
+    }
+    gmTapRef.current.timer = window.setTimeout(() => {
+      gmTapRef.current.count = 0;
+      gmTapRef.current.timer = null;
+    }, 2000);
+  }, []);
+
   useEffect(() => {
     if (!showSystemMenu) return;
     const handleClickOutside = (event: MouseEvent) => {
@@ -1899,6 +1925,14 @@ export const App: React.FC = () => {
     window.addEventListener('mousedown', handleClickOutside);
     return () => window.removeEventListener('mousedown', handleClickOutside);
   }, [showSystemMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (gmTapRef.current.timer) {
+        window.clearTimeout(gmTapRef.current.timer);
+      }
+    };
+  }, []);
 
   return (
     <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
@@ -2002,7 +2036,11 @@ export const App: React.FC = () => {
              )}
 
              <div className="flex items-center justify-end gap-3 sm:gap-6">
-                 <div className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1 shrink-0">
+                <div
+                  className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1 shrink-0"
+                  onClick={handleGmTap}
+                  title="调试模式隐藏触发区"
+                >
                      {[0, 1, 2].map(s => (
                          <button key={s} onClick={() => setTimeScale(s)} className={`w-7 sm:w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
                              {s === 0 ? '⏸' : s === 1 ? '▶' : '▶▶'}
@@ -2159,7 +2197,7 @@ export const App: React.FC = () => {
             <CombatView
                 initialState={combatState}
                 onTriggerTip={triggerTip}
-                onCombatEnd={(victory, survivors, enemyUnits, rounds) => {
+                onCombatEnd={(victory, survivors, enemyUnits, rounds, isRetreat = false) => {
                     const result = generateBattleResult(
                       victory,
                       survivors,
@@ -2167,9 +2205,20 @@ export const App: React.FC = () => {
                       rounds,
                       combatEnemyNameRef.current || '未知敌人',
                       party.mercenaries,
-                      combatBossLootIdsRef.current // 传入Boss掉落池
+                      combatBossLootIdsRef.current, // 传入Boss掉落池
+                      isRetreat
                     );
                     setBattleResult(result);
+                    if (isRetreat) {
+                      setParty(p => ({
+                        ...p,
+                        mercenaries: p.mercenaries.map(m => {
+                          const sur = survivors.find(s => s.id === m.id);
+                          if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
+                          return m;
+                        }),
+                      }));
+                    }
                     // 先更新存活者的 HP（从战斗状态同步回来）+ 战斗胜利计数 + 任务目标击杀判定
                     if (victory) {
                       // 标记Boss巢穴为已清除 + 营地摧毁计数
@@ -2522,6 +2571,27 @@ export const App: React.FC = () => {
                     setParty(p => ({ ...p, activeQuest: linkedQuest }));
                 }}
             />
+        )}
+
+        {gmOpen && (
+          <GMPanel
+            party={party}
+            cities={cities}
+            entities={entities}
+            onUpdateParty={setParty}
+            onTeleport={(x, y) => {
+              setParty((p) => ({ ...p, x, y, targetX: null, targetY: null }));
+              setView('WORLD_MAP');
+              setTimeScale(0);
+            }}
+            onKillAllEnemies={() => {
+              setEntities((prev) => prev.filter((e) => e.faction !== 'HOSTILE'));
+            }}
+            onCreateMercenary={(bgKey, forcedName) =>
+              createMercenary(`gm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, forcedName, bgKey, null)
+            }
+            onClose={() => setGmOpen(false)}
+          />
         )}
 
         {/* Post-Combat UI / Interaction Dialogs */}

@@ -52,6 +52,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
   const [compactFontScale, setCompactFontScale] = useState(1);
+  const isRetreatResult = !!result.isRetreat;
   
   // 逐行淡入动画
   const [visibleRows, setVisibleRows] = useState(0);
@@ -174,6 +175,16 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
                 </div>
               )}
             </>
+          ) : isRetreatResult ? (
+            <>
+              <div className="text-4xl mb-2">🏳</div>
+              <h1 className={`${isCompactLandscape ? 'text-lg tracking-[0.2em]' : 'text-2xl tracking-[0.3em]'} font-bold text-orange-400 mb-2`} style={isCompactLandscape ? { fontSize: `clamp(0.92rem, ${2.2 * compactFontScale}vw, 1.2rem)` } : undefined}>
+                成 功 撤 退
+              </h1>
+              <p className="text-base text-orange-400/80 italic">
+                从 {result.enemyName} 处安全撤离
+              </p>
+            </>
           ) : (
             <>
               <div className="text-4xl mb-2">&#9760;</div>
@@ -279,7 +290,11 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
                 </div>
                 {/* XP */}
                 <div className="text-right">
-                  <span className="text-emerald-400 font-bold text-sm">+{s.xpGained} XP</span>
+                  {isRetreatResult ? (
+                    <span className="text-orange-400 font-bold text-sm">已撤离</span>
+                  ) : (
+                    <span className="text-emerald-400 font-bold text-sm">+{s.xpGained} XP</span>
+                  )}
                 </div>
               </div>
             );
@@ -302,6 +317,13 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             >
               {result.lootItems.length > 0 ? '继 续' : '返回世界地图'}
               {result.lootItems.length > 0 && <span className="ml-2 text-amber-300/60">→</span>}
+            </button>
+          ) : isRetreatResult ? (
+            <button
+              onClick={handleComplete}
+              className={`${isCompactLandscape ? 'px-8 py-2 tracking-[0.15em] text-sm' : 'px-12 py-3 tracking-[0.3em]'} bg-orange-900 hover:bg-orange-700 text-white font-bold transition-all shadow-lg border border-orange-600`}
+            >
+              返回世界地图
             </button>
           ) : (
             <button

@@ -339,7 +339,7 @@ const createMercenary = (id: string): Character => {
     morale: 'STEADY' as any,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
-    traits, perks: [], perkPoints: 0,
+    traits, perks: [], perkPoints: 0, pendingLevelUps: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet: null, ammo: null, accessory: null },
     bag: [null, null, null, null], salary, hireCost, formationIndex: null
   };

@@ -20,6 +20,7 @@ import {
   getMoraleDisplayText,
   checkTeamRouted,
   getFleeTargetPosition,
+  getRetreatTargetPosition,
   shouldSkipAction,
   MORALE_ICONS,
   MORALE_COLORS,
@@ -41,7 +42,7 @@ import {
 
 interface CombatViewProps {
   initialState: CombatState;
-  onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number) => void;
+  onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number, isRetreat?: boolean) => void;
   onTriggerTip?: (tipId: string) => void;
 }
 
@@ -406,6 +407,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const hoveredHexRef = useRef<{q:number, r:number} | null>(null);
   const [pendingMoveHex, setPendingMoveHex] = useState<{q:number, r:number} | null>(null);
   const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
+  const [isRetreating, setIsRetreating] = useState(false);
 
   // ==================== 新增：战斗特效状态 ====================
   const [hitUnits, setHitUnits] = useState<Set<string>>(new Set());
@@ -451,7 +453,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     ability: Ability;
   } | null>(null);
   const lastSelfSkillClickRef = useRef<{ skillId: string; time: number } | null>(null);
-  const lastTurnActionClickRef = useRef<{ action: 'wait' | 'end'; time: number } | null>(null);
+  const lastTurnActionClickRef = useRef<{ action: 'wait' | 'end' | 'retreat'; time: number } | null>(null);
 
   const isWaitAbility = (ability: Ability) =>
     ability.id === 'WAIT' ||
@@ -459,13 +461,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     ability.icon === '⏳' ||
     ability.description.includes('推迟行动顺序');
 
-  const requireDoubleClickForTurnAction = (action: 'wait' | 'end', onConfirm: () => void) => {
+  const requireDoubleClickForTurnAction = (action: 'wait' | 'end' | 'retreat', onConfirm: () => void) => {
     const now = Date.now();
     const last = lastTurnActionClickRef.current;
     const isDoubleClick = !!last && last.action === action && now - last.time <= 420;
     lastTurnActionClickRef.current = { action, time: now };
     if (!isDoubleClick) {
-      addToLog(`再次点击${action === 'wait' ? '等待' : '结束回合'}以确认`, 'info');
+      const actionText = action === 'wait' ? '等待' : action === 'end' ? '结束回合' : '撤退';
+      addToLog(`再次点击${actionText}以确认`, 'info');
       return;
     }
     onConfirm();
@@ -1668,6 +1671,160 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex]);
 
   /**
+   * 处理主动撤退单位的自动行动
+   */
+  const executeRetreatAction = useCallback(async (unit: CombatUnit) => {
+    const retreatTarget = getRetreatTargetPosition(unit);
+
+    const isOccupied = (pos: { q: number; r: number }) => state.units.some(u =>
+      !u.isDead &&
+      !u.hasEscaped &&
+      u.id !== unit.id &&
+      u.combatPos.q === pos.q &&
+      u.combatPos.r === pos.r
+    );
+
+    const emptyInBoundsNeighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r)
+      .filter(isHexInBounds)
+      .filter(pos => !isOccupied(pos));
+
+    let finalTarget = retreatTarget;
+    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget)) {
+      const fallback = emptyInBoundsNeighbors.sort(
+        (a, b) => getHexDistance(a, retreatTarget) - getHexDistance(b, retreatTarget)
+      )[0];
+      if (!fallback) {
+        if (isEdgeHex(unit.combatPos)) {
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === unit.id
+                ? { ...u, hasEscaped: true, currentAP: 0 }
+                : u
+            )
+          }));
+          addToLog(`${unit.name} 已脱离战场！`, 'flee');
+          showCenterBanner(`${unit.name} 成功撤离`, '#f87171', '🏳');
+          return;
+        }
+        addToLog(`${unit.name} 撤退路线被阻挡！`, 'flee');
+        return;
+      }
+      finalTarget = fallback;
+    }
+
+    const willEscapeOnMove = isEdgeHex(finalTarget);
+    const zocCheck = checkZoCOnMove(unit, unit.combatPos, finalTarget, state);
+    if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
+      const { results, movementAllowed, totalDamage } = processZoCAttacks(unit, unit.combatPos, state);
+
+      results.forEach((result, index) => {
+        addToLog(getFreeAttackLogText(result), 'intercept');
+        if (!result.hit) {
+          setTimeout(() => {
+            triggerDodgeEffect(unit.id, result.attacker.combatPos, unit.combatPos);
+            setFloatingTexts(prev => [...prev, {
+              id: Date.now() + index * 10,
+              text: 'MISS',
+              x: unit.combatPos.q,
+              y: unit.combatPos.r,
+              color: '#94a3b8',
+              type: 'miss' as FloatingTextType,
+              size: 'md' as const,
+            }]);
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, unit.combatPos.q, unit.combatPos.r, '#475569');
+            setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+          }, index * 150);
+        }
+      });
+
+      setState(prev => {
+        let newUnits = prev.units.map(u => {
+          const usedFreeAttack = results.find(r => r.attacker.id === u.id);
+          if (usedFreeAttack) return { ...u, hasUsedFreeAttack: true };
+          return u;
+        });
+
+        newUnits = newUnits.map(u => {
+          if (u.id !== unit.id) return u;
+
+          const newHp = Math.max(0, u.hp - totalDamage);
+          const isDead = newHp <= 0;
+          let updatedEquipment = { ...u.equipment };
+          results.forEach(r => {
+            if (r.hit && r.damageResult) {
+              const dr = r.damageResult;
+              if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
+                updatedEquipment = {
+                  ...updatedEquipment,
+                  helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
+                };
+              } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
+                updatedEquipment = {
+                  ...updatedEquipment,
+                  armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
+                };
+              }
+            }
+          });
+
+          return {
+            ...u,
+            hp: newHp,
+            isDead,
+            equipment: updatedEquipment,
+            combatPos: movementAllowed && !isDead ? finalTarget : u.combatPos,
+            currentAP: 0,
+            hasEscaped: movementAllowed && !isDead && willEscapeOnMove ? true : u.hasEscaped
+          };
+        });
+
+        return { ...prev, units: newUnits };
+      });
+
+      const wasKilled = results.some(r => r.targetKilled);
+      if (wasKilled) {
+        addToLog(`${unit.name} 在撤退时被截击击杀！`, 'kill');
+        triggerDeathEffect(unit.combatPos.q, unit.combatPos.r);
+        showCenterBanner(`${unit.name} 在撤退时阵亡！`, '#ef4444', '💀');
+      } else if (movementAllowed && willEscapeOnMove) {
+        addToLog(`${unit.name} 顶着截击成功撤离战场！`, 'flee');
+        showCenterBanner(`${unit.name} 成功撤离`, '#f87171', '🏳');
+      } else if (movementAllowed) {
+        addToLog(`${unit.name} 顶着截击继续撤退！`, 'flee');
+      } else {
+        addToLog(`${unit.name} 撤退时被截击阻止！`, 'intercept');
+      }
+
+      if (totalDamage > 0) {
+        setTimeout(() => {
+          results.forEach(result => {
+            if (result.hit) {
+              processDamageWithMorale(unit.id, result.hpDamage, result.attacker.id, result.damageResult);
+            }
+          });
+        }, 100);
+      }
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      units: prev.units.map(u =>
+        u.id === unit.id
+          ? { ...u, combatPos: finalTarget, currentAP: 0, hasEscaped: willEscapeOnMove ? true : u.hasEscaped }
+          : u
+      )
+    }));
+    if (willEscapeOnMove) {
+      addToLog(`${unit.name} 撤到边缘，成功脱离战场！`, 'flee');
+      showCenterBanner(`${unit.name} 成功撤离`, '#f87171', '🏳');
+    } else {
+      addToLog(`${unit.name} 正在向边缘撤退。`, 'flee');
+    }
+  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex]);
+
+  /**
    * 回合开始时的士气恢复检定
    */
   const processTurnStartMorale = useCallback((unit: CombatUnit): MoraleStatus => {
@@ -1825,6 +1982,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (activeUnit.team === 'PLAYER') {
       console.log('[AI] 玩家回合，跳过');
       isProcessingAI.current = false;
+
+      if (isRetreating) {
+        setTimeout(async () => {
+          await executeRetreatAction(activeUnit);
+          await new Promise(r => setTimeout(r, 500));
+          nextTurn();
+        }, 300);
+        return;
+      }
       
       // 玩家回合开始时，处理逃跑单位和士气恢复
       const moraleAfterRecovery = processTurnStartMorale(activeUnit);
@@ -2183,7 +2349,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       clearTimeout(timeoutId);
       isProcessingAI.current = false;
     };
-  }, [activeUnit?.id]); // 只依赖 activeUnit 的 id 变化
+  }, [activeUnit?.id, isRetreating]); // 回合切换或进入撤退模式时重新评估
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0) { isDraggingRef.current = true; dragStartRef.current = { x: e.clientX, y: e.clientY }; }
@@ -3297,13 +3463,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(true, survivors, enemyUnits, state.round);
     } else if (noPlayersAlive) {
-      // 玩家全部阵亡才判定失败（逃跑不算失败）
+      // 玩家场上已无可行动单位（可能为全灭，也可能为全员撤离）
       combatEndedRef.current = true;
       const survivors = state.units.filter(u => u.team === 'PLAYER' && u.hasEscaped);
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
-      onCombatEnd(false, survivors, enemyUnits, state.round);
+      onCombatEnd(false, survivors, enemyUnits, state.round, isRetreating);
     }
-  }, [state.units]);
+  }, [state.units, isRetreating]);
 
   // ==================== 键盘快捷键 ====================
   useEffect(() => {
@@ -3484,6 +3650,26 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         >
           {showUnitDetail ? '隐藏详情' : '显示详情'}
         </button>
+        {isPlayerTurn && activeUnit && (
+          <button
+            type="button"
+            onClick={() => requireDoubleClickForTurnAction('retreat', () => {
+              if (isRetreating) return;
+              setIsRetreating(true);
+              addToLog('全军开始撤退，单位将自动向边缘移动。', 'flee');
+              showCenterBanner('全军撤退！', '#f87171', '🏳');
+            })}
+            disabled={isRetreating}
+            title={isRetreating ? '撤退进行中' : '全军撤退'}
+            className={`${isCompactLandscape ? 'top-1 right-16 px-2 py-0.5 text-[9px]' : isMobile ? 'top-2 right-20 px-2.5 py-1 text-[10px]' : 'top-2 right-24 px-3 py-1 text-[11px]'} absolute z-[70] rounded border transition-colors
+              ${isRetreating
+                ? 'border-red-900/40 bg-black/70 text-red-500 cursor-not-allowed'
+                : 'border-red-700/60 bg-black/75 text-red-300 hover:bg-red-950/40'
+              }`}
+          >
+            🏳 {isRetreating ? '撤退中' : '撤退'}
+          </button>
+        )}
 
         {/* 移动端操作提示 */}
         {isMobile && isPlayerTurn && activeUnit && (

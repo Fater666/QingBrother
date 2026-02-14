@@ -484,11 +484,43 @@ export const getXPForNextLevel = (level: number): number => {
   return XP_PER_LEVEL[XP_PER_LEVEL.length - 1] + (level - XP_PER_LEVEL.length) * 500;
 };
 
+export type LevelUpStatKey =
+  | 'hp'
+  | 'fatigue'
+  | 'resolve'
+  | 'initiative'
+  | 'meleeSkill'
+  | 'rangedSkill'
+  | 'meleeDefense'
+  | 'rangedDefense';
+
+export type LevelUpRolls = Record<LevelUpStatKey, number>;
+
+/** 根据星级生成本次升级的 8 项属性随机增幅（仿战场兄弟） */
+export const generateLevelUpRolls = (stars: Character['stars']): LevelUpRolls => {
+  const rollForStar = (star: number): number => {
+    const min = 1 + star;
+    const max = 3 + star;
+    return min + Math.floor(Math.random() * (max - min + 1));
+  };
+
+  return {
+    hp: rollForStar(stars.hp),
+    fatigue: rollForStar(stars.fatigue),
+    resolve: rollForStar(stars.resolve),
+    initiative: rollForStar(stars.initiative),
+    meleeSkill: rollForStar(stars.meleeSkill),
+    rangedSkill: rollForStar(stars.rangedSkill),
+    meleeDefense: rollForStar(stars.meleeDefense),
+    rangedDefense: rollForStar(stars.rangedDefense),
+  };
+};
+
 /**
  * 检查并执行连续升级（可能一次获得大量XP跳多级）
- * 每升一级：perkPoints +1
+ * 每升一级：perkPoints +1，pendingLevelUps +1
  * 学徒(student)在 Lv11 时自动返还技能点
- * @returns 升级后的角色（level/perkPoints/xp 已更新）
+ * @returns 升级后的角色（level/perkPoints/pendingLevelUps/xp 已更新）
  */
 export const checkLevelUp = (char: Character): { char: Character; levelsGained: number } => {
   let updated = { ...char };
@@ -500,6 +532,7 @@ export const checkLevelUp = (char: Character): { char: Character; levelsGained: 
       updated.xp -= xpNeeded;
       updated.level += 1;
       updated.perkPoints += 1;
+      updated.pendingLevelUps = (updated.pendingLevelUps ?? 0) + 1;
       levelsGained += 1;
       // 学徒在指定等级返还技能点
       if (updated.level === studentReturnLv && updated.perks.includes('student')) {
