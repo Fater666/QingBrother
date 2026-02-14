@@ -17,7 +17,7 @@ import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPric
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
 import { ConfirmDialog } from './components/ConfirmDialog.tsx';
-import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect, getAmbitionProgress, getAmbitionTypeInfo } from './services/ambitionService.ts';
+import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbition, cancelAmbition, checkAmbitionComplete, shouldShowAmbitionSelect } from './services/ambitionService.ts';
 import { GameTip } from './components/GameTip.tsx';
 import { GameTipData, GAME_TIPS, markTipShown } from './services/tipService.ts';
 import { GMPanel } from './components/GMPanel.tsx';
@@ -113,6 +113,9 @@ const generateMap = (): { tiles: WorldTile[], cities: City[] } => {
   console.log(`[地图生成] 种子: ${result.seed}, 城市数: ${result.cities.length}`);
   return { tiles: result.tiles, cities: result.cities };
 };
+
+const clampWorldCoord = (value: number): number => Math.max(0, Math.min(MAP_SIZE - 0.001, value));
+const clampWorldTile = (value: number): number => Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(value)));
 
 // ==================== 巢穴系统（仿战场兄弟） ====================
 
@@ -1334,7 +1337,13 @@ export const App: React.FC = () => {
             const dx = party.targetX - party.x, dy = party.targetY - party.y, dist = Math.hypot(dx, dy);
             if (dist > 0.1) {
                 const step = 1.8 * timeScale * dt;
-                setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.0015 * timeScale }));
+                const ratio = Math.min(1, step / dist);
+                setParty(p => ({
+                  ...p,
+                  x: clampWorldCoord(p.x + dx * ratio),
+                  y: clampWorldCoord(p.y + dy * ratio),
+                  day: p.day + 0.0015 * timeScale
+                }));
             } else {
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
@@ -1953,9 +1962,6 @@ export const App: React.FC = () => {
     setTimeout(() => setView('WORLD_MAP'), 800);
   }, [introComplete, introStoryLines]);
 
-  // 是否是游戏前的菜单/叙事阶段
-  const isPreGameView = view === 'MAIN_MENU' || view === 'PROLOGUE' || view === 'ORIGIN_SELECT' || view === 'INTRO_STORY';
-
   const handleGmTap = useCallback(() => {
     gmTapRef.current.count += 1;
     if (gmTapRef.current.timer) {
@@ -1992,123 +1998,11 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  const dailyWages = party.mercenaries.reduce((sum, m) => sum + m.salary, 0);
+  const dailyFood = party.mercenaries.length;
+
   return (
     <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
-      {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
-      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && view !== 'CAMP' && view !== 'CITY' && (
-          <nav className="bg-black border-b border-amber-900/40 px-2 sm:px-3 py-1 sm:py-0 sm:h-8 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-             <div className="flex flex-wrap items-center gap-1 sm:gap-2">
-                <button
-                  onClick={() => setView('CAMP')}
-                  className="px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
-                >
-                  战团营地
-                </button>
-                <button
-                  onClick={() => setView('WORLD_MAP')}
-                  className="px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border text-amber-500 border-amber-900/40 hover:border-amber-500 hover:bg-amber-900/20"
-                >
-                  返回地图
-                </button>
-                <div className="relative sm:ml-2" ref={systemMenuRef}>
-                  <button
-                    onClick={() => setShowSystemMenu(v => !v)}
-                    className={`px-2 sm:px-2.5 py-0.5 text-[10px] sm:text-[10px] font-bold transition-all border uppercase tracking-[0.2em] ${
-                      showSystemMenu
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'text-amber-500 border-amber-700/60 hover:border-amber-500 hover:bg-amber-900/20'
-                    }`}
-                  >
-                    系统
-                  </button>
-                  {showSystemMenu && (
-                    <div className="absolute top-full left-0 mt-2 min-w-40 bg-[#120d09]/95 border border-amber-900/50 shadow-2xl z-[120] p-1.5 flex flex-col gap-1">
-                      <button
-                        onClick={() => {
-                          setSaveLoadMode('SAVE');
-                          setShowSystemMenu(false);
-                        }}
-                        className="px-3 py-1.5 text-left text-[11px] text-emerald-400 border border-transparent hover:border-emerald-700/50 hover:bg-emerald-900/20 transition-all"
-                      >
-                        存档
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSaveLoadMode('LOAD');
-                          setShowSystemMenu(false);
-                        }}
-                        className="px-3 py-1.5 text-left text-[11px] text-blue-400 border border-transparent hover:border-blue-700/50 hover:bg-blue-900/20 transition-all"
-                      >
-                        读档
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowContact(true);
-                          setShowSystemMenu(false);
-                        }}
-                        className="px-3 py-1.5 text-left text-[11px] text-amber-400 border border-transparent hover:border-amber-700/50 hover:bg-amber-900/20 transition-all"
-                      >
-                        联系开发者
-                      </button>
-                      <div className="my-1 border-t border-amber-900/40" />
-                      <button
-                        onClick={() => {
-                          setShowSystemMenu(false);
-                          setShowReturnMainMenuConfirm(true);
-                        }}
-                        className="px-3 py-1.5 text-left text-[11px] text-slate-400 border border-transparent hover:border-slate-600 hover:bg-slate-800/40 transition-all"
-                      >
-                        返回主菜单
-                      </button>
-                    </div>
-                  )}
-                </div>
-             </div>
-
-             {/* 当前野心 */}
-             {party.ambitionState.currentAmbition && (
-               <div className="flex items-center gap-2 text-xs">
-                 <span className="text-[9px] text-amber-700 uppercase tracking-widest hidden sm:inline">志向</span>
-                 <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] sm:text-xs text-amber-400 border border-amber-900/40 bg-amber-950/20">
-                   <span className="flex items-center gap-1">
-                     {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon} {party.ambitionState.currentAmbition.name}
-                     {(() => {
-                       const progress = getAmbitionProgress(party);
-                       return progress ? <span className="ml-1 text-[10px] text-amber-600">({progress})</span> : null;
-                     })()}
-                   </span>
-                   <div className="w-px h-3 bg-amber-900/40 mx-0.5" />
-                   <button
-                     onClick={() => {
-                       if (window.confirm('确定要放弃当前的志向吗？这会降低全员士气。')) {
-                         handleAmbitionCancel();
-                       }
-                     }}
-                     className="text-[10px] text-red-700 hover:text-red-500 transition-colors uppercase tracking-tighter"
-                     title="放弃当前志向（会降低全员士气）"
-                   >
-                     放弃
-                   </button>
-                 </div>
-               </div>
-             )}
-
-             <div className="flex items-center justify-end gap-3 sm:gap-6">
-                <div
-                  className="flex bg-slate-900/50 rounded-sm border border-white/5 p-1 shrink-0"
-                  onClick={handleGmTap}
-                  title="调试模式隐藏触发区"
-                >
-                     {[0, 1, 2].map(s => (
-                         <button key={s} onClick={() => setTimeScale(s)} className={`w-7 sm:w-8 h-6 flex items-center justify-center text-[10px] transition-all ${timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-                             {s === 0 ? '⏸' : s === 1 ? '▶' : '▶▶'}
-                         </button>
-                     ))}
-                 </div>
-             </div>
-          </nav>
-      )}
-
       <main className="flex-1 relative overflow-hidden flex flex-col">
         {/* ===== 主菜单 ===== */}
         {view === 'MAIN_MENU' && (
@@ -2241,15 +2135,128 @@ export const App: React.FC = () => {
                 party={party} 
                 entities={entities} 
                 cities={cities}
+                onCancelAmbition={() => {
+                  if (window.confirm('确定要放弃当前的志向吗？这会降低全员士气。')) {
+                    handleAmbitionCancel();
+                  }
+                }}
                 onSetTarget={(x, y) => {
                   // 护送任务期间禁止手动设置目标，强制跟随任务商队
                   if (party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted) {
                     return;
                   }
-                  setParty(p => ({ ...p, targetX: x, targetY: y }));
-                  setTimeScale(1);
+                  setParty(p => ({ ...p, targetX: clampWorldTile(x), targetY: clampWorldTile(y) }));
                 }} 
             />
+        )}
+        {view === 'WORLD_MAP' && gameInitialized && (
+          <>
+            <div className="absolute top-0 left-0 right-0 z-[90] pointer-events-none">
+              <div className="pointer-events-auto bg-black/75 border-b border-amber-900/40 px-2 sm:px-3 py-1 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs font-mono whitespace-nowrap">
+                  <span className="text-amber-500">第{Math.floor(party.day)}天</span>
+                  <span className="text-amber-500">
+                    💰 {party.gold}
+                    {dailyWages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyWages}</span>}
+                  </span>
+                  <span className="text-emerald-500">
+                    🌾 {party.food}
+                    {dailyFood > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyFood}</span>}
+                  </span>
+                  <span className={party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}>
+                    💊 {party.medicine}
+                  </span>
+                  <span className={party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}>
+                    🔧 {party.repairSupplies}
+                  </span>
+                  <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
+                  <span className="text-yellow-600">望: {party.reputation}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setView('CAMP')}
+                    className="px-2.5 py-1 text-[10px] font-bold transition-all border text-amber-500 border-amber-900/40 bg-black/70 hover:border-amber-500 hover:bg-amber-900/20"
+                  >
+                    进入营地
+                  </button>
+                  <div className="relative" ref={systemMenuRef}>
+                    <button
+                      onClick={() => setShowSystemMenu(v => !v)}
+                      className={`px-2.5 py-1 text-[10px] font-bold transition-all border uppercase tracking-[0.2em] ${
+                        showSystemMenu
+                          ? 'bg-amber-600 text-white border-amber-500'
+                          : 'text-amber-500 border-amber-700/60 bg-black/70 hover:border-amber-500 hover:bg-amber-900/20'
+                      }`}
+                    >
+                      系统
+                    </button>
+                    {showSystemMenu && (
+                      <div className="absolute top-full right-0 mt-1.5 min-w-40 bg-[#120d09]/95 border border-amber-900/50 shadow-2xl z-[120] p-1.5 flex flex-col gap-1">
+                        <button
+                          onClick={() => {
+                            setSaveLoadMode('SAVE');
+                            setShowSystemMenu(false);
+                          }}
+                          className="px-3 py-1.5 text-left text-[11px] text-emerald-400 border border-transparent hover:border-emerald-700/50 hover:bg-emerald-900/20 transition-all"
+                        >
+                          存档
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSaveLoadMode('LOAD');
+                            setShowSystemMenu(false);
+                          }}
+                          className="px-3 py-1.5 text-left text-[11px] text-blue-400 border border-transparent hover:border-blue-700/50 hover:bg-blue-900/20 transition-all"
+                        >
+                          读档
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowContact(true);
+                            setShowSystemMenu(false);
+                          }}
+                          className="px-3 py-1.5 text-left text-[11px] text-amber-400 border border-transparent hover:border-amber-700/50 hover:bg-amber-900/20 transition-all"
+                        >
+                          联系开发者
+                        </button>
+                        <div className="my-1 border-t border-amber-900/40" />
+                        <button
+                          onClick={() => {
+                            setShowSystemMenu(false);
+                            setShowReturnMainMenuConfirm(true);
+                          }}
+                          className="px-3 py-1.5 text-left text-[11px] text-slate-400 border border-transparent hover:border-slate-600 hover:bg-slate-800/40 transition-all"
+                        >
+                          返回主菜单
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-[90] pointer-events-auto">
+              <div
+                className="flex bg-black/75 rounded-t-sm border border-b-0 border-amber-900/40 px-1 py-0.5"
+                onClick={handleGmTap}
+                title="调试模式隐藏触发区"
+              >
+                {[0, 1, 2].map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setTimeScale(s)}
+                    className={`w-7 h-6 flex items-center justify-center text-[10px] transition-all ${
+                      timeScale === s ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {s === 0 ? '⏸' : s === 1 ? '▶' : '▶▶'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
         )}
         {view === 'COMBAT' && combatState && (
             <CombatView

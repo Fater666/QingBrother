@@ -1153,9 +1153,10 @@ interface WorldMapProps {
   entities: WorldEntity[];
   cities: City[];
   onSetTarget: (x: number, y: number) => void;
+  onCancelAmbition?: () => void;
 }
 
-export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, cities, onSetTarget }) => {
+export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, cities, onSetTarget, onCancelAmbition }) => {
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH);
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
@@ -1340,8 +1341,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
     
     const worldX = (clickX / tileSize) + (cameraRef.current.x - viewportWidth / 2);
     const worldY = (clickY / tileSize) + (cameraRef.current.y - viewportHeight / 2);
-
-    onSetTarget(Math.floor(worldX), Math.floor(worldY));
+    const targetX = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(worldX)));
+    const targetY = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(worldY)));
+    onSetTarget(targetX, targetY);
   }, [onSetTarget]);
 
   // ============================================================================
@@ -1735,12 +1737,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
         </div>
       )}
       
-      {/* 左上角资源面板已移至顶部导航栏统一显示 */}
-
       {/* ===== 右上角信息面板：契约 + 志向（上下 + 收起） ===== */}
       {(party.activeQuest || party.ambitionState.currentAmbition) && (
         <div
-          className={`absolute ${isCompactLandscape ? 'top-1 right-1' : 'top-3 right-3'} z-50 pointer-events-auto`}
+          className={`absolute ${isCompactLandscape ? 'top-10 right-1' : 'top-12 right-3'} z-50 pointer-events-auto`}
           style={{
             maxWidth: isCompactLandscape ? 'min(96vw, 620px)' : 'min(94vw, 760px)',
             transform: `scale(${isCompactLandscape ? 0.9 : 0.82})`,
@@ -1980,6 +1980,18 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                   </div>
                 ) : null;
               })()}
+              {onCancelAmbition && (
+                <div className={`${isCompactLandscape ? 'pt-1' : 'pt-1.5'} border-t border-red-900/20`}>
+                  <button
+                    type="button"
+                    onClick={onCancelAmbition}
+                    className="w-full px-2 py-1 text-[10px] text-red-400 border border-red-900/40 bg-red-950/20 hover:bg-red-900/30 hover:border-red-700/50 transition-colors pointer-events-auto"
+                    title="放弃当前志向（会降低全员士气）"
+                  >
+                    放弃志向
+                  </button>
+                </div>
+              )}
             </div>
                   </div>
                 )}
@@ -2004,32 +2016,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
                   <span className="text-slate-700 mx-1.5">|</span>
                   <span className="text-slate-500">({playerTileX}, {playerTileY})</span>
                 </div>
-              </div>
-            </div>
-            
-            {/* 中间：天数 + 资源/每日补给 */}
-            <div className="flex flex-col items-center gap-1.5">
-              <div className="text-3xl font-bold text-amber-600 font-serif tracking-widest"
-                   style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
-                第 {Math.floor(party.day)} 天
-              </div>
-              <div className="flex gap-2 sm:gap-3 text-[11px] sm:text-xs font-mono items-center whitespace-nowrap">
-                <span className="text-amber-500">
-                  💰 {party.gold}
-                  {dailyWages > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyWages}</span>}
-                </span>
-                <span className="text-emerald-500">
-                  🌾 {party.food}
-                  {dailyFood > 0 && <span className="text-red-400/70 text-[10px] ml-0.5">-{dailyFood}</span>}
-                </span>
-                <span className={party.medicine > 0 ? 'text-sky-400' : 'text-slate-600'}>
-                  💊 {party.medicine}
-                </span>
-                <span className={party.repairSupplies > 0 ? 'text-orange-400' : 'text-slate-600'}>
-                  🔧 {party.repairSupplies}
-                </span>
-                <span className="text-slate-400 hidden sm:inline">伍: {party.mercenaries.length}人</span>
-                <span className="text-yellow-600">望: {party.reputation}</span>
               </div>
             </div>
             
@@ -2060,7 +2046,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       </div>
       
       {/* ===== 小地图 (Minimap) ===== */}
-      <div className={`absolute ${isCompactLandscape ? 'top-2 left-2' : 'top-4 left-4'} z-50`}>
+      <div className={`absolute ${isCompactLandscape ? 'top-10 left-2' : 'top-12 left-4'} z-50`}>
         <button
           onClick={() => setIsMinimapVisible(v => !v)}
           className="pointer-events-auto px-2 py-1 text-[10px] tracking-wide border border-amber-900/60 bg-[#0f0d0a]/80 text-amber-500 hover:text-amber-300 hover:border-amber-700 transition-colors"
