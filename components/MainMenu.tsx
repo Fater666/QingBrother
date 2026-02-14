@@ -32,6 +32,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
   const [showButtons, setShowButtons] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   const [showContact, setShowContact] = useState(false);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
   const [quoteIndex] = useState(() => Math.floor(Math.random() * QUOTES.length));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const embersRef = useRef<Ember[]>([]);
@@ -43,6 +46,33 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
     const t2 = setTimeout(() => setShowQuote(true), 1200);
     const t3 = setTimeout(() => setShowButtons(true), 2000);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []);
+
+  // 手机横屏统一判定 + DPR 归一化缩放
+  useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const landscape = vw > vh;
+      const compact = coarse && landscape;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+
+      setIsMobileLayout(coarse || vw < 1024);
+      setIsCompactLandscape(compact);
+      setCompactFontScale(scale);
+    };
+
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
   }, []);
 
   // 余烬粒子效果
@@ -60,7 +90,6 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
     window.addEventListener('resize', resize);
 
     const spawnEmber = () => {
-      const side = Math.random();
       embersRef.current.push({
         x: Math.random() * canvas.width,
         y: canvas.height + 10,
@@ -116,6 +145,22 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
     };
   }, []);
 
+  const compactButtonWrapStyle = isCompactLandscape
+    ? { width: `min(100%, ${Math.max(210, Math.round(320 * compactFontScale))}px)` }
+    : undefined;
+
+  const compactTitleStyle = isCompactLandscape
+    ? { fontSize: `clamp(2.2rem, ${6.2 * compactFontScale}vw, 3.3rem)` }
+    : undefined;
+
+  const compactSubTitleStyle = isCompactLandscape
+    ? { fontSize: `clamp(1rem, ${2.8 * compactFontScale}vw, 1.6rem)` }
+    : undefined;
+
+  const compactQuoteStyle = isCompactLandscape
+    ? { fontSize: `clamp(0.64rem, ${1.45 * compactFontScale}vw, 0.8rem)` }
+    : undefined;
+
   return (
     <div className="fixed inset-0 bg-black overflow-hidden select-none" style={{ fontFamily: "'Noto Serif SC', serif" }}>
       {/* 粒子画布 */}
@@ -132,104 +177,118 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
       />
 
       {/* 底部淡出渐变 */}
-      <div className="absolute bottom-0 left-0 right-0 h-60 z-10"
+      <div className={`absolute bottom-0 left-0 right-0 z-10 ${isCompactLandscape ? 'h-28' : 'h-60'}`}
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' }}
       />
 
       {/* 版本信息：固定左下角，不参与布局、不挡按钮 */}
-      <div className={`fixed bottom-4 left-4 z-10 flex flex-col items-start gap-1 transition-all duration-[2000ms] delay-[2500ms] ${showButtons ? 'opacity-40' : 'opacity-0'} pointer-events-none`}>
-        <p className="text-[10px] text-slate-600 tracking-[0.3em] uppercase">Version 1.0.0 — 战国项目组</p>
+      <div className={`fixed z-10 flex flex-col items-start gap-1 transition-all duration-[2000ms] delay-[2500ms] ${isCompactLandscape ? 'bottom-2 left-2' : 'bottom-4 left-4'} ${showButtons ? 'opacity-40' : 'opacity-0'} pointer-events-none`}>
+        <p className={`${isCompactLandscape ? 'text-[9px] tracking-[0.22em]' : 'text-[10px] tracking-[0.3em]'} text-slate-600 uppercase`}>Version 1.0.0 — 战国项目组</p>
       </div>
 
       {/* 主内容区 */}
-      <div className="relative z-20 flex flex-col items-center justify-center h-full px-8">
-        
-        {/* 装饰性上边线 */}
-        <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 w-64' : 'opacity-0 w-0'}`}>
-          <div className="h-px bg-gradient-to-r from-transparent via-amber-700/60 to-transparent mb-8" />
-        </div>
+      <div
+        className={`relative z-20 flex flex-col items-center justify-center h-full min-h-0 px-4 ${
+          isCompactLandscape ? 'py-2 sm:px-5' : 'sm:px-8'
+        } ${isMobileLayout && !isCompactLandscape ? 'py-6' : ''}`}
+      >
+        <div className="w-full max-w-5xl flex flex-col items-center">
+          {/* 装饰性上边线 */}
+          <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 w-52 sm:w-64' : 'opacity-0 w-0'}`}>
+            <div className={`${isCompactLandscape ? 'mb-4' : 'mb-8'} h-px bg-gradient-to-r from-transparent via-amber-700/60 to-transparent`} />
+          </div>
 
-        {/* 游戏副标题 */}
-        <div className={`transition-all duration-[1500ms] ease-out ${showContent ? 'opacity-70 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
-          <p className="text-amber-600/70 text-sm tracking-[1em] uppercase mb-4">Warring States</p>
-        </div>
+          {/* 游戏副标题 */}
+          <div className={`transition-all duration-[1500ms] ease-out ${showContent ? 'opacity-70 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+            <p
+              className={`${isCompactLandscape ? 'mb-2 text-[11px] tracking-[0.72em]' : 'mb-4 text-sm tracking-[1em]'} text-amber-600/70 uppercase`}
+            >
+              Warring States
+            </p>
+          </div>
 
-        {/* 游戏标题 */}
-        <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'}`}>
-          <h1 className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text mb-2 tracking-[0.15em] leading-tight text-center"
-            style={{ 
-              backgroundImage: 'linear-gradient(180deg, #d4a44a 0%, #b8860b 40%, #8b6508 100%)',
-              textShadow: '0 0 80px rgba(212,164,74,0.3)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            战国
-          </h1>
-          <h2 className="text-2xl md:text-3xl text-amber-600/90 tracking-[0.5em] text-center font-light mt-2"
-            style={{ textShadow: '0 0 40px rgba(180,130,50,0.2)' }}
-          >
-            与伍同行
-          </h2>
-        </div>
+          {/* 游戏标题 */}
+          <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'}`}>
+            <h1
+              className={`${isCompactLandscape ? 'mb-1 tracking-[0.12em]' : 'mb-2 text-6xl md:text-7xl tracking-[0.15em]'} font-bold text-transparent bg-clip-text leading-tight text-center`}
+              style={{
+                ...compactTitleStyle,
+                backgroundImage: 'linear-gradient(180deg, #d4a44a 0%, #b8860b 40%, #8b6508 100%)',
+                textShadow: '0 0 80px rgba(212,164,74,0.3)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              战国
+            </h1>
+            <h2
+              className={`${isCompactLandscape ? 'mt-1 tracking-[0.28em]' : 'mt-2 text-2xl md:text-3xl tracking-[0.5em]'} text-amber-600/90 text-center font-light`}
+              style={{ ...compactSubTitleStyle, textShadow: '0 0 40px rgba(180,130,50,0.2)' }}
+            >
+              与伍同行
+            </h2>
+          </div>
 
-        {/* 装饰性分隔线 */}
-        <div className={`flex items-center gap-4 my-8 transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 w-80' : 'opacity-0 w-0'}`}>
-          <div className="flex-1 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
-          <div className="w-2 h-2 rotate-45 border border-amber-700/50" />
-          <div className="flex-1 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
-        </div>
+          {/* 装饰性分隔线 */}
+          <div className={`flex items-center gap-4 transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'my-4 w-64 sm:w-80' : 'my-8 w-80'} ${showContent ? 'opacity-100' : 'opacity-0 w-0'}`}>
+            <div className="flex-1 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
+            <div className="w-2 h-2 rotate-45 border border-amber-700/50" />
+            <div className="flex-1 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
+          </div>
 
-        {/* 古诗引言 */}
-        <div className={`transition-all duration-[2000ms] ease-out mb-12 ${showQuote ? 'opacity-60 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <p className="text-amber-500/50 text-sm tracking-widest italic text-center max-w-md">
-            {QUOTES[quoteIndex]}
-          </p>
-        </div>
+          {/* 古诗引言 */}
+          <div className={`transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'mb-6 px-2' : 'mb-12'} ${showQuote ? 'opacity-60 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+            <p className={`${isCompactLandscape ? 'max-w-sm tracking-[0.16em]' : 'max-w-md text-sm tracking-widest'} text-amber-500/50 italic text-center`} style={compactQuoteStyle}>
+              {QUOTES[quoteIndex]}
+            </p>
+          </div>
 
-        {/* 菜单按钮区 */}
-        <div className={`flex flex-col items-center gap-4 transition-all duration-[1500ms] ease-out ${showButtons ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-          
-          {/* 新战役 */}
-          <button 
-            onClick={onNewGame}
-            className="group relative w-72 py-4 text-center overflow-hidden"
-          >
-            <div className="absolute inset-0 border border-amber-700/40 group-hover:border-amber-500/80 transition-all duration-500" />
-            <div className="absolute inset-0 bg-amber-900/0 group-hover:bg-amber-900/20 transition-all duration-500" />
-            <div className="absolute inset-y-0 left-0 w-0 group-hover:w-full bg-gradient-to-r from-amber-800/10 to-transparent transition-all duration-700" />
-            <span className="relative text-amber-500 group-hover:text-amber-300 text-lg tracking-[0.4em] font-bold transition-colors duration-300">
-              新 战 役
-            </span>
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-hover:w-3/4 h-px bg-gradient-to-r from-transparent via-amber-500 to-transparent transition-all duration-500" />
-          </button>
+          {/* 菜单按钮区 */}
+          <div className="w-full flex items-center justify-center">
+            <div className={`flex flex-col items-center gap-3 sm:gap-4 transition-all duration-[1500ms] ease-out ${showButtons ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`} style={compactButtonWrapStyle}>
+              {/* 新战役 */}
+              <button
+                onClick={onNewGame}
+                className={`group relative ${isCompactLandscape ? 'w-full py-2.5' : 'w-72 py-4'} text-center overflow-hidden`}
+                style={isCompactLandscape ? { paddingTop: `${Math.max(7, Math.round(11 * compactFontScale))}px`, paddingBottom: `${Math.max(7, Math.round(11 * compactFontScale))}px` } : undefined}
+              >
+                <div className="absolute inset-0 border border-amber-700/40 group-hover:border-amber-500/80 transition-all duration-500" />
+                <div className="absolute inset-0 bg-amber-900/0 group-hover:bg-amber-900/20 transition-all duration-500" />
+                <div className="absolute inset-y-0 left-0 w-0 group-hover:w-full bg-gradient-to-r from-amber-800/10 to-transparent transition-all duration-700" />
+                <span className={`${isCompactLandscape ? 'text-base tracking-[0.25em]' : 'text-lg tracking-[0.4em]'} relative text-amber-500 group-hover:text-amber-300 font-bold transition-colors duration-300`}>
+                  新 战 役
+                </span>
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-hover:w-3/4 h-px bg-gradient-to-r from-transparent via-amber-500 to-transparent transition-all duration-500" />
+              </button>
 
-          {/* 续读简牍 (读档) */}
-          <button 
-            onClick={hasSaveData ? onLoadGame : undefined}
-            disabled={!hasSaveData}
-            className={`group relative w-72 py-3 text-center overflow-hidden ${!hasSaveData ? 'cursor-not-allowed' : ''}`}
-          >
-            <div className={`absolute inset-0 border transition-all duration-500 ${hasSaveData ? 'border-amber-900/30 group-hover:border-amber-600/60' : 'border-slate-800/30'}`} />
-            <div className={`absolute inset-0 transition-all duration-500 ${hasSaveData ? 'bg-amber-900/0 group-hover:bg-amber-900/10' : ''}`} />
-            <span className={`relative text-sm tracking-[0.3em] transition-colors duration-300 ${hasSaveData ? 'text-amber-600/80 group-hover:text-amber-400' : 'text-slate-600/40'}`}>
-              续 读 简 牍
-            </span>
-            {!hasSaveData && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-slate-700/50 tracking-wider">无存档</span>
-            )}
-          </button>
+              {/* 续读简牍 (读档) */}
+              <button
+                onClick={hasSaveData ? onLoadGame : undefined}
+                disabled={!hasSaveData}
+                className={`group relative ${isCompactLandscape ? 'w-full py-2' : 'w-72 py-3'} text-center overflow-hidden ${!hasSaveData ? 'cursor-not-allowed' : ''}`}
+              >
+                <div className={`absolute inset-0 border transition-all duration-500 ${hasSaveData ? 'border-amber-900/30 group-hover:border-amber-600/60' : 'border-slate-800/30'}`} />
+                <div className={`absolute inset-0 transition-all duration-500 ${hasSaveData ? 'bg-amber-900/0 group-hover:bg-amber-900/10' : ''}`} />
+                <span className={`${isCompactLandscape ? 'text-[13px] tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative transition-colors duration-300 ${hasSaveData ? 'text-amber-600/80 group-hover:text-amber-400' : 'text-slate-600/40'}`}>
+                  续 读 简 牍
+                </span>
+                {!hasSaveData && (
+                  <span className={`${isCompactLandscape ? 'right-3 text-[9px]' : 'right-4 text-[10px]'} absolute top-1/2 -translate-y-1/2 text-slate-700/50 tracking-wider`}>无存档</span>
+                )}
+              </button>
 
-          {/* 联系开发者 */}
-          <button 
-            onClick={() => setShowContact(true)}
-            className="group relative w-72 py-3 text-center overflow-hidden"
-          >
-            <div className="absolute inset-0 border border-amber-900/20 group-hover:border-amber-700/40 transition-all duration-500" />
-            <span className="relative text-amber-700/60 group-hover:text-amber-500/80 text-sm tracking-[0.3em] transition-colors duration-300">
-              联 系 开 发 者
-            </span>
-          </button>
+              {/* 联系开发者 */}
+              <button
+                onClick={() => setShowContact(true)}
+                className={`group relative ${isCompactLandscape ? 'w-full py-2' : 'w-72 py-3'} text-center overflow-hidden`}
+              >
+                <div className="absolute inset-0 border border-amber-900/20 group-hover:border-amber-700/40 transition-all duration-500" />
+                <span className={`${isCompactLandscape ? 'text-[13px] tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative text-amber-700/60 group-hover:text-amber-500/80 transition-colors duration-300`}>
+                  联 系 开 发 者
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
