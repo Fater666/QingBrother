@@ -411,7 +411,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const dragStartRef = useRef({ x: 0, y: 0 });
 
   // ==================== 移动端触控支持 ====================
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
+  const isMobile = isMobileLayout;
   // 触控相关 refs（避免高频 re-render）
   const touchStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
   const touchStartCameraRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -533,20 +536,29 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
   }, [state.currentUnitIndex, activeUnit?.currentAP]);
 
-  // 移动端检测（兼容模拟器 / Capacitor / 真机）
+  // 移动端检测：统一触屏横屏规则 + DPR 归一化缩放
   useEffect(() => {
     const detect = () => {
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
       const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-      const narrowScreen = window.innerWidth < 1024;
-      const ua = navigator.userAgent.toLowerCase();
-      const isMobileUA = /android|iphone|ipad|ipod|mobile/i.test(ua);
-      const isCapacitor = !!(window as any).Capacitor;
-      const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      setIsMobile(coarsePointer || narrowScreen || isMobileUA || isCapacitor || (hasTouchScreen && isMobileUA));
+      const isLandscape = viewportWidth > viewportHeight;
+      const compactLandscape = coarsePointer && isLandscape;
+      const shortest = Math.min(viewportWidth, viewportHeight);
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      setIsMobileLayout(coarsePointer || viewportWidth < 1024);
+      setIsCompactLandscape(compactLandscape);
+      setCompactFontScale(scale);
     };
     detect();
     window.addEventListener('resize', detect);
-    return () => window.removeEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
   }, []);
 
   // 切换技能或活动单位时，清除移动端攻击确认面板
@@ -3367,9 +3379,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPlayerTurn, activeUnit, nextTurn, waitTurn]);
 
+  const compactTextStyle = isCompactLandscape
+    ? { fontSize: `clamp(0.62rem, ${1.28 * compactFontScale}vw, 0.8rem)` }
+    : undefined;
+  const compactBadgeTextStyle = isCompactLandscape
+    ? { fontSize: `clamp(0.58rem, ${1.06 * compactFontScale}vw, 0.72rem)` }
+    : undefined;
+  const compactPanelStyle = isCompactLandscape
+    ? {
+        padding: `${Math.max(5, Math.round(8 * compactFontScale))}px ${Math.max(6, Math.round(10 * compactFontScale))}px`,
+      }
+    : undefined;
+
   return (
     <div className="flex flex-col h-full w-full bg-[#050505] font-serif select-none overflow-hidden relative">
-      <div className="h-12 bg-black border-b border-amber-900/40 flex items-center px-6 gap-2 z-50 shrink-0">
+      <div className={`${isCompactLandscape ? 'h-10 px-2 gap-1 overflow-x-auto overflow-y-hidden' : 'h-12 px-6 gap-2'} bg-black border-b border-amber-900/40 flex items-center z-50 shrink-0`}>
         {state.turnOrder.map((uid, i) => {
           const u = state.units.find(u => u.id === uid);
           if (!u || u.isDead || u.hasEscaped) return null;
@@ -3389,17 +3413,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               }`}
             >
               {/* 顺序标记 */}
-              <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
+              <div className={`${isCompactLandscape ? 'w-3.5 h-3.5 text-[7px]' : 'w-4 h-4 text-[8px]'} rounded-full flex items-center justify-center font-bold flex-shrink-0 ${
                 isCurrent ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'
               }`} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
                 {isCurrent ? '▶' : orderNum}
               </div>
               {/* 名字 + 血条 */}
-              <div className="flex flex-col min-w-[40px]">
-                <span className={`text-[9px] font-bold truncate leading-none ${u.team === 'ENEMY' ? 'text-red-400' : 'text-blue-300'}`}>
+              <div className={`${isCompactLandscape ? 'min-w-[34px]' : 'min-w-[40px]'} flex flex-col`}>
+                <span className={`${isCompactLandscape ? 'text-[8px]' : 'text-[9px]'} font-bold truncate leading-none ${u.team === 'ENEMY' ? 'text-red-400' : 'text-blue-300'}`}>
                   {u.name.slice(0, 3)}
                 </span>
-                <div className="w-full h-[3px] bg-black/60 rounded-full mt-0.5 overflow-hidden">
+                <div className={`${isCompactLandscape ? 'h-[2px]' : 'h-[3px]'} w-full bg-black/60 rounded-full mt-0.5 overflow-hidden`}>
                   <div className="h-full rounded-full transition-all" style={{ width: `${hpPercent}%`, backgroundColor: hpColor }} />
                 </div>
               </div>
@@ -3414,7 +3438,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
         {/* 移动端操作提示 */}
         {isMobile && isPlayerTurn && activeUnit && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-black/80 border border-amber-900/40 px-4 py-1.5 rounded-full text-xs text-amber-400 flex items-center gap-2 pointer-events-auto">
+          <div
+            className={`${isCompactLandscape ? 'top-1.5 px-3 py-1' : 'top-3 px-4 py-1.5'} absolute left-1/2 -translate-x-1/2 z-50 bg-black/80 border border-amber-900/40 rounded-full text-amber-400 flex items-center gap-2 pointer-events-auto whitespace-nowrap`}
+            style={compactTextStyle}
+          >
             {selectedAbility
               ? mobileAttackTarget
                 ? <>
@@ -3438,8 +3465,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const hitColor = bd.final >= 70 ? '#4ade80' : bd.final >= 40 ? '#facc15' : '#ef4444';
           return (
             <div
-              className="absolute right-4 top-4 pointer-events-none bg-[#0f0f0f] border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
-              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+              className={`${isCompactLandscape ? 'right-2 top-2' : 'right-4 top-4'} absolute pointer-events-none bg-[#0f0f0f] border border-amber-900/50 text-[10px] text-amber-500 z-50 rounded shadow-xl`}
+              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
             >
               <div className="mb-2 pb-2 border-b border-red-500/30">
                 <div className="flex items-center justify-between gap-4">
@@ -3558,8 +3585,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           
           return (
             <div 
-              className="absolute right-4 top-4 pointer-events-none bg-[#0f0f0f] border border-amber-900/50 p-2.5 text-[10px] text-amber-500 z-50 rounded shadow-xl"
-              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+              className={`${isCompactLandscape ? 'right-2 top-2' : 'right-4 top-4'} absolute pointer-events-none bg-[#0f0f0f] border border-amber-900/50 text-[10px] text-amber-500 z-50 rounded shadow-xl`}
+              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
             >
               {/* 攻击命中率 - 选中攻击技能且悬停敌人时显示 */}
               {canAttack && targetUnit && hitBreakdown && (
@@ -3631,8 +3658,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })()}
       </div>
 
-      <div className={`${isMobile ? 'h-28 px-3' : 'h-32 px-10'} bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center justify-between shrink-0 shadow-2xl`}>
-        <div className={`flex items-center gap-4 ${isMobile ? 'w-64' : 'w-80'}`}>
+      <div className={`${isCompactLandscape ? 'h-24 px-2 gap-2' : isMobile ? 'h-28 px-3 gap-3' : 'h-32 px-10 gap-4'} bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center justify-between shrink-0 shadow-2xl`}>
+        <div className={`flex items-center gap-4 min-w-0 ${isCompactLandscape ? 'w-52' : isMobile ? 'w-64' : 'w-80'}`}>
           {activeUnit && (() => {
             const helmet = activeUnit.equipment.helmet;
             const helmetDur = helmet?.durability ?? 0;
@@ -3665,18 +3692,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               ? Math.max(0, currentAP - previewCosts.apCost)
               : currentAP;
 
-            const barH = isMobile ? '8px' : '10px';
+            const barH = isCompactLandscape ? '7px' : isMobile ? '8px' : '10px';
 
             return (
               <div className="flex flex-col flex-1 gap-0.5">
                 {/* 第1行：名字 + 士气 */}
                 <div className="flex items-center gap-2">
-                  <span className={`${isMobile ? 'text-sm' : 'text-base'} font-bold text-amber-500 tracking-widest truncate`}>
+                  <span className={`${isCompactLandscape ? 'text-xs tracking-wide' : isMobile ? 'text-sm' : 'text-base'} font-bold text-amber-500 truncate`} style={isCompactLandscape ? compactTextStyle : undefined}>
                     {activeUnit.name}
                   </span>
                   <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                    className={`${isCompactLandscape ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5'} font-bold rounded flex-shrink-0`}
                     style={{
+                      fontSize: isCompactLandscape ? compactBadgeTextStyle?.fontSize : undefined,
                       color: MORALE_COLORS[activeUnit.morale],
                       backgroundColor: `${MORALE_COLORS[activeUnit.morale]}20`,
                       border: `1px solid ${MORALE_COLORS[activeUnit.morale]}40`
@@ -3788,7 +3816,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           })()}
         </div>
 
-        <div className="flex gap-3">
+        <div className={`${isCompactLandscape ? 'flex gap-1.5' : 'flex gap-3'} shrink-0`}>
           {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a)).map((skill, index) => {
             const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
               !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
@@ -3807,7 +3835,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               }} 
               disabled={isSpearwallDisabled}
               title={isSpearwallDisabled ? '附近有敌人时无法架起矛墙' : undefined}
-              className={`${isMobile ? 'w-16 h-16' : 'w-14 h-14'} border-2 transition-all flex flex-col items-center justify-center relative
+              className={`${isCompactLandscape ? 'w-12 h-12' : isMobile ? 'w-16 h-16' : 'w-14 h-14'} border-2 transition-all flex flex-col items-center justify-center relative
                 ${isSpearwallDisabled ? 'opacity-50 cursor-not-allowed border-slate-700' : ''}
                 ${selectedAbility?.id === skill.id && !isSpearwallDisabled
                   ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-2 shadow-lg shadow-amber-500/30' 
@@ -3822,19 +3850,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 {index + 1}
               </span>
               )}
-              <span className="text-2xl drop-shadow-md">{getAbilityIcon(skill)}</span>
-              <span className="absolute top-1 right-1 text-[8px] font-mono text-amber-500">{skill.apCost}</span>
+              <span className={`${isCompactLandscape ? 'text-lg' : 'text-2xl'} drop-shadow-md`}>{getAbilityIcon(skill)}</span>
+              <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
             </button>
             );
           })}
         </div>
 
-        <div className="w-52 flex flex-col items-end gap-2">
+        <div className={`${isCompactLandscape ? 'w-36 gap-1.5' : 'w-52 gap-2'} flex flex-col items-end shrink-0`}>
           {isPlayerTurn ? (
             <>
               <button 
                 onClick={waitTurn} 
-                className={`w-full px-6 py-1.5 border font-bold text-xs transition-all tracking-widest uppercase flex items-center justify-center gap-2 ${
+                className={`w-full ${isCompactLandscape ? 'px-2 py-1 text-[10px] tracking-wide' : 'px-6 py-1.5 text-xs tracking-widest'} border font-bold transition-all uppercase flex items-center justify-center gap-2 ${
                   activeUnit && activeUnit.waitCount >= 1
                     ? 'bg-gradient-to-b from-slate-900/40 to-slate-950/60 border-slate-700/30 text-slate-600 cursor-not-allowed'
                     : 'bg-gradient-to-b from-slate-800/40 to-slate-900/60 border-slate-600/50 text-slate-400 hover:from-slate-600 hover:to-slate-700 hover:text-white'
@@ -3847,7 +3875,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               </button>
               <button 
                 onClick={nextTurn} 
-                className="w-full px-6 py-1.5 bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold text-xs hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all tracking-widest uppercase flex items-center justify-center gap-2"
+                className={`w-full ${isCompactLandscape ? 'px-2 py-1 text-[10px] tracking-wide' : 'px-6 py-1.5 text-xs tracking-widest'} bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all uppercase flex items-center justify-center gap-2`}
                 style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
               >
                 结束回合
@@ -3863,8 +3891,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       {/* 技能说明 tooltip：仅当没有悬停格子时显示，与命中率/地形 tooltip 互斥 */}
       {selectedAbility && isPlayerTurn && activeUnit && !hoveredHex && (
         <div 
-          className="fixed right-4 top-4 w-72 bg-[#0f0f0f] border border-amber-900/50 p-3 z-[100] rounded shadow-xl pointer-events-none"
-          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+          className={`fixed ${isCompactLandscape ? 'right-2 top-2 w-60' : 'right-4 top-4 w-72'} bg-[#0f0f0f] border border-amber-900/50 z-[100] rounded shadow-xl pointer-events-none`}
+          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
         >
           <div className="flex items-center justify-between mb-2">
             <div className="text-amber-400 font-bold text-sm">{selectedAbility.name}</div>
@@ -3883,7 +3911,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       )}
 
       {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
-      <div className={`fixed ${isMobile ? 'left-1 top-14 w-48 max-h-[25vh]' : 'left-3 top-20 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}>
+      <div className={`fixed ${isCompactLandscape ? 'left-1 top-11 w-44 max-h-[22vh]' : isMobile ? 'left-1 top-14 w-48 max-h-[25vh]' : 'left-3 top-20 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}>
         <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
           {/* 日志标题 */}
           <div className={`px-3 py-1.5 flex items-center gap-2 ${isCombatLogCollapsed ? '' : 'border-b border-amber-900/30'}`}>
@@ -3901,7 +3929,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           </div>
           {/* 日志条目 */}
           {!isCombatLogCollapsed && (
-            <div className="px-2 py-1 space-y-0.5 max-h-[38vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+            <div className={`${isCompactLandscape ? 'px-1.5 py-1 max-h-[18vh]' : 'px-2 py-1 max-h-[38vh]'} space-y-0.5 overflow-y-auto`} style={{ scrollbarWidth: 'thin' }}>
               {combatLogEntries.slice(0, 12).map((entry, i) => {
                 const style = LOG_STYLES[entry.type];
                 return (

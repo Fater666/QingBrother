@@ -89,6 +89,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [selectedStashItem, setSelectedStashItem] = useState<{ item: Item, index: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
   const [touchFormationDrag, setTouchFormationDrag] = useState<TouchFormationDragState | null>(null);
   const selectedTrait: Trait | null = selectedTraitId ? (TRAIT_TEMPLATES[selectedTraitId] || null) : null;
 
@@ -104,12 +106,26 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
   useEffect(() => {
       const detectMobileLayout = () => {
+          const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+          const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
           const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-          setIsMobileLayout(coarsePointer || window.innerWidth < 1024);
+          const isLandscape = viewportWidth > viewportHeight;
+          const compactLandscape = coarsePointer && isLandscape;
+          const shortest = Math.min(viewportWidth, viewportHeight);
+          const dpr = window.devicePixelRatio || 1;
+          const BASELINE_DPR = 1.7;
+          const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+          setIsMobileLayout(coarsePointer || viewportWidth < 1024);
+          setIsCompactLandscape(compactLandscape);
+          setCompactFontScale(scale);
       };
       detectMobileLayout();
       window.addEventListener('resize', detectMobileLayout);
-      return () => window.removeEventListener('resize', detectMobileLayout);
+      window.visualViewport?.addEventListener('resize', detectMobileLayout);
+      return () => {
+          window.removeEventListener('resize', detectMobileLayout);
+          window.visualViewport?.removeEventListener('resize', detectMobileLayout);
+      };
   }, []);
 
   useEffect(() => {
@@ -365,7 +381,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   }, []);
 
   return (
-    <div className="w-full h-full bg-[#0a0908] flex flex-col font-serif select-none overflow-hidden relative">
+    <div className={`w-full h-full bg-[#0a0908] flex flex-col font-serif select-none relative min-h-0 ${isMobileLayout && !isCompactLandscape ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {/* 竹简质感背景 */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
            style={{
@@ -381,45 +397,62 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       <div className="absolute inset-0 bg-gradient-to-b from-amber-950/10 via-transparent to-black/20 pointer-events-none" />
       
       {/* Header */}
-      <div className="min-h-14 bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 px-3 md:px-8 py-2 lg:py-0 z-30 shrink-0">
-          <div className="flex items-center gap-3 md:gap-6 min-w-0">
-              <h1 className="text-lg md:text-2xl font-bold text-amber-600 tracking-[0.18em] md:tracking-[0.3em] shrink-0">战团营地</h1>
+      <div
+          className={`bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex ${isCompactLandscape ? 'flex-nowrap items-center' : 'flex-wrap lg:flex-nowrap items-center'} justify-between z-30 shrink-0`}
+          style={isCompactLandscape ? {
+              paddingLeft: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+              paddingRight: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+              paddingTop: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+              paddingBottom: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+              gap: `${Math.max(2, Math.round(5 * compactFontScale))}px`,
+          } : undefined}
+      >
+          <div className={`flex items-center min-w-0 ${isCompactLandscape ? 'gap-2' : 'gap-3 md:gap-6 px-3 md:px-8 py-2 lg:py-0'}`}>
+              <h1
+                  className={`font-bold text-amber-600 shrink-0 ${isCompactLandscape ? 'tracking-[0.12em]' : 'text-lg md:text-2xl tracking-[0.18em] md:tracking-[0.3em]'}`}
+                  style={isCompactLandscape ? { fontSize: `clamp(0.72rem, ${1.45 * compactFontScale}vw, 0.94rem)` } : undefined}
+              >
+                  战团营地
+              </h1>
               {selectedMerc && (
-                  <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm min-w-0">
-                      <span className="text-slate-600">/</span>
-                      <span className="text-amber-500 font-bold truncate max-w-[96px] md:max-w-none">{selectedMerc.name}</span>
-                      <span className="text-slate-600 text-[10px] md:text-xs truncate max-w-[120px] md:max-w-none">({selectedMerc.background})</span>
+                  <div className={`flex items-center min-w-0 ${isCompactLandscape ? 'gap-1 text-[10px]' : 'gap-1.5 md:gap-2 text-xs md:text-sm'}`}>
+                      {!isCompactLandscape && <span className="text-slate-600">/</span>}
+                      <span className="text-amber-500 font-bold truncate max-w-[120px] md:max-w-none">{selectedMerc.name}</span>
+                      <span className={`text-slate-600 truncate max-w-[140px] md:max-w-none ${isCompactLandscape ? 'text-[9px]' : 'text-[10px] md:text-xs'}`}>({selectedMerc.background})</span>
                   </div>
               )}
           </div>
-          <div className="flex items-center gap-3 md:gap-6">
+          <div className={`flex items-center ${isCompactLandscape ? 'gap-2 shrink-0' : 'gap-3 md:gap-6 px-3 md:px-8 py-2 lg:py-0'}`}>
               <div className="text-right shrink-0">
                   <span className="text-[10px] text-slate-600 uppercase tracking-widest block">战团资金</span>
-                  <span className="text-amber-500 font-bold font-mono">{party.gold} <span className="text-amber-700 text-xs">金</span></span>
+                  <span className={`text-amber-500 font-bold font-mono ${isCompactLandscape ? 'text-[10px] leading-none' : ''}`}>{party.gold} <span className="text-amber-700 text-xs">金</span></span>
               </div>
-              <button onClick={onClose} className="px-3 md:px-6 py-2 bg-[#1a1410] border border-amber-900/40 hover:border-amber-600 text-[10px] md:text-xs text-slate-400 hover:text-amber-500 uppercase tracking-widest transition-all">
+              <button onClick={onClose} className={`${isCompactLandscape ? 'px-2 py-1 text-[9px]' : 'px-3 md:px-6 py-2 text-[10px] md:text-xs'} bg-[#1a1410] border border-amber-900/40 hover:border-amber-600 text-slate-400 hover:text-amber-500 uppercase tracking-widest transition-all`}>
                   返回地图
               </button>
           </div>
       </div>
 
-      <div className={`flex-1 flex flex-col lg:flex-row z-10 min-h-0 ${isMobileLayout ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
+      <div
+          className={`flex-1 z-10 min-h-0 ${isCompactLandscape ? 'flex flex-row gap-2 overflow-hidden p-2' : 'flex flex-col lg:flex-row'} ${isMobileLayout && !isCompactLandscape ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}
+          style={isCompactLandscape ? { padding: `${Math.max(3, Math.round(8 * compactFontScale))}px` } : undefined}
+      >
         
         {/* LEFT COLUMN: Inspector (Equipment on top, Stats below - Battle Brothers style) */}
-        <div className={`w-full lg:w-[420px] lg:border-r border-b lg:border-b-0 border-amber-900/30 bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 ${isMobileLayout ? 'overflow-visible' : 'overflow-hidden'}`}>
+        <div className={`${isCompactLandscape ? 'flex-[12] min-w-0 border border-amber-900/30' : 'w-full lg:w-[420px] lg:border-r border-b lg:border-b-0 border-amber-900/30'} bg-gradient-to-b from-[#0d0b08] to-[#080705] flex flex-col shrink-0 ${isMobileLayout && !isCompactLandscape ? 'overflow-visible' : 'overflow-hidden'}`}>
             {selectedMerc ? (
-                <div className={`flex flex-col ${isMobileLayout ? 'overflow-visible' : 'h-full overflow-y-auto custom-scrollbar'}`}>
+                <div className={`flex flex-col ${isMobileLayout && !isCompactLandscape ? 'overflow-visible' : 'h-full overflow-y-auto custom-scrollbar'}`}>
                     {/* Character Header - Compact */}
-                    <div className="p-4 border-b border-amber-900/30 bg-gradient-to-r from-amber-950/10 to-transparent">
+                    <div className={`${isCompactLandscape ? 'p-2.5' : 'p-4'} border-b border-amber-900/30 bg-gradient-to-r from-amber-950/10 to-transparent`}>
                         <div className="flex justify-between items-center">
                             <div>
-                                <h2 className="text-2xl font-bold text-amber-100 tracking-wide">{selectedMerc.name}</h2>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-amber-700 text-sm">{selectedMerc.background}</span>
-                                    <span className="text-slate-600">·</span>
-                                    <span className="text-slate-400 text-sm">Lv.<span className="text-amber-500 font-bold">{selectedMerc.level}</span> <span className="text-slate-500 font-mono text-xs">({selectedMerc.xp}/{getXPForNextLevel(selectedMerc.level)} 经验)</span></span>
-                                    <span className="text-slate-600">·</span>
-                                    <span className="text-slate-500 text-xs">日薪 {selectedMerc.salary}</span>
+                                <h2 className={`${isCompactLandscape ? 'text-base' : 'text-2xl'} font-bold text-amber-100 tracking-wide`}>{selectedMerc.name}</h2>
+                                <div className={`flex items-center mt-1 ${isCompactLandscape ? 'gap-1.5 text-[10px]' : 'gap-2'}`}>
+                                    <span className={isCompactLandscape ? 'text-amber-700 text-[11px]' : 'text-amber-700 text-sm'}>{selectedMerc.background}</span>
+                                    {!isCompactLandscape && <span className="text-slate-600">·</span>}
+                                    <span className={isCompactLandscape ? 'text-slate-400 text-[11px]' : 'text-slate-400 text-sm'}>Lv.<span className="text-amber-500 font-bold">{selectedMerc.level}</span> <span className={isCompactLandscape ? 'text-slate-500 font-mono text-[10px]' : 'text-slate-500 font-mono text-xs'}>({selectedMerc.xp}/{getXPForNextLevel(selectedMerc.level)} 经验)</span></span>
+                                    {!isCompactLandscape && <span className="text-slate-600">·</span>}
+                                    <span className={isCompactLandscape ? 'text-slate-500 text-[10px]' : 'text-slate-500 text-xs'}>日薪 {selectedMerc.salary}</span>
                                 </div>
                             </div>
                             <span className={`text-[10px] px-2 py-1 border ${selectedMerc.formationIndex !== null ? 'text-emerald-500 border-emerald-900/50 bg-emerald-950/20' : 'text-slate-500 border-slate-800 bg-slate-900/20'}`}>
@@ -430,7 +463,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
 
                     {/* Traits Section - 特质标签（使用 onTouchEnd tap 检测，兼容 Android WebView 滚动容器） */}
                     {selectedMerc.traits && selectedMerc.traits.length > 0 && (
-                        <div className="px-4 py-2 border-b border-amber-900/20">
+                        <div className={`${isCompactLandscape ? 'px-2.5 py-1.5' : 'px-4 py-2'} border-b border-amber-900/20`}>
                             <div className="flex flex-wrap gap-1.5">
                                 {selectedMerc.traits.map(tid => {
                                     const trait = TRAIT_TEMPLATES[tid];
@@ -478,7 +511,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                     );
                                 })}
                             </div>
-                            {selectedTrait && (
+                            {selectedTrait && !isCompactLandscape && (
                                 <div className="mt-2 px-3 py-2 bg-black/70 border border-amber-900/40 rounded text-xs text-slate-300">
                                     <div className="font-bold text-amber-400 mb-1">{selectedTrait.icon} {selectedTrait.name}</div>
                                     <div>{selectedTrait.description}</div>
@@ -488,15 +521,15 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                     )}
 
                     {/* Equipment Section - Paper Doll Layout (人形布局) */}
-                    <div className="p-4 border-b border-amber-900/20">
-                        <h3 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-3 pb-1 border-b border-amber-900/20">随身装备</h3>
+                    <div className={`${isCompactLandscape ? 'p-2.5' : 'p-4'} border-b border-amber-900/20`}>
+                        <h3 className={`text-[10px] text-amber-700 uppercase tracking-[0.2em] ${isCompactLandscape ? 'mb-1.5 pb-1' : 'mb-3 pb-1'} border-b border-amber-900/20`}>随身装备</h3>
                         {/* 
                             布局：类似人的位置
                                  [头盔]
                             [主手][身甲][副手]
                             [弹药]     [饰品]
                         */}
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className={`grid grid-cols-3 ${isCompactLandscape ? 'gap-1.5' : 'gap-2'}`}>
                             {/* Row 1: 头盔居中 */}
                             <div /> {/* 左空 */}
                             <EquipSlotText 
@@ -506,6 +539,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onClick={() => selectedStashItem ? handleEquipFromStash('helmet') : handleUnequip('helmet')}
                                 onDrop={(e) => handleDropOnEquip(e, 'helmet')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'helmet', selectedMerc)}
+                                dense={isCompactLandscape}
                             />
                             <div /> {/* 右空 */}
                             
@@ -517,6 +551,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onClick={() => selectedStashItem ? handleEquipFromStash('mainHand') : handleUnequip('mainHand')}
                                 onDrop={(e) => handleDropOnEquip(e, 'mainHand')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'mainHand', selectedMerc)}
+                                dense={isCompactLandscape}
                             />
                             <EquipSlotText 
                                 label="身甲" 
@@ -525,6 +560,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onClick={() => selectedStashItem ? handleEquipFromStash('armor') : handleUnequip('armor')}
                                 onDrop={(e) => handleDropOnEquip(e, 'armor')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'armor', selectedMerc)}
+                                dense={isCompactLandscape}
                             />
                             <EquipSlotText 
                                 label="副手" 
@@ -534,6 +570,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onDrop={(e) => handleDropOnEquip(e, 'offHand')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'offHand', selectedMerc)}
                                 locked={!!selectedMerc.equipment.mainHand?.twoHanded}
+                                dense={isCompactLandscape}
                             />
                             
                             {/* Row 3: 弹药 | 空 | 饰品 */}
@@ -544,6 +581,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onClick={() => selectedStashItem ? handleEquipFromStash('ammo') : handleUnequip('ammo')}
                                 onDrop={(e) => handleDropOnEquip(e, 'ammo')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'ammo', selectedMerc)}
+                                dense={isCompactLandscape}
                             />
                             <div /> {/* 中空 */}
                             <EquipSlotText 
@@ -553,76 +591,111 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 onClick={() => selectedStashItem ? handleEquipFromStash('accessory') : handleUnequip('accessory')}
                                 onDrop={(e) => handleDropOnEquip(e, 'accessory')}
                                 isTarget={!!selectedStashItem && canEquipToSlot(selectedStashItem.item, 'accessory', selectedMerc)}
+                                dense={isCompactLandscape}
                             />
                         </div>
                     </div>
 
                     {/* === 行军被动效果状态面板 === */}
-                    <div className="px-4 pb-2 space-y-2">
-                        {/* 生命恢复状态 */}
-                        {selectedMerc.hp < selectedMerc.maxHp && (
-                            <div className="border border-red-900/30 bg-red-950/10 p-3">
-                                {(() => {
+                    <div className={`${isCompactLandscape ? 'px-2.5 pb-1.5' : 'px-4 pb-2'} space-y-2`}>
+                        {isCompactLandscape ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {selectedMerc.hp < selectedMerc.maxHp && (() => {
                                     const hasMedicine = party.medicine >= 5;
                                     const totalHealStr = hasMedicine ? '6~7' : '1~2';
                                     return (
-                                        <>
-                                            <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
-                                                生命恢复中 <span className="text-red-800 normal-case">
-                                                    （{selectedMerc.name} {selectedMerc.hp}/{selectedMerc.maxHp} HP，每天 +{totalHealStr}{hasMedicine ? '，含医药加成' : '，无医药'}）
-                                                </span>
-                                            </h4>
-                                            <div className="flex items-center gap-2">
-                                                <div className="flex-1 h-2 bg-black/60 border border-white/5 overflow-hidden">
-                                                    <div className="h-full bg-red-700" style={{ width: `${(selectedMerc.hp / selectedMerc.maxHp) * 100}%` }} />
-                                                </div>
-                                                <span className="text-[10px] text-red-500 font-mono whitespace-nowrap">{selectedMerc.hp}/{selectedMerc.maxHp}</span>
-                                            </div>
-                                        </>
+                                        <div className="px-2 py-1 border border-red-900/30 bg-red-950/10 text-[10px] text-red-400">
+                                            生命恢复 {selectedMerc.hp}/{selectedMerc.maxHp}（+{totalHealStr}/日）
+                                        </div>
+                                    );
+                                })()}
+                                {(() => {
+                                    const damagedCount = (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[])
+                                        .filter(slot => {
+                                            const eq = selectedMerc.equipment[slot];
+                                            return !!(eq && eq.maxDurability > 0 && eq.durability < eq.maxDurability);
+                                        }).length;
+                                    if (damagedCount === 0) return null;
+                                    const hasRepairSupplies = party.repairSupplies >= 3;
+                                    const repairRate = hasRepairSupplies ? 10 : 2;
+                                    return (
+                                        <div className="px-2 py-1 border border-amber-900/30 bg-amber-950/10 text-[10px] text-amber-500">
+                                            修复中 {damagedCount} 件（+{repairRate}/日）
+                                        </div>
                                     );
                                 })()}
                             </div>
-                        )}
+                        ) : (
+                            <>
+                                {/* 生命恢复状态 */}
+                                {selectedMerc.hp < selectedMerc.maxHp && (
+                                    <div className="border border-red-900/30 bg-red-950/10 p-3">
+                                        {(() => {
+                                            const hasMedicine = party.medicine >= 5;
+                                            const totalHealStr = hasMedicine ? '6~7' : '1~2';
+                                            return (
+                                                <>
+                                                    <h4 className="text-[10px] text-red-600 uppercase tracking-[0.2em] mb-2">
+                                                        生命恢复中 <span className="text-red-800 normal-case">
+                                                            （{selectedMerc.name} {selectedMerc.hp}/{selectedMerc.maxHp} HP，每天 +{totalHealStr}{hasMedicine ? '，含医药加成' : '，无医药'}）
+                                                        </span>
+                                                    </h4>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex-1 h-2 bg-black/60 border border-white/5 overflow-hidden">
+                                                            <div className="h-full bg-red-700" style={{ width: `${(selectedMerc.hp / selectedMerc.maxHp) * 100}%` }} />
+                                                        </div>
+                                                        <span className="text-[10px] text-red-500 font-mono whitespace-nowrap">{selectedMerc.hp}/{selectedMerc.maxHp}</span>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                )}
 
-                        {/* 装备修复状态提示 */}
-                        {(() => {
-                            const damagedSlots: { item: Item }[] = [];
-                            (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[]).forEach(slot => {
-                                const eq = selectedMerc.equipment[slot];
-                                if (eq && eq.maxDurability > 0 && eq.durability < eq.maxDurability) {
-                                    damagedSlots.push({ item: eq });
-                                }
-                            });
-                            if (damagedSlots.length === 0) return null;
-                            const hasRepairSupplies = party.repairSupplies >= 3;
-                            const repairRate = hasRepairSupplies ? 10 : 2;
-                            return (
-                                <div className="border border-amber-900/30 bg-amber-950/10 p-3">
-                                    <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">
-                                        装备修复中 <span className="text-amber-800 normal-case">（每件每天 +{repairRate} 耐久{hasRepairSupplies ? '，含修甲材料加成' : '，无修甲材料'}）</span>
-                                    </h4>
-                                    {damagedSlots.map(({ item: eq }, idx) => {
-                                        const durPct = (eq.durability / eq.maxDurability) * 100;
-                                        return (
-                                            <div key={idx} className="flex items-center gap-2 mb-1.5 last:mb-0">
-                                                <span className="text-xs text-slate-400 w-24 truncate">{eq.name}</span>
-                                                <div className="flex-1 h-1.5 bg-black/60 border border-white/5 overflow-hidden">
-                                                    <div className={`h-full ${durPct > 50 ? 'bg-slate-600' : durPct > 25 ? 'bg-amber-700' : 'bg-red-700'}`} style={{ width: `${durPct}%` }} />
-                                                </div>
-                                                <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{eq.durability}/{eq.maxDurability}</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })()}
+                                {/* 装备修复状态提示 */}
+                                {(() => {
+                                    const damagedSlots: { item: Item }[] = [];
+                                    (['armor', 'helmet', 'offHand', 'mainHand'] as (keyof Character['equipment'])[]).forEach(slot => {
+                                        const eq = selectedMerc.equipment[slot];
+                                        if (eq && eq.maxDurability > 0 && eq.durability < eq.maxDurability) {
+                                            damagedSlots.push({ item: eq });
+                                        }
+                                    });
+                                    if (damagedSlots.length === 0) return null;
+                                    const hasRepairSupplies = party.repairSupplies >= 3;
+                                    const repairRate = hasRepairSupplies ? 10 : 2;
+                                    return (
+                                        <div className="border border-amber-900/30 bg-amber-950/10 p-3">
+                                            <h4 className="text-[10px] text-amber-600 uppercase tracking-[0.2em] mb-2">
+                                                装备修复中 <span className="text-amber-800 normal-case">（每件每天 +{repairRate} 耐久{hasRepairSupplies ? '，含修甲材料加成' : '，无修甲材料'}）</span>
+                                            </h4>
+                                            {damagedSlots.map(({ item: eq }, idx) => {
+                                                const durPct = (eq.durability / eq.maxDurability) * 100;
+                                                return (
+                                                    <div key={idx} className="flex items-center gap-2 mb-1.5 last:mb-0">
+                                                        <span className="text-xs text-slate-400 w-24 truncate">{eq.name}</span>
+                                                        <div className="flex-1 h-1.5 bg-black/60 border border-white/5 overflow-hidden">
+                                                            <div className={`h-full ${durPct > 50 ? 'bg-slate-600' : durPct > 25 ? 'bg-amber-700' : 'bg-red-700'}`} style={{ width: `${durPct}%` }} />
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{eq.durability}/{eq.maxDurability}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })()}
+                            </>
+                        )}
                     </div>
 
                     {/* Attributes Panel - BELOW, Two columns, Battle Brothers order */}
-                    <div className="p-4 flex-1">
-                        <h3 className="text-[10px] text-amber-700 uppercase tracking-[0.2em] mb-3 pb-1 border-b border-amber-900/20">
+                    <div className={`${isCompactLandscape ? 'p-2.5 flex-1' : 'p-4 flex-1'}`}>
+                        <h3 className={`text-[10px] text-amber-700 uppercase tracking-[0.2em] ${isCompactLandscape ? 'mb-2 pb-1' : 'mb-3 pb-1'} border-b border-amber-900/20`}>
                             人物属性
                         </h3>
+                        <p className={`${isCompactLandscape ? 'text-[9px] mb-2' : 'text-[10px] mb-3'} text-slate-600`}>
+                            点按属性名旁的 ? 可查看说明
+                        </p>
                         
                         {/* All stats in 2-column grid, Battle Brothers order:
                             生命 | 体力
@@ -630,23 +703,27 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                             近战命中 | 远程命中
                             近战防御 | 远程防御
                         */}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                        <div className={`grid grid-cols-2 ${isCompactLandscape ? 'gap-x-2.5 gap-y-2' : 'gap-x-4 gap-y-3'}`}>
                             {/* Row 1: 生命 | 体力 */}
                             <StatBarCompact 
                                 label="生命值" 
                                 val={selectedMerc.hp} 
                                 maxPossible={120}
                                 stars={selectedMerc.stars.hp}
+                                description="角色可承受的伤害。归零后将倒地濒死。"
                                 colorBar="bg-red-800"
                                 colorText="text-red-400"
+                                dense={isCompactLandscape}
                             />
                             <StatBarCompact 
                                 label="体力值" 
                                 val={selectedMerc.maxFatigue} 
                                 maxPossible={150}
                                 stars={selectedMerc.stars.fatigue}
+                                description="决定可持续作战能力。技能、移动和装备负重都会消耗体力。"
                                 colorBar="bg-sky-800"
                                 colorText="text-sky-400"
+                                dense={isCompactLandscape}
                             />
                             
                             {/* Row 2: 胆识 | 先手 */}
@@ -655,16 +732,20 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 val={selectedMerc.stats.resolve} 
                                 maxPossible={100}
                                 stars={selectedMerc.stars.resolve}
+                                description="影响士气检定与恐惧抗性。越高越不容易溃逃。"
                                 colorBar="bg-purple-800"
                                 colorText="text-purple-400"
+                                dense={isCompactLandscape}
                             />
                             <StatBarCompact 
                                 label="先手值" 
                                 val={selectedMerc.stats.initiative} 
                                 maxPossible={160}
                                 stars={selectedMerc.stars.initiative}
+                                description="影响回合出手先后与部分技能效果。越高越容易抢先行动。"
                                 colorBar="bg-emerald-800"
                                 colorText="text-emerald-400"
+                                dense={isCompactLandscape}
                             />
                             
                             {/* Row 3: 近战命中 | 远程命中 */}
@@ -673,16 +754,20 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 val={selectedMerc.stats.meleeSkill}
                                 maxPossible={100}
                                 stars={selectedMerc.stars.meleeSkill}
+                                description="决定近战攻击命中率。数值越高，近战更稳定。"
                                 colorBar="bg-amber-700"
                                 colorText="text-amber-400"
+                                dense={isCompactLandscape}
                             />
                             <StatBarCompact 
                                 label="远程命中" 
                                 val={selectedMerc.stats.rangedSkill}
                                 maxPossible={100}
                                 stars={selectedMerc.stars.rangedSkill}
+                                description="决定远程攻击命中率。弓弩与投掷武器主要受此影响。"
                                 colorBar="bg-orange-700"
                                 colorText="text-orange-400"
+                                dense={isCompactLandscape}
                             />
                             
                             {/* Row 4: 近战防御 | 远程防御 */}
@@ -691,25 +776,29 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 val={selectedMerc.stats.meleeDefense}
                                 maxPossible={50}
                                 stars={selectedMerc.stars.meleeDefense}
+                                description="降低敌方近战命中率。贴身缠斗时尤为关键。"
                                 colorBar="bg-slate-600"
                                 colorText="text-slate-300"
+                                dense={isCompactLandscape}
                             />
                             <StatBarCompact 
                                 label="远程防御" 
                                 val={selectedMerc.stats.rangedDefense}
                                 maxPossible={50}
                                 stars={selectedMerc.stars.rangedDefense}
+                                description="降低敌方远程命中率。对抗弓弩火力时生存更高。"
                                 colorBar="bg-slate-600"
                                 colorText="text-slate-300"
+                                dense={isCompactLandscape}
                             />
                         </div>
 
                         {/* Background Story - at bottom */}
-                        <div className="mt-4 pt-3 border-t border-amber-900/20">
+                        {!isCompactLandscape && <div className="mt-4 pt-3 border-t border-amber-900/20">
                             <p className="text-[10px] text-slate-600 leading-relaxed italic">
                                 「{selectedMerc.backgroundStory}」
                             </p>
-                        </div>
+                        </div>}
                     </div>
                 </div>
             ) : (
@@ -722,30 +811,33 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
         </div>
 
         {/* RIGHT COLUMN: 仓库物资 / 专精技能 / 战阵布置 同层级 Tab */}
-        <div className={`${isMobileLayout ? 'w-full flex-none' : 'flex-1 min-h-0'} flex flex-col overflow-hidden`}>
-            <div className={`${isMobileLayout ? 'flex flex-col bg-[#080705]' : 'flex-1 flex flex-col min-h-0 bg-[#080705]'}`}>
-                <div className="flex h-11 border-b border-amber-900/30 bg-[#0d0b08] shrink-0">
+        <div className={`${isCompactLandscape ? 'flex-[9] min-w-0' : (isMobileLayout ? 'w-full flex-none' : 'flex-1 min-h-0')} flex flex-col overflow-hidden`}>
+            <div className={`${isCompactLandscape ? 'flex-1 flex flex-col min-h-0 bg-[#080705]' : (isMobileLayout ? 'flex flex-col bg-[#080705]' : 'flex-1 flex flex-col min-h-0 bg-[#080705]')}`}>
+                <div className={`flex border-b border-amber-900/30 bg-[#0d0b08] shrink-0 ${isCompactLandscape ? 'h-9' : 'h-11'}`}>
                     <button 
                         onClick={() => { setRightTab('STASH'); setSelectedStashItem(null); }} 
-                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'STASH' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`${isCompactLandscape ? 'px-2.5 text-[10px]' : 'px-3 sm:px-6 md:px-8 text-[11px] md:text-xs'} uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'STASH' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         仓库物资
                     </button>
                     <button 
                         onClick={() => { setRightTab('PERKS'); setSelectedStashItem(null); }} 
-                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'PERKS' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`${isCompactLandscape ? 'px-2.5 text-[10px]' : 'px-3 sm:px-6 md:px-8 text-[11px] md:text-xs'} uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'PERKS' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         专精技能
                     </button>
                     <button 
                         onClick={() => { setRightTab('FORMATION'); setSelectedStashItem(null); }} 
-                        className={`px-3 sm:px-6 md:px-8 text-[11px] md:text-xs uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'FORMATION' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
+                        className={`${isCompactLandscape ? 'px-2.5 text-[10px]' : 'px-3 sm:px-6 md:px-8 text-[11px] md:text-xs'} uppercase font-bold tracking-[0.12em] md:tracking-[0.15em] transition-all border-b-2 ${rightTab === 'FORMATION' ? 'text-amber-500 border-amber-600 bg-amber-950/10' : 'text-slate-600 border-transparent hover:text-slate-400'}`}
                     >
                         战阵布置
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 custom-scrollbar min-h-0">
+                <div
+                    className={`flex-1 overflow-y-auto custom-scrollbar min-h-0 ${isCompactLandscape ? 'p-2' : 'p-4'}`}
+                    style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                >
                     {rightTab === 'STASH' ? (
                         <div>
                             {party.inventory.length > 0 ? (
@@ -875,7 +967,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                 onClick={() => setSelectedMerc(m)}
                                                 onDoubleClick={() => handleAddToFormation(m)}
                                                 onTouchStart={(e) => handleFormationTouchStart(e, m)}
-                                                className={`shrink-0 px-2.5 md:px-3 py-1.5 border cursor-pointer transition-all min-w-[96px] md:min-w-[110px] ${
+                                            className={`shrink-0 px-2.5 md:px-3 py-1.5 border cursor-pointer transition-all ${isCompactLandscape ? 'basis-[88px]' : 'min-w-[96px] md:min-w-[110px]'} ${
                                                     selectedMerc?.id === m.id 
                                                         ? 'border-amber-500 bg-amber-950/30' 
                                                         : 'border-slate-800 hover:border-slate-600 bg-black/40'
@@ -888,15 +980,15 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                     ) : (
                                         <div className="text-xs text-slate-700 italic py-1">全员已在战阵中</div>
                                     )}
-                                    <div className="shrink-0 px-4 py-1.5 border border-dashed border-slate-800 flex items-center justify-center text-slate-700 hover:border-slate-600 hover:text-slate-500 cursor-pointer transition-colors min-w-[70px]">
+                                    <div className={`shrink-0 px-4 py-1.5 border border-dashed border-slate-800 flex items-center justify-center text-slate-700 hover:border-slate-600 hover:text-slate-500 cursor-pointer transition-colors ${isCompactLandscape ? 'basis-[64px]' : 'min-w-[70px]'}`}>
                                         <span className="text-xs">+ 招募</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            <div className="text-center mb-6">
+                        <div className={`${isCompactLandscape ? 'space-y-2' : 'space-y-4'}`}>
+                            <div className={`text-center ${isCompactLandscape ? 'mb-2' : 'mb-6'}`}>
                                 <h3 className="text-amber-600 font-bold tracking-[0.2em] mb-1">专精技能树</h3>
                                 <p className="text-[10px] text-slate-600">升级获得点数以解锁战斗加成</p>
                                 {selectedMerc && (
@@ -913,12 +1005,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 )}
                             </div>
                             {perkTreeTiers.map((tierPerks, idx) => (
-                                <div key={idx} className="flex items-stretch gap-3">
-                                    <div className="w-12 shrink-0 flex flex-col items-center justify-center border border-amber-900/20 bg-black/30 text-[10px] text-slate-600">
+                                <div key={idx} className={`flex items-stretch ${isCompactLandscape ? 'gap-2' : 'gap-3'}`}>
+                                    <div className={`${isCompactLandscape ? 'w-10' : 'w-12'} shrink-0 flex flex-col items-center justify-center border border-amber-900/20 bg-black/30 text-[10px] text-slate-600`}>
                                         <span className="text-amber-700 font-bold">第{idx + 1}阶</span>
                                         <span className="text-[8px] text-slate-700 mt-0.5">Lv{idx + 1}+</span>
                                     </div>
-                                    <div className="flex-1 flex flex-wrap gap-2">
+                                    <div className={`flex-1 flex flex-wrap ${isCompactLandscape ? 'gap-1.5' : 'gap-2'}`}>
                                         {tierPerks.map(perk => {
                                             const isLearned = selectedMerc?.perks.includes(perk.id);
                                             const canLearn = selectedMerc && !isLearned && selectedMerc.perkPoints > 0 && selectedMerc.level >= perk.tier;
@@ -928,7 +1020,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                     onClick={() => canLearn ? handleLearnPerk(perk.id) : undefined}
                                                     onMouseEnter={() => setHoveredPerk(perk)}
                                                     onMouseLeave={() => setHoveredPerk(null)}
-                                                    className={`px-3 py-2 border transition-all text-xs ${
+                                                    className={`${isCompactLandscape ? 'px-2 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'} border transition-all ${
                                                         isLearned 
                                                             ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-lg cursor-default' 
                                                             : canLearn
@@ -952,13 +1044,13 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       </div>
 
       {/* FOOTER: All Roster - Quick Select */}
-      <div className="h-14 md:h-16 bg-gradient-to-r from-[#0d0b08] via-[#080705] to-[#0d0b08] border-t border-amber-900/40 flex items-center gap-2 px-3 md:px-6 overflow-x-auto shrink-0 z-40 custom-scrollbar">
+      <div className={`${isCompactLandscape ? 'h-10 px-2.5 gap-1.5' : 'h-14 md:h-16 px-3 md:px-6 gap-2'} bg-gradient-to-r from-[#0d0b08] via-[#080705] to-[#0d0b08] border-t border-amber-900/40 flex items-center overflow-x-auto shrink-0 z-40 custom-scrollbar`}>
           <span className="text-[10px] text-slate-700 uppercase tracking-widest shrink-0 pr-4 border-r border-slate-800">全员</span>
           {party.mercenaries.map(m => (
               <button 
                   key={m.id} 
                   onClick={() => setSelectedMerc(m)}
-                  className={`shrink-0 px-3 py-1.5 border text-xs transition-all ${
+                  className={`shrink-0 border transition-all ${isCompactLandscape ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs'} ${
                       selectedMerc?.id === m.id 
                           ? 'border-amber-500 bg-amber-950/30 text-amber-400' 
                           : m.formationIndex !== null
@@ -1088,16 +1180,17 @@ interface EquipSlotTextProps {
     onDrop: (e: React.DragEvent) => void;
     isTarget?: boolean;
     locked?: boolean; // 双手武器锁定副手
+    dense?: boolean;
 }
 
-const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget, locked }) => (
+const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onClick, onDrop, isTarget, locked, dense = false }) => (
     <div 
         onClick={locked ? undefined : onClick}
         onDragOver={(e) => e.preventDefault()}
         onDrop={locked ? undefined : onDrop}
         onMouseEnter={() => item && onHover(item)}
         onMouseLeave={() => onHover(null)}
-        className={`h-14 border p-2 flex flex-col justify-center transition-all ${
+        className={`${dense ? 'h-11 p-1.5' : 'h-14 p-2'} border flex flex-col justify-center transition-all ${
             locked
                 ? 'border-slate-800/30 bg-slate-950/40 cursor-not-allowed opacity-50'
                 : isTarget 
@@ -1108,20 +1201,20 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
         }`}
     >
         {locked ? (
-            <span className="text-slate-700 text-xs text-center">🔒 双手武器</span>
+            <span className={`text-slate-700 text-center ${dense ? 'text-[10px]' : 'text-xs'}`}>🔒 双手武器</span>
         ) : item ? (
             <>
-                <span className={`text-sm font-bold truncate ${
+                <span className={`${dense ? 'text-xs' : 'text-sm'} font-bold truncate ${
                     item.rarity === 'UNIQUE' ? 'text-red-400' 
                     : item.rarity === 'LEGENDARY' ? 'text-amber-300'
                     : item.rarity === 'EPIC' ? 'text-purple-300'
                     : item.rarity === 'RARE' ? 'text-sky-300'
                     : 'text-amber-400'
                 }`}>{item.name}</span>
-                <span className="text-[10px] text-slate-600">{getItemBrief(item)}</span>
+                <span className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-600`}>{getItemBrief(item)}</span>
             </>
         ) : (
-            <span className="text-slate-700 text-xs text-center">— {label} —</span>
+            <span className={`text-slate-700 text-center ${dense ? 'text-[10px]' : 'text-xs'}`}>— {label} —</span>
         )}
     </div>
 );
@@ -1132,25 +1225,41 @@ interface StatBarCompactProps {
     val: number;
     maxPossible: number;
     stars?: number;
+    description?: string;
     colorBar: string;
     colorText: string;
+    dense?: boolean;
 }
 
-const StatBarCompact: React.FC<StatBarCompactProps> = ({ label, val, maxPossible, stars = 0, colorBar, colorText }) => {
+const StatBarCompact: React.FC<StatBarCompactProps> = ({ label, val, maxPossible, stars = 0, description, colorBar, colorText, dense = false }) => {
     const pct = Math.min(100, (val / maxPossible) * 100);
+    const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
     
     return (
-        <div className="space-y-1">
+        <div className={dense ? 'space-y-0.5' : 'space-y-1'} title={description}>
             <div className="flex justify-between items-center">
-                <span className="text-[10px] text-slate-500">{label}</span>
+                <div className="flex items-center gap-1.5">
+                    <span className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-500`}>{label}</span>
+                    {description && (
+                        <button
+                            type="button"
+                            onClick={() => setIsDescriptionOpen(v => !v)}
+                            className={`${dense ? 'text-[8px] min-w-[14px] h-[14px]' : 'text-[9px] min-w-[16px] h-[16px]'} text-slate-600 border border-slate-700/60 hover:border-amber-700/60 hover:text-amber-500 leading-none flex items-center justify-center transition-colors`}
+                            title={description}
+                            aria-label={`${label}属性说明`}
+                        >
+                            ?
+                        </button>
+                    )}
+                </div>
                 <div className="flex items-center gap-1">
                     {stars > 0 && (
-                        <span className="text-amber-500 text-[9px]">{'★'.repeat(stars)}</span>
+                        <span className={`${dense ? 'text-[8px]' : 'text-[9px]'} text-amber-500`}>{'★'.repeat(stars)}</span>
                     )}
-                    <span className={`font-mono font-bold text-sm ${colorText}`}>{val}</span>
+                    <span className={`font-mono font-bold ${dense ? 'text-xs' : 'text-sm'} ${colorText}`}>{val}</span>
                 </div>
             </div>
-            <div className="h-2.5 bg-black/60 w-full overflow-hidden border border-white/10 relative">
+            <div className={`${dense ? 'h-2' : 'h-2.5'} bg-black/60 w-full overflow-hidden border border-white/10 relative`}>
                 <div className={`h-full ${colorBar} transition-all duration-500`} style={{ width: `${pct}%` }} />
                 {/* 刻度线 */}
                 <div className="absolute inset-0 flex justify-between pointer-events-none">
@@ -1159,6 +1268,11 @@ const StatBarCompact: React.FC<StatBarCompactProps> = ({ label, val, maxPossible
                     <div className="w-px h-full bg-white/5" style={{ marginLeft: '25%' }} />
                 </div>
             </div>
+            {description && isDescriptionOpen && (
+                <div className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-400 leading-relaxed border border-amber-900/25 bg-black/25 px-2 py-1`}>
+                    {description}
+                </div>
+            )}
         </div>
     );
 };

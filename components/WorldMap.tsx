@@ -1003,7 +1003,7 @@ const drawMapBoundary = (
 // ============================================================================
 // 小地图绘制
 // ============================================================================
-const MINIMAP_SIZE = 160;
+const BASE_MINIMAP_SIZE = 160;
 const MINIMAP_PADDING = 2; // 内边距
 
 const drawMinimap = (
@@ -1015,13 +1015,14 @@ const drawMinimap = (
   camX: number,
   camY: number,
   viewportWidth: number,
-  viewportHeight: number
+  viewportHeight: number,
+  minimapSize: number
 ) => {
   const ctx = minimapCanvas.getContext('2d');
   if (!ctx) return;
 
   const dpr = window.devicePixelRatio || 1;
-  const displaySize = MINIMAP_SIZE;
+  const displaySize = minimapSize;
   if (minimapCanvas.width !== displaySize * dpr || minimapCanvas.height !== displaySize * dpr) {
     minimapCanvas.width = displaySize * dpr;
     minimapCanvas.height = displaySize * dpr;
@@ -1157,6 +1158,9 @@ interface WorldMapProps {
 export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, cities, onSetTarget }) => {
   const [viewportWidth, setViewportWidth] = useState(VIEWPORT_WIDTH);
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
+  const [isMinimapVisible, setIsMinimapVisible] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
   const minimapFrameCounter = useRef(0);
@@ -1192,6 +1196,31 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       cameraRef.current = { x: party.x, y: party.y };
     }
   }, [party.x, party.y]);
+
+  useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const landscape = vw > vh;
+      const compact = coarse && landscape;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+
+      setIsCompactLandscape(compact);
+      setCompactFontScale(scale);
+    };
+
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
+  }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.stopPropagation();
@@ -1557,12 +1586,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
 
       // ===== 小地图（每 6 帧刷新一次，降低开销） =====
       minimapFrameCounter.current++;
-      if (minimapCanvasRef.current && minimapFrameCounter.current % 6 === 0) {
+      if (isMinimapVisible && minimapCanvasRef.current && minimapFrameCounter.current % 6 === 0) {
         drawMinimap(
           minimapCanvasRef.current,
           tiles, party, entities, cities,
           camX, camY,
-          viewportWidth, viewportHeight
+          viewportWidth, viewportHeight, minimapSize
         );
       }
 
@@ -1591,6 +1620,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
   
   // 缩放等级
   const zoomPercent = Math.round((1 - (viewportWidth - 10) / (MAP_SIZE - 10)) * 100);
+  const hudScale = Math.max(0.8, Math.min(1.2, compactFontScale * (isCompactLandscape ? 0.95 : 1.08)));
+  const minimapSize = isCompactLandscape
+    ? Math.max(44, Math.round(BASE_MINIMAP_SIZE * compactFontScale * 0.32))
+    : BASE_MINIMAP_SIZE;
+  const ambitionPanelWidth = Math.max(148, Math.round((isCompactLandscape ? 190 : 200) * hudScale));
+  const ambitionPanelMaxWidth = Math.max(190, Math.round((isCompactLandscape ? 235 : 250) * hudScale));
 
   // 查找任务目标实体（用于HUD显示）
   const questTarget = (() => {
@@ -1860,30 +1895,64 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
 
       {/* ===== 当前野心进度面板 (Ambition HUD) ===== */}
       {party.ambitionState.currentAmbition && (
-        <div className={`absolute ${party.activeQuest ? 'top-[200px]' : 'top-4'} right-4 z-50 pointer-events-none`}>
-          <div className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl min-w-[200px] max-w-[250px]">
-            <div className="px-3 py-1 bg-amber-900/15 border-b border-amber-900/25 flex items-center gap-2">
-              <span className="text-[9px] text-amber-700/80 uppercase tracking-[0.2em]">志向</span>
+        <div className={`absolute ${party.activeQuest ? (isCompactLandscape ? 'top-[154px]' : 'top-[200px]') : (isCompactLandscape ? 'top-3' : 'top-4')} ${isCompactLandscape ? 'right-2' : 'right-4'} z-50 pointer-events-none`}>
+          <div
+            className="bg-[#0f0d0a]/85 border border-amber-900/40 backdrop-blur-sm shadow-xl"
+            style={{ minWidth: ambitionPanelWidth, maxWidth: ambitionPanelMaxWidth }}
+          >
+            <div className={`${isCompactLandscape ? 'px-2 py-0.5' : 'px-3 py-1'} bg-amber-900/15 border-b border-amber-900/25 flex items-center gap-2`}>
+              <span
+                className="text-amber-700/80 uppercase tracking-[0.2em]"
+                style={{ fontSize: `clamp(0.5rem, ${0.95 * hudScale}vw, 0.62rem)` }}
+              >
+                志向
+              </span>
               {party.reputation > 0 && (
-                <span className="text-[9px] text-yellow-700 ml-auto font-mono">声望 {party.reputation}</span>
+                <span
+                  className="text-yellow-700 ml-auto font-mono"
+                  style={{ fontSize: `clamp(0.5rem, ${0.95 * hudScale}vw, 0.62rem)` }}
+                >
+                  声望 {party.reputation}
+                </span>
               )}
             </div>
-            <div className="px-3 py-2 space-y-1">
+            <div className={`${isCompactLandscape ? 'px-2 py-1.5 space-y-0.5' : 'px-3 py-2 space-y-1'}`}>
               <div className="flex items-center gap-1.5">
-                <span className="text-sm">{getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon}</span>
-                <span className="text-xs font-bold text-amber-300 tracking-wider">
+                <span
+                  className={isCompactLandscape ? 'leading-none' : 'text-sm'}
+                  style={{ fontSize: `clamp(0.7rem, ${1.45 * hudScale}vw, 1rem)` }}
+                >
+                  {getAmbitionTypeInfo(party.ambitionState.currentAmbition.type).icon}
+                </span>
+                <span
+                  className="font-bold text-amber-300 tracking-wider"
+                  style={{ fontSize: `clamp(0.66rem, ${1.25 * hudScale}vw, 0.92rem)` }}
+                >
                   {party.ambitionState.currentAmbition.name}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
+              <p
+                className="text-slate-500 leading-relaxed"
+                style={{ fontSize: `clamp(0.56rem, ${1.05 * hudScale}vw, 0.78rem)` }}
+              >
                 {party.ambitionState.currentAmbition.description}
               </p>
               {(() => {
                 const progress = getAmbitionProgress(party);
                 return progress ? (
-                  <div className="flex items-center gap-2 pt-1 border-t border-amber-900/15">
-                    <span className="text-[9px] text-amber-700/70">进度</span>
-                    <span className="text-[10px] text-amber-500 font-mono font-bold">{progress}</span>
+                  <div className={`flex items-center gap-2 ${isCompactLandscape ? 'pt-0.5' : 'pt-1'} border-t border-amber-900/15`}>
+                    <span
+                      className="text-amber-700/70"
+                      style={{ fontSize: `clamp(0.5rem, ${0.92 * hudScale}vw, 0.62rem)` }}
+                    >
+                      进度
+                    </span>
+                    <span
+                      className="text-amber-500 font-mono font-bold"
+                      style={{ fontSize: `clamp(0.56rem, ${1.05 * hudScale}vw, 0.78rem)` }}
+                    >
+                      {progress}
+                    </span>
                   </div>
                 ) : null;
               })()}
@@ -1963,16 +2032,28 @@ export const WorldMap: React.FC<WorldMapProps> = ({ tiles, party, entities, citi
       </div>
       
       {/* ===== 小地图 (Minimap) ===== */}
-      <div className="absolute bottom-14 left-4 z-50 pointer-events-none"
-           style={{ 
-             width: MINIMAP_SIZE, 
-             height: MINIMAP_SIZE,
-             opacity: 0.9,
-           }}>
-        <canvas 
-          ref={minimapCanvasRef}
-          style={{ width: MINIMAP_SIZE, height: MINIMAP_SIZE, display: 'block' }}
-        />
+      <div className={`absolute ${isCompactLandscape ? 'top-2 left-2' : 'top-4 left-4'} z-50`}>
+        <button
+          onClick={() => setIsMinimapVisible(v => !v)}
+          className="pointer-events-auto px-2 py-1 text-[10px] tracking-wide border border-amber-900/60 bg-[#0f0d0a]/80 text-amber-500 hover:text-amber-300 hover:border-amber-700 transition-colors"
+        >
+          {isMinimapVisible ? '隐藏小地图' : '显示小地图'}
+        </button>
+        {isMinimapVisible && (
+          <div
+            className="mt-1 pointer-events-none"
+            style={{ 
+              width: minimapSize, 
+              height: minimapSize,
+              opacity: 0.9,
+            }}
+          >
+            <canvas 
+              ref={minimapCanvasRef}
+              style={{ width: minimapSize, height: minimapSize, display: 'block' }}
+            />
+          </div>
+        )}
       </div>
 
       {/* ===== Vignette 边缘效果（改进版） ===== */}

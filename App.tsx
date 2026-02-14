@@ -776,6 +776,8 @@ export const App: React.FC = () => {
   const [introComplete, setIntroComplete] = useState(false);
   const [introFade, setIntroFade] = useState<'in' | 'visible' | 'out'>('in');
   const introTimerRef = useRef<number | null>(null);
+  const [isIntroCompactLandscape, setIsIntroCompactLandscape] = useState(false);
+  const [introCompactFontScale, setIntroCompactFontScale] = useState(1);
 
   // 预生成地图数据 (在起源选择阶段就准备好)
   const pendingMapRef = useRef<{ tiles: WorldTile[], cities: City[] } | null>(null);
@@ -1696,6 +1698,29 @@ export const App: React.FC = () => {
 
   // --- INTRO STORY 逐字显示逻辑 ---
   useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const landscape = vw > vh;
+      const compact = coarse && landscape;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      setIsIntroCompactLandscape(compact);
+      setIntroCompactFontScale(scale);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
+  }, []);
+
+  useEffect(() => {
     if (view !== 'INTRO_STORY' || introComplete || introFade !== 'visible') return;
 
     const lines = introStoryLines;
@@ -2038,40 +2063,51 @@ export const App: React.FC = () => {
             />
 
             {/* 起源标题 */}
-            <div className="absolute top-[10%]">
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
-                <span className="text-sm text-amber-700/60 tracking-[0.5em] font-serif">
+            <div className={`absolute ${isIntroCompactLandscape ? 'top-4' : 'top-[10%]'}`}>
+              <div className={`flex items-center ${isIntroCompactLandscape ? 'gap-2' : 'gap-4'}`}>
+                <div className={`${isIntroCompactLandscape ? 'w-10' : 'w-20'} h-px bg-gradient-to-r from-transparent to-amber-800/40`} />
+                <span
+                  className={`${isIntroCompactLandscape ? 'text-[10px] tracking-[0.22em]' : 'text-sm tracking-[0.5em]'} text-amber-700/60 font-serif`}
+                  style={isIntroCompactLandscape ? { fontSize: `clamp(0.56rem, ${1.1 * introCompactFontScale}vw, 0.72rem)` } : undefined}
+                >
                   {selectedOrigin?.name} · {selectedOrigin?.subtitle}
                 </span>
-                <div className="w-20 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
+                <div className={`${isIntroCompactLandscape ? 'w-10' : 'w-20'} h-px bg-gradient-to-l from-transparent to-amber-800/40`} />
               </div>
             </div>
 
             {/* 叙事文字 */}
-            <div className="max-w-2xl px-8">
-              <div className="space-y-3">
+            <div className="absolute inset-0 flex items-center justify-center px-2">
+              <div
+                className={`${isIntroCompactLandscape ? 'w-full max-w-[95vw] px-4' : 'max-w-2xl px-8'}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className={`${isIntroCompactLandscape ? 'space-y-1.5 max-h-[58vh] overflow-y-auto pr-1' : 'space-y-3'}`}>
                 {introDisplayed.map((line, i) => (
                   <p
                     key={i}
-                    className={`text-lg leading-loose tracking-[0.12em] font-serif ${
-                      line === '' ? 'h-4' : 'text-amber-100/80'
+                    className={`${isIntroCompactLandscape ? 'text-[14px] leading-relaxed tracking-[0.08em]' : 'text-lg leading-loose tracking-[0.12em]'} font-serif ${
+                      line === '' ? (isIntroCompactLandscape ? 'h-2' : 'h-4') : 'text-amber-100/80'
                     }`}
-                    style={{ textShadow: '0 0 20px rgba(217, 119, 6, 0.1)' }}
+                    style={{
+                      textShadow: '0 0 20px rgba(217, 119, 6, 0.1)',
+                      fontSize: isIntroCompactLandscape ? `clamp(0.76rem, ${1.9 * introCompactFontScale}vw, 0.95rem)` : undefined,
+                    }}
                   >
                     {line}
                     {i === introDisplayed.length - 1 && !introComplete && line !== '' && (
-                      <span className="inline-block w-px h-5 bg-amber-500 ml-1 animate-pulse" />
+                      <span className={`inline-block w-px bg-amber-500 ml-1 animate-pulse ${isIntroCompactLandscape ? 'h-4' : 'h-5'}`} />
                     )}
                   </p>
                 ))}
+                </div>
               </div>
             </div>
 
             {/* 继续提示 */}
             {introComplete && (
-              <div className="absolute bottom-[18%] animate-pulse">
-                <p className="text-xs text-amber-700/60 tracking-[0.3em]">— 点击进入世界 —</p>
+              <div className={`absolute animate-pulse ${isIntroCompactLandscape ? 'bottom-[14%]' : 'bottom-[18%]'}`}>
+                <p className={`${isIntroCompactLandscape ? 'text-[10px] tracking-[0.22em]' : 'text-xs tracking-[0.3em]'} text-amber-700/60`}>— 点击进入世界 —</p>
               </div>
             )}
 
@@ -2083,7 +2119,9 @@ export const App: React.FC = () => {
                 setIntroFade('out');
                 setTimeout(() => setView('WORLD_MAP'), 400);
               }}
-              className="absolute bottom-8 right-8 text-xs text-slate-700 hover:text-slate-500 tracking-widest transition-colors z-10"
+              className={`absolute text-slate-700 hover:text-slate-500 transition-colors z-10 ${
+                isIntroCompactLandscape ? 'bottom-3 right-3 text-[10px] tracking-[0.2em]' : 'bottom-8 right-8 text-xs tracking-widest'
+              }`}
             >
               跳过 →
             </button>

@@ -59,7 +59,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
       const dpr = window.devicePixelRatio || 1;
       const BASELINE_DPR = 1.7;
       const shortest = Math.min(vw, vh);
-      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      const scale = Math.max(0.72, Math.min(1.32, (shortest / 440) * (BASELINE_DPR / dpr)));
 
       setIsMobileLayout(coarse || vw < 1024);
       setIsCompactLandscape(compact);
@@ -146,19 +146,36 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
   }, []);
 
   const compactButtonWrapStyle = isCompactLandscape
-    ? { width: `min(100%, ${Math.max(210, Math.round(320 * compactFontScale))}px)` }
+    ? { width: `min(100%, ${Math.max(240, Math.round(360 * compactFontScale))}px)` }
     : undefined;
 
   const compactTitleStyle = isCompactLandscape
-    ? { fontSize: `clamp(2.2rem, ${6.2 * compactFontScale}vw, 3.3rem)` }
+    ? { fontSize: `clamp(2.6rem, ${7.1 * compactFontScale}vw, 4rem)` }
     : undefined;
 
   const compactSubTitleStyle = isCompactLandscape
-    ? { fontSize: `clamp(1rem, ${2.8 * compactFontScale}vw, 1.6rem)` }
+    ? { fontSize: `clamp(1.15rem, ${3.2 * compactFontScale}vw, 1.9rem)` }
     : undefined;
 
   const compactQuoteStyle = isCompactLandscape
     ? { fontSize: `clamp(0.64rem, ${1.45 * compactFontScale}vw, 0.8rem)` }
+    : undefined;
+
+  const compactRootStyle = isCompactLandscape
+    ? {
+        paddingLeft: `${Math.max(8, Math.round(14 * compactFontScale))}px`,
+        paddingRight: `${Math.max(8, Math.round(14 * compactFontScale))}px`,
+        paddingTop: `${Math.max(8, Math.round(10 * compactFontScale))}px`,
+        paddingBottom: `${Math.max(8, Math.round(10 * compactFontScale))}px`,
+      }
+    : undefined;
+
+  const compactPrimaryButtonTextStyle = isCompactLandscape
+    ? { fontSize: `clamp(0.98rem, ${2.2 * compactFontScale}vw, 1.2rem)` }
+    : undefined;
+
+  const compactSecondaryButtonTextStyle = isCompactLandscape
+    ? { fontSize: `clamp(0.84rem, ${1.8 * compactFontScale}vw, 1rem)` }
     : undefined;
 
   return (
@@ -172,7 +189,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
       />
 
       {/* 顶部淡入渐变 */}
-      <div className="absolute top-0 left-0 right-0 h-40 z-10"
+      <div className={`absolute top-0 left-0 right-0 z-10 ${isCompactLandscape ? 'h-20' : 'h-40'}`}
         style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)' }}
       />
 
@@ -189,19 +206,20 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
       {/* 主内容区 */}
       <div
         className={`relative z-20 flex flex-col items-center justify-center h-full min-h-0 px-4 ${
-          isCompactLandscape ? 'py-2 sm:px-5' : 'sm:px-8'
+          isCompactLandscape ? 'justify-center py-1 sm:px-5' : 'sm:px-8'
         } ${isMobileLayout && !isCompactLandscape ? 'py-6' : ''}`}
+        style={compactRootStyle}
       >
-        <div className="w-full max-w-5xl flex flex-col items-center">
+        <div className={`w-full max-w-5xl min-h-0 flex flex-col items-center ${isCompactLandscape ? 'max-h-full justify-center overflow-hidden' : 'h-full'}`}>
           {/* 装饰性上边线 */}
-          <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 w-52 sm:w-64' : 'opacity-0 w-0'}`}>
+          <div className={`transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'hidden' : ''} ${showContent ? 'opacity-100 w-52 sm:w-64' : 'opacity-0 w-0'}`}>
             <div className={`${isCompactLandscape ? 'mb-4' : 'mb-8'} h-px bg-gradient-to-r from-transparent via-amber-700/60 to-transparent`} />
           </div>
 
           {/* 游戏副标题 */}
           <div className={`transition-all duration-[1500ms] ease-out ${showContent ? 'opacity-70 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
             <p
-              className={`${isCompactLandscape ? 'mb-2 text-[11px] tracking-[0.72em]' : 'mb-4 text-sm tracking-[1em]'} text-amber-600/70 uppercase`}
+              className={`${isCompactLandscape ? 'mb-1.5 text-[12px] tracking-[0.66em]' : 'mb-4 text-sm tracking-[1em]'} text-amber-600/70 uppercase`}
             >
               Warring States
             </p>
@@ -210,7 +228,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
           {/* 游戏标题 */}
           <div className={`transition-all duration-[2000ms] ease-out ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'}`}>
             <h1
-              className={`${isCompactLandscape ? 'mb-1 tracking-[0.12em]' : 'mb-2 text-6xl md:text-7xl tracking-[0.15em]'} font-bold text-transparent bg-clip-text leading-tight text-center`}
+              className={`${isCompactLandscape ? 'mb-0.5 tracking-[0.12em]' : 'mb-2 text-6xl md:text-7xl tracking-[0.15em]'} font-bold text-transparent bg-clip-text leading-tight text-center`}
               style={{
                 ...compactTitleStyle,
                 backgroundImage: 'linear-gradient(180deg, #d4a44a 0%, #b8860b 40%, #8b6508 100%)',
@@ -222,7 +240,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
               战国
             </h1>
             <h2
-              className={`${isCompactLandscape ? 'mt-1 tracking-[0.28em]' : 'mt-2 text-2xl md:text-3xl tracking-[0.5em]'} text-amber-600/90 text-center font-light`}
+              className={`${isCompactLandscape ? 'mt-0.5 tracking-[0.24em]' : 'mt-2 text-2xl md:text-3xl tracking-[0.5em]'} text-amber-600/90 text-center font-light`}
               style={{ ...compactSubTitleStyle, textShadow: '0 0 40px rgba(180,130,50,0.2)' }}
             >
               与伍同行
@@ -230,22 +248,22 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
           </div>
 
           {/* 装饰性分隔线 */}
-          <div className={`flex items-center gap-4 transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'my-4 w-64 sm:w-80' : 'my-8 w-80'} ${showContent ? 'opacity-100' : 'opacity-0 w-0'}`}>
+          <div className={`flex items-center gap-4 transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'hidden' : 'my-8 w-80'} ${showContent ? 'opacity-100' : 'opacity-0 w-0'}`}>
             <div className="flex-1 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
             <div className="w-2 h-2 rotate-45 border border-amber-700/50" />
             <div className="flex-1 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
           </div>
 
           {/* 古诗引言 */}
-          <div className={`transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'mb-6 px-2' : 'mb-12'} ${showQuote ? 'opacity-60 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+          <div className={`transition-all duration-[2000ms] ease-out ${isCompactLandscape ? 'hidden' : 'mb-12'} ${showQuote ? 'opacity-60 translate-y-0' : 'opacity-0 translate-y-4'}`}>
             <p className={`${isCompactLandscape ? 'max-w-sm tracking-[0.16em]' : 'max-w-md text-sm tracking-widest'} text-amber-500/50 italic text-center`} style={compactQuoteStyle}>
               {QUOTES[quoteIndex]}
             </p>
           </div>
 
           {/* 菜单按钮区 */}
-          <div className="w-full flex items-center justify-center">
-            <div className={`flex flex-col items-center gap-3 sm:gap-4 transition-all duration-[1500ms] ease-out ${showButtons ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`} style={compactButtonWrapStyle}>
+          <div className={`w-full flex items-center justify-center ${isCompactLandscape ? 'mt-2 pb-1' : ''}`}>
+            <div className={`flex flex-col items-center gap-3 sm:gap-4 transition-all duration-[1500ms] ease-out ${isCompactLandscape ? 'gap-2.5' : ''} ${showButtons ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`} style={compactButtonWrapStyle}>
               {/* 新战役 */}
               <button
                 onClick={onNewGame}
@@ -255,7 +273,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
                 <div className="absolute inset-0 border border-amber-700/40 group-hover:border-amber-500/80 transition-all duration-500" />
                 <div className="absolute inset-0 bg-amber-900/0 group-hover:bg-amber-900/20 transition-all duration-500" />
                 <div className="absolute inset-y-0 left-0 w-0 group-hover:w-full bg-gradient-to-r from-amber-800/10 to-transparent transition-all duration-700" />
-                <span className={`${isCompactLandscape ? 'text-base tracking-[0.25em]' : 'text-lg tracking-[0.4em]'} relative text-amber-500 group-hover:text-amber-300 font-bold transition-colors duration-300`}>
+                <span
+                  className={`${isCompactLandscape ? 'tracking-[0.25em]' : 'text-lg tracking-[0.4em]'} relative text-amber-500 group-hover:text-amber-300 font-bold transition-colors duration-300`}
+                  style={compactPrimaryButtonTextStyle}
+                >
                   新 战 役
                 </span>
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-hover:w-3/4 h-px bg-gradient-to-r from-transparent via-amber-500 to-transparent transition-all duration-500" />
@@ -269,7 +290,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
               >
                 <div className={`absolute inset-0 border transition-all duration-500 ${hasSaveData ? 'border-amber-900/30 group-hover:border-amber-600/60' : 'border-slate-800/30'}`} />
                 <div className={`absolute inset-0 transition-all duration-500 ${hasSaveData ? 'bg-amber-900/0 group-hover:bg-amber-900/10' : ''}`} />
-                <span className={`${isCompactLandscape ? 'text-[13px] tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative transition-colors duration-300 ${hasSaveData ? 'text-amber-600/80 group-hover:text-amber-400' : 'text-slate-600/40'}`}>
+                <span
+                  className={`${isCompactLandscape ? 'tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative transition-colors duration-300 ${hasSaveData ? 'text-amber-600/80 group-hover:text-amber-400' : 'text-slate-600/40'}`}
+                  style={compactSecondaryButtonTextStyle}
+                >
                   续 读 简 牍
                 </span>
                 {!hasSaveData && (
@@ -283,7 +307,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
                 className={`group relative ${isCompactLandscape ? 'w-full py-2' : 'w-72 py-3'} text-center overflow-hidden`}
               >
                 <div className="absolute inset-0 border border-amber-900/20 group-hover:border-amber-700/40 transition-all duration-500" />
-                <span className={`${isCompactLandscape ? 'text-[13px] tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative text-amber-700/60 group-hover:text-amber-500/80 transition-colors duration-300`}>
+                <span
+                  className={`${isCompactLandscape ? 'tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative text-amber-700/60 group-hover:text-amber-500/80 transition-colors duration-300`}
+                  style={compactSecondaryButtonTextStyle}
+                >
                   联 系 开 发 者
                 </span>
               </button>

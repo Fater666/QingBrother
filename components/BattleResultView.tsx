@@ -49,6 +49,9 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
   const [selectedItems, setSelectedItems] = useState<Set<number>>(() => new Set(result.lootItems.map((_, i) => i)));
   const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
   
   // 逐行淡入动画
   const [visibleRows, setVisibleRows] = useState(0);
@@ -71,6 +74,29 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
     const handleMouseMove = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const compact = coarse && vw > vh;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      setIsMobileLayout(coarse || vw < 1024);
+      setIsCompactLandscape(compact);
+      setCompactFontScale(scale);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
   }, []);
 
   const currentInventoryCount = party.inventory.length;
@@ -125,13 +151,13 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
     ];
 
     return (
-      <div className="w-full max-w-2xl mx-auto flex flex-col items-center animate-fadeIn">
+      <div className={`${isCompactLandscape ? 'max-w-none px-2 py-1' : 'max-w-2xl'} w-full mx-auto flex flex-col items-center animate-fadeIn max-h-full overflow-y-auto`}>
         {/* 标题区域 */}
         <div className="text-center mb-4">
           {result.victory ? (
             <>
               <div className="text-4xl mb-2">&#9876;</div>
-              <h1 className="text-2xl font-bold text-amber-400 tracking-[0.3em] mb-2">
+              <h1 className={`${isCompactLandscape ? 'text-lg tracking-[0.2em]' : 'text-2xl tracking-[0.3em]'} font-bold text-amber-400 mb-2`} style={isCompactLandscape ? { fontSize: `clamp(0.92rem, ${2.2 * compactFontScale}vw, 1.2rem)` } : undefined}>
                 战 斗 胜 利
               </h1>
               <p className="text-base text-amber-600/80 italic">
@@ -151,7 +177,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
           ) : (
             <>
               <div className="text-4xl mb-2">&#9760;</div>
-              <h1 className="text-2xl font-bold text-red-500 tracking-[0.3em] mb-2">
+              <h1 className={`${isCompactLandscape ? 'text-lg tracking-[0.2em]' : 'text-2xl tracking-[0.3em]'} font-bold text-red-500 mb-2`} style={isCompactLandscape ? { fontSize: `clamp(0.92rem, ${2.2 * compactFontScale}vw, 1.2rem)` } : undefined}>
                 全 军 覆 没
               </h1>
               <p className="text-base text-red-400/80 italic">
@@ -261,7 +287,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         </div>
 
         {/* 按钮 */}
-        <div className="mt-6">
+        <div className={`${isCompactLandscape ? 'mt-3' : 'mt-6'}`}>
           {result.victory ? (
             <button
               onClick={() => {
@@ -272,7 +298,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
                   handleComplete();
                 }
               }}
-              className="px-12 py-3 bg-amber-800 hover:bg-amber-600 text-white font-bold tracking-[0.3em] transition-all shadow-lg border border-amber-500 hover:shadow-amber-500/20"
+              className={`${isCompactLandscape ? 'px-8 py-2 tracking-[0.15em] text-sm' : 'px-12 py-3 tracking-[0.3em]'} bg-amber-800 hover:bg-amber-600 text-white font-bold transition-all shadow-lg border border-amber-500 hover:shadow-amber-500/20`}
             >
               {result.lootItems.length > 0 ? '继 续' : '返回世界地图'}
               {result.lootItems.length > 0 && <span className="ml-2 text-amber-300/60">→</span>}
@@ -280,7 +306,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
           ) : (
             <button
               onClick={handleDefeatRestart}
-              className="px-12 py-3 bg-red-900 hover:bg-red-700 text-white font-bold tracking-[0.3em] transition-all shadow-lg border border-red-600"
+              className={`${isCompactLandscape ? 'px-8 py-2 tracking-[0.15em] text-sm' : 'px-12 py-3 tracking-[0.3em]'} bg-red-900 hover:bg-red-700 text-white font-bold transition-all shadow-lg border border-red-600`}
             >
               重新开始
             </button>
@@ -293,7 +319,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
   // ============================== 阶段二：战利品拾取 ==============================
   const renderLoot = () => {
     return (
-      <div className="w-full max-w-3xl mx-auto flex flex-col items-center animate-fadeIn">
+      <div className={`${isCompactLandscape ? 'max-w-none px-2 py-1' : 'max-w-3xl'} w-full mx-auto flex flex-col items-center animate-fadeIn max-h-full overflow-y-auto`}>
         {/* 标题 */}
         <div className="w-full flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -336,7 +362,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
 
         {/* 战利品网格 */}
         {result.lootItems.length > 0 ? (
-          <div className="w-full grid grid-cols-5 gap-3 mb-6">
+        <div className={`w-full ${isCompactLandscape ? 'grid grid-cols-6 gap-2 mb-3' : 'grid grid-cols-5 gap-3 mb-6'}`}>
             {result.lootItems.map((item, i) => {
               const isSelected = selectedItems.has(i);
               const qualityColor = getItemQualityColor(item.value, item.rarity);
@@ -397,7 +423,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         {/* 完成按钮 */}
         <button
           onClick={handleComplete}
-          className="px-12 py-3 bg-amber-800 hover:bg-amber-600 text-white font-bold tracking-[0.3em] transition-all shadow-lg border border-amber-500 hover:shadow-amber-500/20"
+          className={`${isCompactLandscape ? 'px-8 py-2 tracking-[0.15em] text-sm mb-1' : 'px-12 py-3 tracking-[0.3em]'} bg-amber-800 hover:bg-amber-600 text-white font-bold transition-all shadow-lg border border-amber-500 hover:shadow-amber-500/20`}
         >
           完 成
         </button>
@@ -449,7 +475,7 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-[90] flex items-center justify-center overflow-y-auto">
+    <div className="fixed inset-0 bg-black z-[90] flex items-center justify-center overflow-hidden">
       {/* 背景氛围 */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
         style={{ backgroundImage: `radial-gradient(ellipse 800px 600px at 50% 40%, rgba(139, 90, 43, 0.4), transparent)` }}
@@ -459,7 +485,10 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
         style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(139,69,19,0.3) 2px, rgba(139,69,19,0.3) 4px)' }}
       />
 
-      <div className="relative z-10 w-full px-6 py-6">
+      <div
+        className={`${isCompactLandscape ? 'px-2 py-2' : isMobileLayout ? 'px-3 py-3' : 'px-6 py-6'} relative z-10 w-full h-full overflow-hidden`}
+        style={isCompactLandscape ? { fontSize: `clamp(0.62rem, ${1.22 * compactFontScale}vw, 0.82rem)` } : undefined}
+      >
         {phase === 'REPORT' ? renderReport() : renderLoot()}
       </div>
 

@@ -144,9 +144,35 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
   const [leaderName, setLeaderName] = useState('');
   const [fadeIn, setFadeIn] = useState(false);
   const [showNameInput, setShowNameInput] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
 
   useEffect(() => {
     setFadeIn(true);
+  }, []);
+
+  useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const landscape = vw > vh;
+      const compact = coarse && landscape;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.72, Math.min(1.32, (shortest / 440) * (BASELINE_DPR / dpr)));
+
+      setIsCompactLandscape(compact);
+      setCompactFontScale(scale);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
   }, []);
 
   const selectedOrigin = ORIGIN_CONFIGS.find(o => o.id === selectedId);
@@ -178,19 +204,24 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
       />
 
       {/* 标题栏（紧凑单行） */}
-      <div className="shrink-0 h-10 flex items-center justify-center gap-3 relative z-10 border-b border-amber-900/20">
-        <div className="w-8 h-px bg-gradient-to-r from-transparent to-amber-800/30" />
-        <h1 className="text-sm sm:text-lg font-bold text-amber-600 tracking-[0.2em] sm:tracking-[0.3em] font-serif"
-          style={{ textShadow: '0 0 30px rgba(217, 119, 6, 0.2)' }}>
+      <div className={`shrink-0 flex items-center justify-center relative z-10 border-b border-amber-900/20 ${isCompactLandscape ? 'h-9 gap-2.5' : 'h-10 gap-3'}`}>
+        <div className={`${isCompactLandscape ? 'w-8' : 'w-8'} h-px bg-gradient-to-r from-transparent to-amber-800/30`} />
+        <h1
+          className={`${isCompactLandscape ? 'text-[14px] tracking-[0.18em]' : 'text-sm sm:text-lg tracking-[0.2em] sm:tracking-[0.3em]'} font-bold text-amber-600 font-serif`}
+          style={{
+            textShadow: '0 0 30px rgba(217, 119, 6, 0.2)',
+            fontSize: isCompactLandscape ? `clamp(0.84rem, ${1.55 * compactFontScale}vw, 1.02rem)` : undefined,
+          }}
+        >
           选择你的来历
         </h1>
-        <span className="text-[10px] text-amber-900/50 tracking-widest hidden sm:inline">每段过往，皆是命运的伏笔</span>
-        <div className="w-8 h-px bg-gradient-to-l from-transparent to-amber-800/30" />
+        <span className={`text-[10px] text-amber-900/50 tracking-widest ${isCompactLandscape ? 'hidden' : 'hidden sm:inline'}`}>每段过往，皆是命运的伏笔</span>
+        <div className={`${isCompactLandscape ? 'w-8' : 'w-8'} h-px bg-gradient-to-l from-transparent to-amber-800/30`} />
       </div>
 
       {/* 卡片区域（横屏4列） */}
-      <div className="flex-1 min-h-0 px-2 sm:px-4 py-2 relative z-10 overflow-y-auto">
-        <div className="mx-auto grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 h-full content-center max-w-[960px]">
+      <div className={`flex-1 min-h-0 relative z-10 overflow-y-auto ${isCompactLandscape ? 'px-2 py-1.5' : 'px-2 sm:px-4 py-2'}`}>
+        <div className={`mx-auto grid ${isCompactLandscape ? 'grid-cols-2 gap-2 content-start max-w-[980px]' : 'grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 h-full content-center max-w-[960px]'}`}>
         {ORIGIN_CONFIGS.map((origin) => {
           const isSelected = selectedId === origin.id;
           return (
@@ -204,17 +235,17 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                 }`}
             >
               {/* 卡片主体 */}
-              <div className={`border p-2.5 sm:p-3 transition-all duration-300 bg-gradient-to-b from-[#141210] to-[#0a0908] h-full flex flex-col
+              <div className={`border transition-all duration-300 bg-gradient-to-b from-[#141210] to-[#0a0908] h-full flex flex-col ${isCompactLandscape ? 'p-2' : 'p-2.5 sm:p-3'}
                 ${isSelected
                   ? 'border-amber-600/80 shadow-[0_0_25px_rgba(217,119,6,0.15)]'
                   : 'border-amber-900/30 hover:border-amber-800/50'
                 }`}>
                 {/* 副标题 + 名称 */}
-                <div className={`text-[9px] tracking-[0.2em] uppercase mb-1 transition-colors duration-300
+                <div className={`${isCompactLandscape ? 'text-[9px] tracking-[0.18em]' : 'text-[9px] tracking-[0.2em]'} uppercase mb-1 transition-colors duration-300
                   ${isSelected ? 'text-amber-500' : 'text-amber-800/60'}`}>
                   {origin.subtitle}
                 </div>
-                <h2 className={`text-base sm:text-lg font-bold tracking-[0.12em] font-serif mb-1.5 transition-colors duration-300
+                <h2 className={`${isCompactLandscape ? 'text-[16px] tracking-[0.1em] mb-1' : 'text-base sm:text-lg tracking-[0.12em] mb-1.5'} font-bold font-serif transition-colors duration-300
                   ${isSelected ? 'text-amber-400' : 'text-amber-100/70'}`}
                   style={isSelected ? { textShadow: '0 0 15px rgba(217, 119, 6, 0.3)' } : {}}>
                   {origin.name}
@@ -222,7 +253,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
 
                 {/* 背景故事：点击卡片后展开全文 */}
                 {isSelected ? (
-                  <div className="text-[10px] sm:text-[11px] text-slate-400 leading-relaxed mb-2 max-h-24 sm:max-h-28 overflow-y-auto pr-1 custom-scrollbar">
+                  <div className={`${isCompactLandscape ? 'text-[11px] max-h-24 mb-1.5' : 'text-[10px] sm:text-[11px] max-h-24 sm:max-h-28 mb-2'} text-slate-400 leading-relaxed overflow-y-auto pr-1 custom-scrollbar`}>
                     {origin.introStory.map((line, idx) => (
                       <p key={idx} className="mb-1 last:mb-0">
                         {line}
@@ -230,16 +261,16 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[10px] sm:text-[11px] text-slate-500 leading-relaxed mb-2 line-clamp-2">
+                  <p className={`${isCompactLandscape ? 'text-[10px] mb-1.5 line-clamp-3' : 'text-[10px] sm:text-[11px] mb-2 line-clamp-2'} text-slate-500 leading-relaxed`}>
                     {origin.description}
                   </p>
                 )}
 
                 {/* 分隔线 */}
-                <div className="h-px bg-gradient-to-r from-transparent via-amber-900/30 to-transparent mb-2" />
+                <div className={`h-px bg-gradient-to-r from-transparent via-amber-900/30 to-transparent ${isCompactLandscape ? 'mb-1.5' : 'mb-2'}`} />
 
                 {/* 初始资源（横向紧凑） */}
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] mb-2">
+                <div className={`grid grid-cols-2 gap-y-1 ${isCompactLandscape ? 'gap-x-2 text-[10px] mb-1.5' : 'gap-x-3 text-[10px] mb-2'}`}>
                   <div className="flex justify-between">
                     <span className="text-slate-600">金币</span>
                     <span className="text-amber-500 font-mono font-bold">{origin.gold}</span>
@@ -259,10 +290,10 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                 </div>
 
                 {/* 成员构成（紧凑） */}
-                <div className="mt-auto pt-1.5 border-t border-white/5">
+                <div className={`mt-auto border-t border-white/5 ${isCompactLandscape ? 'pt-1' : 'pt-1.5'}`}>
                   <div className="flex flex-wrap gap-0.5">
                     {origin.mercenaries.map((m, i) => (
-                      <span key={i} className="text-[9px] px-1.5 py-0.5 bg-amber-950/40 border border-amber-900/20 text-amber-600/80 truncate max-w-full">
+                      <span key={i} className={`${isCompactLandscape ? 'text-[9px] px-1.5 py-0.5' : 'text-[9px] px-1.5 py-0.5'} bg-amber-950/40 border border-amber-900/20 text-amber-600/80 truncate max-w-full`}>
                         {m.name}
                       </span>
                     ))}
@@ -284,11 +315,11 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
 
       {/* 底部：命名 & 确认（紧凑横排） */}
       {showNameInput && selectedOrigin && (
-        <div className="shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-2 pb-2 sm:pb-3 px-3 sm:px-6 relative z-20 border-t border-amber-900/20">
-          <div className="max-w-lg mx-auto flex items-center gap-3">
+        <div className={`shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent relative z-20 border-t border-amber-900/20 ${isCompactLandscape ? 'pt-1.5 pb-1.5 px-2.5' : 'pt-2 pb-2 sm:pb-3 px-3 sm:px-6'}`}>
+          <div className={`max-w-lg mx-auto flex items-center ${isCompactLandscape ? 'gap-2' : 'gap-3'}`}>
             {/* 命名输入 */}
             <div className="flex-1 min-w-0">
-              <label className="text-[9px] text-amber-800/60 uppercase tracking-[0.2em] block mb-1">
+              <label className={`${isCompactLandscape ? 'text-[9px] tracking-[0.15em] mb-0.5' : 'text-[9px] tracking-[0.2em] mb-1'} text-amber-800/60 uppercase block`}>
                 首领姓名
               </label>
               <div className="relative">
@@ -297,7 +328,7 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
                   value={leaderName}
                   onChange={(e) => setLeaderName(e.target.value)}
                   maxLength={8}
-                  className="w-full bg-black/80 border border-amber-900/40 text-amber-100 text-base font-serif tracking-[0.15em] px-3 py-1.5 focus:outline-none focus:border-amber-600 transition-colors placeholder:text-slate-800"
+                  className={`w-full bg-black/80 border border-amber-900/40 text-amber-100 font-serif tracking-[0.15em] px-3 focus:outline-none focus:border-amber-600 transition-colors placeholder:text-slate-800 ${isCompactLandscape ? 'text-base py-1.5' : 'text-base py-1.5'}`}
                   placeholder="输入姓名..."
                 />
                 <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-600/30 to-transparent" />
@@ -307,10 +338,10 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
             {/* 确认按钮 */}
             <button
               onClick={handleConfirm}
-              className="group shrink-0 px-5 sm:px-8 py-2 border border-amber-700/60 bg-amber-900/20 hover:bg-amber-800/40 transition-all duration-300 relative overflow-hidden"
+              className={`group shrink-0 border border-amber-700/60 bg-amber-900/20 hover:bg-amber-800/40 transition-all duration-300 relative overflow-hidden ${isCompactLandscape ? 'px-4 py-1.5' : 'px-5 sm:px-8 py-2'}`}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <span className="text-amber-500 text-sm sm:text-base font-bold tracking-[0.2em] sm:tracking-[0.35em] font-serif relative z-10">
+              <span className={`text-amber-500 font-bold font-serif relative z-10 ${isCompactLandscape ? 'text-[14px] tracking-[0.18em]' : 'text-sm sm:text-base tracking-[0.2em] sm:tracking-[0.35em]'}`}>
                 踏上征途
               </span>
             </button>
@@ -320,8 +351,8 @@ export const OriginSelect: React.FC<OriginSelectProps> = ({ onSelect }) => {
 
       {/* 未选择时的底部提示 */}
       {!showNameInput && (
-        <div className="shrink-0 pb-3 text-center">
-          <p className="text-[10px] text-slate-700 tracking-widest animate-pulse">
+        <div className={`shrink-0 text-center ${isCompactLandscape ? 'pb-1.5' : 'pb-3'}`}>
+          <p className={`${isCompactLandscape ? 'text-[9px]' : 'text-[10px]'} text-slate-700 tracking-widest animate-pulse`}>
             — 选择一段过往 —
           </p>
         </div>

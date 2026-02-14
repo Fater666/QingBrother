@@ -69,11 +69,36 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
   const [segmentFade, setSegmentFade] = useState<'in' | 'out' | 'visible'>('in');
   const [isTyping, setIsTyping] = useState(true);
   const [showContinue, setShowContinue] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
 
   const timerRef = useRef<number | null>(null);
   const skipRef = useRef(false);
 
   const segment = SEGMENTS[Math.min(currentSegment, SEGMENTS.length - 1)];
+
+  useEffect(() => {
+    const detect = () => {
+      const vw = window.visualViewport?.width ?? window.innerWidth;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const landscape = vw > vh;
+      const compact = coarse && landscape;
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const shortest = Math.min(vw, vh);
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      setIsCompactLandscape(compact);
+      setCompactFontScale(scale);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
+  }, []);
 
   // 清理定时器
   const clearTimer = useCallback(() => {
@@ -204,23 +229,26 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
       />
 
       {/* 段落标题 */}
-      <div className={`absolute top-[12%] transition-all duration-[800ms] ${fadeClass}`}>
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-px bg-gradient-to-r from-transparent to-amber-800/40" />
-          <span className="text-xs text-amber-800/60 tracking-[0.5em] uppercase font-serif">
+      <div className={`absolute transition-all duration-[800ms] ${isCompactLandscape ? 'top-4' : 'top-[12%]'} ${fadeClass}`}>
+        <div className={`flex items-center ${isCompactLandscape ? 'gap-2' : 'gap-4'}`}>
+          <div className={`${isCompactLandscape ? 'w-10' : 'w-16'} h-px bg-gradient-to-r from-transparent to-amber-800/40`} />
+          <span
+            className={`${isCompactLandscape ? 'text-[10px] tracking-[0.28em]' : 'text-xs tracking-[0.5em]'} text-amber-800/60 uppercase font-serif`}
+            style={isCompactLandscape ? { fontSize: `clamp(0.56rem, ${1.15 * compactFontScale}vw, 0.66rem)` } : undefined}
+          >
             {segment.title}
           </span>
-          <div className="w-16 h-px bg-gradient-to-l from-transparent to-amber-800/40" />
+          <div className={`${isCompactLandscape ? 'w-10' : 'w-16'} h-px bg-gradient-to-l from-transparent to-amber-800/40`} />
         </div>
       </div>
 
       {/* 段落进度指示 */}
-      <div className={`absolute top-[10%] right-12 transition-all duration-[800ms] ${fadeClass}`}>
-        <div className="flex gap-2">
+      <div className={`absolute transition-all duration-[800ms] ${isCompactLandscape ? 'top-3 right-4' : 'top-[10%] right-12'} ${fadeClass}`}>
+        <div className={`flex ${isCompactLandscape ? 'gap-1.5' : 'gap-2'}`}>
           {SEGMENTS.map((_, i) => (
             <div
               key={i}
-              className={`w-2 h-2 rounded-full transition-all duration-500 ${
+              className={`${isCompactLandscape ? 'w-1.5 h-1.5' : 'w-2 h-2'} rounded-full transition-all duration-500 ${
                 i === currentSegment ? 'bg-amber-600' :
                 i < currentSegment ? 'bg-amber-900/60' : 'bg-slate-800'
               }`}
@@ -230,30 +258,38 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
       </div>
 
       {/* 叙事文字区域 */}
-      <div className={`max-w-2xl px-8 transition-all duration-[800ms] ${fadeClass}`}>
-        <div className="space-y-2">
+      <div className={`absolute inset-0 flex items-center justify-center px-2 ${fadeClass}`}>
+        <div
+          className={`transition-all duration-[800ms] ${isCompactLandscape ? 'w-full max-w-[95vw] px-4' : 'max-w-2xl px-8'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={`${isCompactLandscape ? 'space-y-1.5 max-h-[58vh] overflow-y-auto pr-1' : 'space-y-2'}`}>
           {displayedText.map((line, i) => (
             <p
               key={`${currentSegment}-${i}`}
-              className={`text-lg leading-loose tracking-[0.15em] font-serif transition-opacity duration-300 ${
-                line === '' ? 'h-4' : 'text-amber-100/80'
+              className={`${isCompactLandscape ? 'text-[14px] leading-relaxed tracking-[0.08em]' : 'text-lg leading-loose tracking-[0.15em]'} font-serif transition-opacity duration-300 ${
+                line === '' ? (isCompactLandscape ? 'h-2' : 'h-4') : 'text-amber-100/80'
               }`}
-              style={{ textShadow: '0 0 20px rgba(217, 119, 6, 0.1)' }}
+              style={{
+                textShadow: '0 0 20px rgba(217, 119, 6, 0.1)',
+                fontSize: isCompactLandscape ? `clamp(0.76rem, ${1.9 * compactFontScale}vw, 0.95rem)` : undefined,
+              }}
             >
               {line}
               {/* 打字光标 */}
               {i === displayedText.length - 1 && isTyping && line !== '' && (
-                <span className="inline-block w-px h-5 bg-amber-500 ml-1 animate-pulse" />
+                <span className={`inline-block w-px bg-amber-500 ml-1 animate-pulse ${isCompactLandscape ? 'h-4' : 'h-5'}`} />
               )}
             </p>
           ))}
+          </div>
         </div>
       </div>
 
       {/* 继续提示 */}
       {showContinue && (
-        <div className="absolute bottom-[20%] animate-pulse">
-          <p className="text-xs text-amber-700/60 tracking-[0.3em]">
+        <div className={`absolute animate-pulse ${isCompactLandscape ? 'bottom-[14%]' : 'bottom-[20%]'}`}>
+          <p className={`${isCompactLandscape ? 'text-[10px] tracking-[0.22em]' : 'text-xs tracking-[0.3em]'} text-amber-700/60`}>
             {currentSegment < SEGMENTS.length - 1 ? '— 点击继续 —' : '— 点击开始你的征途 —'}
           </p>
         </div>
@@ -262,7 +298,9 @@ export const Prologue: React.FC<PrologueProps> = ({ onComplete }) => {
       {/* 跳过按钮 */}
       <button
         onClick={(e) => { e.stopPropagation(); handleSkip(); }}
-        className="absolute bottom-8 right-8 text-xs text-slate-700 hover:text-slate-500 tracking-widest transition-colors duration-300 z-10"
+        className={`absolute text-slate-700 hover:text-slate-500 transition-colors duration-300 z-10 ${
+          isCompactLandscape ? 'bottom-3 right-3 text-[10px] tracking-[0.2em]' : 'bottom-8 right-8 text-xs tracking-widest'
+        }`}
       >
         跳过 →
       </button>
