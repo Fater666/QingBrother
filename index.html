@@ -199,10 +199,128 @@
         .anim-unique-glow {
             animation: uniqueGlow 1.8s ease-in-out infinite;
         }
+
+        #boot-loading {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483646;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #cbd5e1;
+            background: #000;
+            letter-spacing: 1px;
+        }
+
+        #boot-error {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            top: 12px;
+            z-index: 2147483647;
+            display: none;
+            padding: 12px;
+            max-height: 45vh;
+            overflow: auto;
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fecaca;
+            font-size: 12px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
+    <div id="boot-loading">正在加载游戏...</div>
+    <div id="boot-error"></div>
     <div id="root"></div>
+    <script>
+        (function () {
+            var ready = false;
+            var loadingEl = null;
+            var errorEl = null;
+            var bootTimeoutMs = 10000;
+
+            function getLoadingEl() {
+                if (!loadingEl) loadingEl = document.getElementById('boot-loading');
+                return loadingEl;
+            }
+
+            function getErrorEl() {
+                if (!errorEl) errorEl = document.getElementById('boot-error');
+                return errorEl;
+            }
+
+            function hideLoading() {
+                var el = getLoadingEl();
+                if (el) el.style.display = 'none';
+            }
+
+            function showBootError(title, detail) {
+                var el = getErrorEl();
+                if (!el) return;
+                var text = '[启动异常] ' + title;
+                if (detail) text += '\n\n' + detail;
+                el.textContent = text;
+                el.style.display = 'block';
+            }
+
+            function markReady() {
+                if (ready) return;
+                ready = true;
+                hideLoading();
+            }
+
+            window.addEventListener('error', function (event) {
+                var target = event && event.target;
+                if (target && target.tagName === 'SCRIPT') {
+                    showBootError('脚本资源加载失败', target.src || '(未知脚本)');
+                    return;
+                }
+
+                var message = event && event.message ? event.message : '未知错误';
+                var stack = event && event.error && event.error.stack ? String(event.error.stack) : '';
+                showBootError(message, stack);
+            }, true);
+
+            window.addEventListener('unhandledrejection', function (event) {
+                var reason = event && event.reason;
+                var text = '';
+                if (typeof reason === 'string') text = reason;
+                else if (reason && reason.stack) text = String(reason.stack);
+                else text = JSON.stringify(reason);
+                showBootError('Promise 未捕获异常', text);
+            });
+
+            document.addEventListener('DOMContentLoaded', function () {
+                var root = document.getElementById('root');
+                if (!root) return;
+
+                if (root.childNodes.length > 0) {
+                    markReady();
+                    return;
+                }
+
+                var observer = new MutationObserver(function () {
+                    if (root.childNodes.length > 0) {
+                        observer.disconnect();
+                        markReady();
+                    }
+                });
+                observer.observe(root, { childList: true, subtree: true });
+            });
+
+            setTimeout(function () {
+                if (!ready) {
+                    showBootError('启动超时', '页面超过 10 秒仍未完成渲染，可能是 WebView 兼容或运行时异常。');
+                }
+            }, bootTimeoutMs);
+        })();
+    </script>
     <script type="module" src="/index.tsx"></script>
 </body>
 </html>

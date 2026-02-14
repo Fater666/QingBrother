@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: 'dist',
         emptyOutDir: true,
+        // 降低语法目标，提升旧版 Android System WebView 兼容性
+        target: 'es2019',
       }
     };
 });

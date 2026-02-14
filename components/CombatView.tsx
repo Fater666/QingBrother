@@ -435,6 +435,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
   const [compactFontScale, setCompactFontScale] = useState(1);
   const [showUnitDetail, setShowUnitDetail] = useState(false);
+  const [showChaseChoice, setShowChaseChoice] = useState(false);
   const isMobile = isMobileLayout;
   // 触控相关 refs（避免高频 re-render）
   const touchStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
@@ -454,6 +455,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   } | null>(null);
   const lastSelfSkillClickRef = useRef<{ skillId: string; time: number } | null>(null);
   const lastTurnActionClickRef = useRef<{ action: 'wait' | 'end' | 'retreat'; time: number } | null>(null);
+  const chaseChoiceHandledRef = useRef(false);
 
   const isWaitAbility = (ability: Ability) =>
     ability.id === 'WAIT' ||
@@ -1965,6 +1967,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   
   useEffect(() => {
     console.log('[AI Effect] activeUnit:', activeUnit?.name, 'team:', activeUnit?.team, 'isDead:', activeUnit?.isDead);
+
+    // 弹出“追击/收兵”选择时暂停自动推进
+    if (showChaseChoice) {
+      isProcessingAI.current = false;
+      return;
+    }
     
     // 如果不是敌人回合，直接返回
     if (!activeUnit) {
@@ -2349,7 +2357,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       clearTimeout(timeoutId);
       isProcessingAI.current = false;
     };
-  }, [activeUnit?.id, isRetreating]); // 回合切换或进入撤退模式时重新评估
+  }, [activeUnit?.id, isRetreating, showChaseChoice]); // 回合切换或进入撤退模式时重新评估
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0) { isDraggingRef.current = true; dragStartRef.current = { x: e.clientX, y: e.clientY }; }
@@ -3416,6 +3424,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   };
 
   const combatEndedRef = useRef(false);
+  const endCombatAfterEnemyRout = useCallback(() => {
+    if (combatEndedRef.current) return;
+    combatEndedRef.current = true;
+    setShowChaseChoice(false);
+    const survivors = state.units.filter(u => u.team === 'PLAYER' && (!u.isDead || u.hasEscaped));
+    const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
+    onCombatEnd(true, survivors, enemyUnits, state.round);
+  }, [onCombatEnd, state.round, state.units]);
   
   // 阻止浏览器默认触控行为（弹性滚动、页面缩放等）
   useEffect(() => {
@@ -3456,6 +3472,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     console.log(`[胜负判定] 敌: ${totalEnemies}总/${deadEnemies}亡/${escapedEnemies}逃/${aliveEnemies}存 溃逃:${enemyRouted} 全灭:${noEnemiesAlive} | 己: ${totalPlayers}总/${deadPlayers}亡/${escapedPlayers}逃/${alivePlayers}存 溃逃:${playerRouted}`);
     
+    // 敌军全员溃逃但尚未逃离时，允许玩家决定是否继续追击
+    if (enemyRouted && !noEnemiesAlive && !noPlayersAlive && !showChaseChoice && !chaseChoiceHandledRef.current) {
+      chaseChoiceHandledRef.current = true;
+      setShowChaseChoice(true);
+      addToLog('敌军全体溃逃！你可以选择继续追击，或就地收兵。', 'info');
+      showCenterBanner('敌军溃逃！是否追击？', '#fbbf24', '⚑');
+      return;
+    }
+
+    // 若敌军恢复士气，则允许未来再次触发该选择
+    if (!enemyRouted) {
+      chaseChoiceHandledRef.current = false;
+    }
+
     if (noEnemiesAlive) {
       // 敌方已无可战单位（全部死亡/逃离）才结算胜利；全员溃逃时允许继续追击
       combatEndedRef.current = true;
@@ -3469,11 +3499,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       const enemyUnits = state.units.filter(u => u.team === 'ENEMY');
       onCombatEnd(false, survivors, enemyUnits, state.round, isRetreating);
     }
-  }, [state.units, isRetreating]);
+  }, [state.units, isRetreating, showChaseChoice, onCombatEnd, state.round]);
 
   // ==================== 键盘快捷键 ====================
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showChaseChoice) return;
       // 只在玩家回合响应
       if (!isPlayerTurn || !activeUnit) return;
 
@@ -3554,7 +3585,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlayerTurn, activeUnit, nextTurn, waitTurn]);
+  }, [isPlayerTurn, activeUnit, nextTurn, waitTurn, showChaseChoice]);
 
   const compactTextStyle = isCompactLandscape
     ? { fontSize: `clamp(0.62rem, ${1.28 * compactFontScale}vw, 0.8rem)` }
@@ -4258,6 +4289,43 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             >
               {centerBanner.text}
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* 敌军全员溃逃后的选择：继续追击 or 收兵结算 */}
+      {showChaseChoice && (
+        <div className="fixed inset-0 z-[310] bg-black/80 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="w-full max-w-lg border border-amber-700/50 bg-[#0f0b08] shadow-2xl">
+            <div className="px-6 pt-6 pb-3 border-b border-amber-900/30 text-center">
+              <div className="text-amber-400 text-xl font-bold tracking-widest">敌军已溃</div>
+              <div className="mt-2 text-sm text-amber-200/85">
+                敌人已全员溃逃，是否继续追击并争取更多击杀？
+              </div>
+            </div>
+            <div className="px-6 py-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChaseChoice(false);
+                  addToLog('你下令继续追击溃敌！', 'info');
+                  showCenterBanner('继续追击！', '#f59e0b', '⚔');
+                }}
+                className="py-2.5 border border-red-700/60 bg-red-950/30 text-red-300 hover:bg-red-900/40 transition-colors text-sm tracking-widest"
+              >
+                继续追击
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  addToLog('你下令停止追击，战斗结束。', 'info');
+                  endCombatAfterEnemyRout();
+                }}
+                className="py-2.5 border border-amber-700/60 bg-amber-900/20 text-amber-300 hover:bg-amber-800/35 transition-colors text-sm tracking-widest"
+              >
+                就地收兵
+              </button>
+            </div>
           </div>
         </div>
       )}
