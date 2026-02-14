@@ -414,6 +414,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>([]);
   const [centerBanner, setCenterBanner] = useState<CenterBanner | null>(null);
   const [isCombatLogCollapsed, setIsCombatLogCollapsed] = useState(false);
+  const [isStatsPanelCollapsed, setIsStatsPanelCollapsed] = useState(false);
+  const [isSkillsPanelCollapsed, setIsSkillsPanelCollapsed] = useState(false);
   const attackLinesRef = useRef<AttackLineEffect[]>([]);
   const deathEffectsRef = useRef<DeathEffect[]>([]);
 
@@ -449,12 +451,25 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     ability: Ability;
   } | null>(null);
   const lastSelfSkillClickRef = useRef<{ skillId: string; time: number } | null>(null);
+  const lastTurnActionClickRef = useRef<{ action: 'wait' | 'end'; time: number } | null>(null);
 
   const isWaitAbility = (ability: Ability) =>
     ability.id === 'WAIT' ||
     ability.name === '等待' ||
     ability.icon === '⏳' ||
     ability.description.includes('推迟行动顺序');
+
+  const requireDoubleClickForTurnAction = (action: 'wait' | 'end', onConfirm: () => void) => {
+    const now = Date.now();
+    const last = lastTurnActionClickRef.current;
+    const isDoubleClick = !!last && last.action === action && now - last.time <= 420;
+    lastTurnActionClickRef.current = { action, time: now };
+    if (!isDoubleClick) {
+      addToLog(`再次点击${action === 'wait' ? '等待' : '结束回合'}以确认`, 'info');
+      return;
+    }
+    onConfirm();
+  };
 
   // 推撞属于特殊攻击技能：虽然在数据里是 SKILL，但需要走攻击命中率与目标确认流程。
   const isAttackLikeAbility = (ability: Ability | null | undefined): ability is Ability =>
@@ -2505,6 +2520,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         if (ability.id === 'SHIELDWALL') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
+          if (activeUnit.isShieldWall) { addToLog(`${activeUnit.name} 已处于盾墙状态。`, 'info'); return; }
           setState(prev => ({
             ...prev,
             units: prev.units.map(u =>
@@ -2519,6 +2535,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         if (ability.id === 'SPEARWALL') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
+          if (activeUnit.isHalberdWall) { addToLog(`${activeUnit.name} 已处于矛墙状态。`, 'info'); return; }
           const enemyAdjacent = state.units.some(u =>
             !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
           );
@@ -3491,6 +3508,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           </div>
         )}
 
+        {/* 技能说明 tooltip：仅当没有悬停格子时显示，与命中率/地形 tooltip 互斥 */}
+        {selectedAbility && isPlayerTurn && activeUnit && !hoveredHex && (
+          <div
+            className={`absolute ${isCompactLandscape ? 'right-1 top-1 w-56 max-w-[calc(100%-8px)]' : isMobile ? 'right-2 top-2 w-64 max-w-[calc(100%-12px)]' : 'right-3 top-3 w-72 max-w-[calc(100%-16px)]'} bg-[#0f0f0f] border border-amber-900/50 z-[100] rounded shadow-xl pointer-events-none`}
+            style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
+          >
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <div className="text-amber-400 font-bold text-sm truncate">{selectedAbility.name}</div>
+              <div className="flex gap-1.5 text-[9px] shrink-0">
+                <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">行动点 {selectedAbility.apCost}</span>
+                <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {selectedAbility.fatCost}</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed break-words">"{selectedAbility.description}"</p>
+            {selectedAbility.range[1] > 0 && (
+              <div className="text-[9px] text-slate-500 mt-2 pt-2 border-t border-white/10">
+                射程: {selectedAbility.range[0]}-{selectedAbility.range[1]} 格
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 移动端攻击确认提示（与桌面端 tooltip 一致） */}
         {isMobile && mobileAttackTarget && isPlayerTurn && activeUnit && (() => {
           const bd = mobileAttackTarget.hitBreakdown;
@@ -3699,232 +3738,270 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         })()}
       </div>
 
-      <div className={`${isCompactLandscape ? 'h-16 px-2 gap-2' : isMobile ? 'h-20 px-3 gap-3' : 'h-24 px-8 gap-4'} bg-[#0d0d0d] border-t border-amber-900/60 z-50 flex items-center justify-between shrink-0 shadow-2xl`}>
-        <div className={`flex items-center gap-3 min-w-0 ${isCompactLandscape ? 'w-48' : isMobile ? 'w-60' : 'w-72'}`}>
-          {activeUnit && (() => {
-            const helmet = activeUnit.equipment.helmet;
-            const helmetDur = helmet?.durability ?? 0;
-            const helmetMax = helmet?.maxDurability ?? 0;
-            const helmetPct = helmetMax > 0 ? (helmetDur / helmetMax) * 100 : 0;
-
-            const armor = activeUnit.equipment.armor;
-            const armorDur = armor?.durability ?? 0;
-            const armorMax = armor?.maxDurability ?? 0;
-            const armorPct = armorMax > 0 ? (armorDur / armorMax) * 100 : 0;
-
-            const hpPct = (activeUnit.hp / activeUnit.maxHp) * 100;
-            const hpColor = hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#eab308' : '#dc2626';
-
-            const maxFat = activeUnit.maxFatigue;
-            const remaining = maxFat - activeUnit.fatigue;
-            const staminaPct = maxFat > 0 ? (remaining / maxFat) * 100 : 0;
-            // 疲劳预览
-            const previewFatAfter = previewCosts
-              ? Math.min(maxFat, activeUnit.fatigue + previewCosts.fatigueCost)
-              : activeUnit.fatigue;
-            const previewRemaining = maxFat - previewFatAfter;
-            const previewStaminaPct = maxFat > 0 ? (previewRemaining / maxFat) * 100 : 0;
-            const ghostWidth = staminaPct - previewStaminaPct;
-
-            // AP预览
-            const totalAP = 9;
-            const currentAP = activeUnit.currentAP;
-            const barH = isCompactLandscape ? '6px' : isMobile ? '7px' : '8px';
-
-            return (
-              <div className="flex flex-col flex-1 gap-0.5">
-                {/* 第1行：名字 + 士气 + AP */}
-                <div className="flex items-center gap-1.5">
-                  <span className={`${isCompactLandscape ? 'text-xs tracking-wide' : isMobile ? 'text-sm' : 'text-base'} font-bold text-amber-500 truncate`} style={isCompactLandscape ? compactTextStyle : undefined}>
-                    {activeUnit.name}
-                  </span>
-                  <span
-                    className={`${isCompactLandscape ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5'} font-bold rounded flex-shrink-0`}
-                    style={{
-                      fontSize: isCompactLandscape ? compactBadgeTextStyle?.fontSize : undefined,
-                      color: MORALE_COLORS[activeUnit.morale],
-                      backgroundColor: `${MORALE_COLORS[activeUnit.morale]}20`,
-                      border: `1px solid ${MORALE_COLORS[activeUnit.morale]}40`
-                    }}
-                  >
-                    {MORALE_ICONS[activeUnit.morale]} {activeUnit.morale}
-                  </span>
-                  {activeUnit.morale === MoraleStatus.FLEEING && (
-                    <span className="text-[9px] text-red-400 animate-pulse">无法控制!</span>
-                  )}
-                  <span className={`${isCompactLandscape ? 'text-[9px]' : 'text-[10px]'} font-bold text-amber-500 ml-auto`}>
-                    ⚡ {currentAP}/{totalAP}
-                  </span>
-                </div>
-
-                {/* 第2行：头甲 + 护甲 */}
-                <div className="flex gap-3">
-                  {/* 头甲 */}
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="text-[9px] text-cyan-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>⛑</span>
-                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
-                      <div className="h-full transition-all relative" style={{ width: `${helmetPct}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
-                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
-                      </div>
-                    </div>
-                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-cyan-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{helmetDur}/{helmetMax}</span>
-                  </div>
-                  {/* 护甲 */}
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="text-[9px] text-slate-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>🛡</span>
-                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
-                      <div className="h-full transition-all relative" style={{ width: `${armorPct}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
-                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
-                      </div>
-                    </div>
-                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-slate-300 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{armorDur}/{armorMax}</span>
-                  </div>
-                </div>
-
-                {/* 第3行：生命 + 疲劳（含ghost预览） */}
-                <div className="flex gap-3">
-                  {/* 生命 */}
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="text-[9px] w-3 flex-shrink-0 text-center" style={{ color: hpColor, display: 'inline-block' }}>♥</span>
-                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
-                      <div className="h-full transition-all relative" style={{ width: `${hpPct}%`, backgroundColor: hpColor }}>
-                        <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
-                      </div>
-                    </div>
-                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold flex-shrink-0`} style={{ color: hpColor, minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{activeUnit.hp}/{activeUnit.maxHp}</span>
-                  </div>
-                  {/* 疲劳（显示剩余体力） */}
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="text-[9px] text-teal-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>💪</span>
-                    <div className="flex-1 overflow-hidden rounded-sm border border-black/50 relative" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
-                      <div className="h-full absolute left-0 top-0 transition-all" style={{ width: `${staminaPct}%` }}>
-                        {/* Ghost预览段：将被消耗的体力 */}
-                        {ghostWidth > 0 && (
-                          <div className="absolute right-0 top-0 h-full" style={{
-                            width: `${staminaPct > 0 ? (ghostWidth / staminaPct) * 100 : 0}%`,
-                            backgroundColor: 'rgba(245, 158, 11, 0.5)',
-                            borderLeft: '1px solid rgba(245, 158, 11, 0.8)'
-                          }} />
-                        )}
-                        {/* 实际剩余体力 */}
-                        <div className="h-full relative" style={{
-                          width: ghostWidth > 0 && staminaPct > 0 ? `${(previewStaminaPct / staminaPct) * 100}%` : '100%',
-                          background: 'linear-gradient(to right, #0d9488, #2dd4bf)'
-                        }}>
-                          <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
-                        </div>
-                      </div>
-                    </div>
-                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-teal-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{remaining}/{maxFat}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-
-        <div className={`${isCompactLandscape ? 'flex gap-1.5' : 'flex gap-3'} shrink-0`}>
-          {isPlayerTurn && activeUnit && getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a)).map((skill, index) => {
-            const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
-              !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
-            );
-            return (
-            <button 
-              key={skill.id} 
-              onClick={() => {
-                if (isSpearwallDisabled) return;
-                // 盾墙、矛墙等自身技能无需选目标，点击即用
-                if (skill.targetType === 'SELF' && skill.range[0] === 0 && skill.range[1] === 0) {
-                  const now = Date.now();
-                  const last = lastSelfSkillClickRef.current;
-                  const isDoubleClick = !!last && last.skillId === skill.id && now - last.time <= 420;
-                  lastSelfSkillClickRef.current = { skillId: skill.id, time: now };
-                  if (!isDoubleClick) {
-                    setSelectedAbility(skill);
-                    addToLog(`再次点击 ${skill.name} 释放技能`, 'info');
-                    return;
-                  }
-                  performAttack(skill);
-                } else {
-                  setSelectedAbility(skill);
-                }
-              }} 
-              disabled={isSpearwallDisabled}
-              title={isSpearwallDisabled ? '附近有敌人时无法架起矛墙' : undefined}
-              className={`${isCompactLandscape ? 'w-10 h-10' : isMobile ? 'w-14 h-14' : 'w-12 h-12'} border-2 transition-all flex flex-col items-center justify-center relative
-                ${isSpearwallDisabled ? 'opacity-50 cursor-not-allowed border-slate-700' : ''}
-                ${selectedAbility?.id === skill.id && !isSpearwallDisabled
-                  ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-2 shadow-lg shadow-amber-500/30' 
-                  : !isSpearwallDisabled ? 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20' : ''
-                }
-              `}
-              style={{ boxShadow: selectedAbility?.id === skill.id ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
+      <div
+        className={`absolute ${isCompactLandscape ? 'bottom-1 left-1 w-52' : isMobile ? 'bottom-2 left-2 w-64 max-w-[calc(100%-16px)]' : 'bottom-4 left-4 w-80'} z-[60] pointer-events-none`}
+      >
+        <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
+          <div className={`px-3 py-1.5 flex items-center gap-2 ${isStatsPanelCollapsed ? '' : 'border-b border-amber-900/30'}`}>
+            <span className="text-amber-600 text-[10px] font-bold tracking-widest flex-1 truncate">
+              {activeUnit ? activeUnit.name : '当前单位'}
+            </span>
+            <span className="text-slate-600 text-[9px]">属性</span>
+            <button
+              type="button"
+              onClick={() => setIsStatsPanelCollapsed(prev => !prev)}
+              className="ml-1 text-[10px] text-slate-400 hover:text-amber-400 transition-colors leading-none"
+              aria-label={isStatsPanelCollapsed ? '展开属性面板' : '收起属性面板'}
+              title={isStatsPanelCollapsed ? '展开属性面板' : '收起属性面板'}
             >
-              {/* 快捷键提示 */}
-              {!isMobile && (
-              <span className="absolute -top-2 -left-1 w-4 h-4 bg-amber-700 text-[9px] font-bold text-white rounded flex items-center justify-center shadow">
-                {index + 1}
-              </span>
-              )}
-              <span className={`${isCompactLandscape ? 'text-lg' : 'text-2xl'} drop-shadow-md`}>{getAbilityIcon(skill)}</span>
-              <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
+              {isStatsPanelCollapsed ? '▶' : '▼'}
             </button>
-            );
-          })}
-        </div>
+          </div>
+          {!isStatsPanelCollapsed && (
+            <div className={`${isCompactLandscape ? 'px-2 py-1.5' : 'px-3 py-2'}`} style={compactPanelStyle}>
+              {activeUnit ? (() => {
+                const helmet = activeUnit.equipment.helmet;
+                const helmetDur = helmet?.durability ?? 0;
+                const helmetMax = helmet?.maxDurability ?? 0;
+                const helmetPct = helmetMax > 0 ? (helmetDur / helmetMax) * 100 : 0;
 
-        <div className={`${isCompactLandscape ? 'w-28 gap-1' : 'w-44 gap-2'} flex flex-col items-end shrink-0`}>
-          {isPlayerTurn ? (
-            <>
-              <button 
-                onClick={waitTurn} 
-                className={`w-full ${isCompactLandscape ? 'px-2 py-1 text-[10px] tracking-wide' : 'px-6 py-1.5 text-xs tracking-widest'} border font-bold transition-all uppercase flex items-center justify-center gap-2 ${
-                  activeUnit && activeUnit.waitCount >= 1
-                    ? 'bg-gradient-to-b from-slate-900/40 to-slate-950/60 border-slate-700/30 text-slate-600 cursor-not-allowed'
-                    : 'bg-gradient-to-b from-slate-800/40 to-slate-900/60 border-slate-600/50 text-slate-400 hover:from-slate-600 hover:to-slate-700 hover:text-white'
-                }`}
-                style={{ boxShadow: '0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)' }}
-                disabled={activeUnit ? activeUnit.waitCount >= 1 : false}
-              >
-                ⏳ 等待 {activeUnit && activeUnit.waitCount >= 1 ? '(已用)' : ''}
-                {!isMobile && <span className="text-[9px] bg-slate-700/60 px-1.5 py-0.5 rounded text-slate-300">Space</span>}
-              </button>
-              <button 
-                onClick={nextTurn} 
-                className={`w-full ${isCompactLandscape ? 'px-2 py-1 text-[10px] tracking-wide' : 'px-6 py-1.5 text-xs tracking-widest'} bg-gradient-to-b from-amber-900/20 to-amber-950/40 border border-amber-600/50 text-amber-500 font-bold hover:from-amber-600 hover:to-amber-700 hover:text-white transition-all uppercase flex items-center justify-center gap-2`}
-                style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' }}
-              >
-                结束回合
-                {!isMobile && <span className="text-[9px] bg-amber-700/60 px-1.5 py-0.5 rounded text-amber-200">F</span>}
-              </button>
-            </>
-          ) : (
-            <div className="text-amber-900 animate-pulse font-bold tracking-widest text-sm uppercase">敌军行动...</div>
+                const armor = activeUnit.equipment.armor;
+                const armorDur = armor?.durability ?? 0;
+                const armorMax = armor?.maxDurability ?? 0;
+                const armorPct = armorMax > 0 ? (armorDur / armorMax) * 100 : 0;
+
+                const hpPct = (activeUnit.hp / activeUnit.maxHp) * 100;
+                const hpColor = hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#eab308' : '#dc2626';
+
+                const maxFat = activeUnit.maxFatigue;
+                const remaining = maxFat - activeUnit.fatigue;
+                const staminaPct = maxFat > 0 ? (remaining / maxFat) * 100 : 0;
+                const previewFatAfter = previewCosts
+                  ? Math.min(maxFat, activeUnit.fatigue + previewCosts.fatigueCost)
+                  : activeUnit.fatigue;
+                const previewRemaining = maxFat - previewFatAfter;
+                const previewStaminaPct = maxFat > 0 ? (previewRemaining / maxFat) * 100 : 0;
+                const ghostWidth = staminaPct - previewStaminaPct;
+                const totalAP = 9;
+                const currentAP = activeUnit.currentAP;
+                const barH = isCompactLandscape ? '6px' : isMobile ? '7px' : '8px';
+
+                return (
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`${isCompactLandscape ? 'text-xs tracking-wide' : isMobile ? 'text-sm' : 'text-base'} font-bold text-amber-500 truncate`} style={isCompactLandscape ? compactTextStyle : undefined}>
+                        {activeUnit.name}
+                      </span>
+                      <span
+                        className={`${isCompactLandscape ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5'} font-bold rounded flex-shrink-0`}
+                        style={{
+                          fontSize: isCompactLandscape ? compactBadgeTextStyle?.fontSize : undefined,
+                          color: MORALE_COLORS[activeUnit.morale],
+                          backgroundColor: `${MORALE_COLORS[activeUnit.morale]}20`,
+                          border: `1px solid ${MORALE_COLORS[activeUnit.morale]}40`
+                        }}
+                      >
+                        {MORALE_ICONS[activeUnit.morale]} {activeUnit.morale}
+                      </span>
+                      {activeUnit.morale === MoraleStatus.FLEEING && (
+                        <span className="text-[9px] text-red-400 animate-pulse">无法控制!</span>
+                      )}
+                      <span className={`${isCompactLandscape ? 'text-[9px]' : 'text-[10px]'} font-bold text-amber-500 ml-auto`}>
+                        ⚡ {currentAP}/{totalAP}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="text-[9px] text-cyan-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>⛑</span>
+                        <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                          <div className="h-full transition-all relative" style={{ width: `${helmetPct}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
+                            <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
+                          </div>
+                        </div>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-cyan-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{helmetDur}/{helmetMax}</span>
+                      </div>
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="text-[9px] text-slate-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>🛡</span>
+                        <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                          <div className="h-full transition-all relative" style={{ width: `${armorPct}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
+                            <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
+                          </div>
+                        </div>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-slate-300 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{armorDur}/{armorMax}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="text-[9px] w-3 flex-shrink-0 text-center" style={{ color: hpColor, display: 'inline-block' }}>♥</span>
+                        <div className="flex-1 overflow-hidden rounded-sm border border-black/50" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                          <div className="h-full transition-all relative" style={{ width: `${hpPct}%`, backgroundColor: hpColor }}>
+                            <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
+                          </div>
+                        </div>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold flex-shrink-0`} style={{ color: hpColor, minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{activeUnit.hp}/{activeUnit.maxHp}</span>
+                      </div>
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="text-[9px] text-teal-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>💪</span>
+                        <div className="flex-1 overflow-hidden rounded-sm border border-black/50 relative" style={{ height: barH, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                          <div className="h-full absolute left-0 top-0 transition-all" style={{ width: `${staminaPct}%` }}>
+                            {ghostWidth > 0 && (
+                              <div className="absolute right-0 top-0 h-full" style={{
+                                width: `${staminaPct > 0 ? (ghostWidth / staminaPct) * 100 : 0}%`,
+                                backgroundColor: 'rgba(245, 158, 11, 0.5)',
+                                borderLeft: '1px solid rgba(245, 158, 11, 0.8)'
+                              }} />
+                            )}
+                            <div className="h-full relative" style={{
+                              width: ghostWidth > 0 && staminaPct > 0 ? `${(previewStaminaPct / staminaPct) * 100}%` : '100%',
+                              background: 'linear-gradient(to right, #0d9488, #2dd4bf)'
+                            }}>
+                              <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-teal-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{remaining}/{maxFat}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div className="text-slate-500 text-[10px] text-center py-2">暂无可操作单位</div>
+              )}
+            </div>
           )}
         </div>
       </div>
 
-      {/* 技能说明 tooltip：仅当没有悬停格子时显示，与命中率/地形 tooltip 互斥 */}
-      {selectedAbility && isPlayerTurn && activeUnit && !hoveredHex && (
-        <div 
-          className={`fixed ${isCompactLandscape ? 'right-2 top-2 w-60' : 'right-4 top-4 w-72'} bg-[#0f0f0f] border border-amber-900/50 z-[100] rounded shadow-xl pointer-events-none`}
-          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-amber-400 font-bold text-sm">{selectedAbility.name}</div>
-            <div className="flex gap-2 text-[9px]">
-              <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">行动点 {selectedAbility.apCost}</span>
-              <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {selectedAbility.fatCost}</span>
-            </div>
+      <div
+        className={`absolute ${isCompactLandscape ? 'bottom-1 right-1 w-52' : isMobile ? 'bottom-2 right-2 w-72 max-w-[calc(100%-16px)]' : 'bottom-4 right-4 w-[26rem]'} z-[60] pointer-events-none`}
+      >
+        <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
+          <div className={`px-3 py-1.5 flex items-center gap-2 ${isSkillsPanelCollapsed ? '' : 'border-b border-amber-900/30'}`}>
+            <span className="text-amber-600 text-[10px] font-bold tracking-widest flex-1">技能</span>
+            <span className="text-slate-600 text-[9px]">战斗操作</span>
+            <button
+              type="button"
+              onClick={() => setIsSkillsPanelCollapsed(prev => !prev)}
+              className="ml-1 text-[10px] text-slate-400 hover:text-amber-400 transition-colors leading-none"
+              aria-label={isSkillsPanelCollapsed ? '展开技能面板' : '收起技能面板'}
+              title={isSkillsPanelCollapsed ? '展开技能面板' : '收起技能面板'}
+            >
+              {isSkillsPanelCollapsed ? '▶' : '▼'}
+            </button>
           </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">"{selectedAbility.description}"</p>
-          {selectedAbility.range[1] > 0 && (
-            <div className="text-[9px] text-slate-500 mt-2 pt-2 border-t border-white/10">
-              射程: {selectedAbility.range[0]}-{selectedAbility.range[1]} 格
-            </div>
+          {!isSkillsPanelCollapsed && (
+            <>
+              {isPlayerTurn && activeUnit ? (
+                <div className={`${isCompactLandscape ? 'p-1.5 gap-1.5 grid-cols-3' : isMobile ? 'p-2 gap-2 grid-cols-4' : 'p-3 gap-2 grid-cols-6'} grid`}>
+                  {getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a)).map((skill, index) => {
+                    const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
+                      !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
+                    );
+                    const isAlreadyActiveBuff =
+                      (skill.id === 'SHIELDWALL' && !!activeUnit.isShieldWall) ||
+                      (skill.id === 'SPEARWALL' && !!activeUnit.isHalberdWall) ||
+                      (skill.id === 'RIPOSTE' && !!activeUnit.isRiposte);
+                    const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff;
+                    return (
+                      <button
+                        key={skill.id}
+                        onClick={() => {
+                          if (isSkillDisabled) return;
+                          if (skill.targetType === 'SELF' && skill.range[0] === 0 && skill.range[1] === 0) {
+                            const now = Date.now();
+                            const last = lastSelfSkillClickRef.current;
+                            const isDoubleClick = !!last && last.skillId === skill.id && now - last.time <= 420;
+                            lastSelfSkillClickRef.current = { skillId: skill.id, time: now };
+                            if (!isDoubleClick) {
+                              setSelectedAbility(skill);
+                              addToLog(`再次点击 ${skill.name} 释放技能`, 'info');
+                              return;
+                            }
+                            performAttack(skill);
+                          } else {
+                            setSelectedAbility(skill);
+                          }
+                        }}
+                        disabled={isSkillDisabled}
+                        title={
+                          isSpearwallDisabled
+                            ? '附近有敌人时无法架起矛墙'
+                            : isAlreadyActiveBuff
+                              ? '该姿态已生效，无法重复释放'
+                              : skill.name
+                        }
+                        className={`${isCompactLandscape ? 'w-12 h-14' : isMobile ? 'w-14 h-[4.5rem]' : 'w-16 h-[4.75rem]'} border-2 transition-all flex flex-col items-center justify-center relative
+                          ${isSkillDisabled ? 'opacity-50 cursor-not-allowed border-slate-700' : ''}
+                          ${selectedAbility?.id === skill.id && !isSkillDisabled
+                            ? 'border-amber-400 bg-gradient-to-b from-amber-900/60 to-amber-950/80 -translate-y-1 shadow-lg shadow-amber-500/30'
+                            : !isSkillDisabled ? 'border-amber-900/30 bg-gradient-to-b from-black/40 to-black/60 hover:border-amber-600 hover:from-amber-900/20' : ''
+                          }
+                        `}
+                        style={{ boxShadow: selectedAbility?.id === skill.id ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
+                      >
+                        {!isMobile && (
+                          <span className="absolute -top-2 -left-1 w-4 h-4 bg-amber-700 text-[9px] font-bold text-white rounded flex items-center justify-center shadow">
+                            {index + 1}
+                          </span>
+                        )}
+                        <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`}>{getAbilityIcon(skill)}</span>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-slate-200 truncate leading-none`}>
+                          {skill.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => requireDoubleClickForTurnAction('wait', waitTurn)}
+                    disabled={activeUnit.waitCount >= 1}
+                    title={activeUnit.waitCount >= 1 ? '等待已使用' : '等待'}
+                    className={`${isCompactLandscape ? 'w-12 h-14' : isMobile ? 'w-14 h-[4.5rem]' : 'w-16 h-[4.75rem]'} border-2 transition-all flex flex-col items-center justify-center relative
+                      ${activeUnit.waitCount >= 1
+                        ? 'bg-gradient-to-b from-slate-900/40 to-slate-950/60 border-slate-700/30 text-slate-600 cursor-not-allowed'
+                        : 'border-slate-600/50 bg-gradient-to-b from-slate-800/40 to-slate-900/60 text-slate-300 hover:from-slate-600 hover:to-slate-700 hover:text-white'
+                      }
+                    `}
+                    style={{ boxShadow: 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
+                  >
+                    {!isMobile && (
+                      <span className="absolute -top-2 -left-1 px-1.5 h-4 bg-slate-700 text-[8px] font-bold text-white rounded flex items-center justify-center shadow">
+                        Space
+                      </span>
+                    )}
+                    <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} leading-none`}>⏳</span>
+                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-slate-200 truncate leading-none`}>
+                      {activeUnit.waitCount >= 1 ? '等待(已用)' : '等待'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => requireDoubleClickForTurnAction('end', nextTurn)}
+                    title="结束回合"
+                    className={`${isCompactLandscape ? 'w-12 h-14' : isMobile ? 'w-14 h-[4.5rem]' : 'w-16 h-[4.75rem]'} border-2 transition-all flex flex-col items-center justify-center relative border-amber-700/50 bg-gradient-to-b from-amber-900/20 to-amber-950/40 text-amber-400 hover:from-amber-600 hover:to-amber-700 hover:text-white`}
+                    style={{ boxShadow: 'inset 0 -2px 4px rgba(0,0,0,0.3)' }}
+                  >
+                    {!isMobile && (
+                      <span className="absolute -top-2 -left-1 px-1.5 h-4 bg-amber-700 text-[8px] font-bold text-white rounded flex items-center justify-center shadow">
+                        F
+                      </span>
+                    )}
+                    <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} leading-none`}>⏭</span>
+                    <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-amber-200 truncate leading-none`}>
+                      结束回合
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <div className={`${isCompactLandscape ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'} text-amber-900 animate-pulse font-bold tracking-widest uppercase`}>
+                  敌军行动...
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </div>
 
       {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
       <div
