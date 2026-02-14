@@ -370,6 +370,20 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
     setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id)!);
   };
 
+  const handlePerkTap = (perk: Perk, canLearn: boolean) => {
+      if (!isMobileLayout) {
+          if (canLearn) handleLearnPerk(perk.id);
+          return;
+      }
+      setHoveredItem(null);
+      setSelectedTraitId(null);
+      const samePerkTapped = hoveredPerk?.id === perk.id;
+      setHoveredPerk(perk);
+      if (samePerkTapped && canLearn) {
+          handleLearnPerk(perk.id);
+      }
+  };
+
   // 医药和修甲材料现在是数值资源池（类似粮食），每天自动消耗
 
   const perkTreeTiers = useMemo(() => {
@@ -1001,9 +1015,36 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                 已学: {selectedMerc.perks.length} 个专精
                                             </span>
                                         </div>
+                                        {isMobileLayout && (
+                                            <p className="text-[10px] text-slate-500">
+                                                轻触专精查看说明，再次轻触可学习
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>
+                            {isMobileLayout && hoveredPerk && (
+                                <div className={`${isCompactLandscape ? 'px-2 py-1.5' : 'px-3 py-2'} mb-2 border border-amber-900/30 bg-black/40`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h4 className="text-amber-500 font-bold text-xs">{hoveredPerk.name}</h4>
+                                        <span className="text-[10px] text-slate-600">第 {hoveredPerk.tier} 阶</span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{hoveredPerk.description}</p>
+                                    {selectedMerc && (() => {
+                                        const isLearned = selectedMerc.perks.includes(hoveredPerk.id);
+                                        const canLearn = !isLearned && selectedMerc.perkPoints > 0 && selectedMerc.level >= hoveredPerk.tier;
+                                        const levelLocked = !isLearned && selectedMerc.level < hoveredPerk.tier;
+                                        return (
+                                            <div className="mt-2 pt-1.5 border-t border-amber-900/20 text-[10px]">
+                                                {isLearned && <span className="text-amber-400">已习得</span>}
+                                                {canLearn && <span className="text-emerald-400">再次轻触可学习（消耗 1 技能点）</span>}
+                                                {levelLocked && <span className="text-red-400/70">需要等级 {hoveredPerk.tier}</span>}
+                                                {!isLearned && !canLearn && !levelLocked && <span className="text-slate-600">无可用技能点</span>}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
                             {perkTreeTiers.map((tierPerks, idx) => (
                                 <div key={idx} className={`flex items-stretch ${isCompactLandscape ? 'gap-2' : 'gap-3'}`}>
                                     <div className={`${isCompactLandscape ? 'w-10' : 'w-12'} shrink-0 flex flex-col items-center justify-center border border-amber-900/20 bg-black/30 text-[10px] text-slate-600`}>
@@ -1017,7 +1058,28 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             return (
                                                 <div 
                                                     key={perk.id}
-                                                    onClick={() => canLearn ? handleLearnPerk(perk.id) : undefined}
+                                                    onClick={() => {
+                                                        if (isMobileLayout) return;
+                                                        handlePerkTap(perk, !!canLearn);
+                                                    }}
+                                                    onTouchStart={(e) => {
+                                                        const t = e.touches[0];
+                                                        if (!t) return;
+                                                        (e.currentTarget as any)._tapX = t.clientX;
+                                                        (e.currentTarget as any)._tapY = t.clientY;
+                                                    }}
+                                                    onTouchEnd={(e) => {
+                                                        if (!isMobileLayout) return;
+                                                        const el = e.currentTarget as any;
+                                                        const t = e.changedTouches[0];
+                                                        if (!t) return;
+                                                        const dx = t.clientX - (el._tapX || 0);
+                                                        const dy = t.clientY - (el._tapY || 0);
+                                                        if (Math.abs(dx) < 15 && Math.abs(dy) < 15) {
+                                                            e.preventDefault();
+                                                            handlePerkTap(perk, !!canLearn);
+                                                        }
+                                                    }}
                                                     onMouseEnter={() => setHoveredPerk(perk)}
                                                     onMouseLeave={() => setHoveredPerk(null)}
                                                     className={`${isCompactLandscape ? 'px-2 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'} border transition-all ${
