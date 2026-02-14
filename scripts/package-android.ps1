@@ -58,14 +58,15 @@ $androidDir = Join-Path $projectRoot "android"
 
 if ($BuildType -eq 'release') {
     $apkSubDir = "release"
-    $apkName = "app-release.apk"
+    $apkPattern = "qingbrother-*.apk"
     $gradleTask = "assembleRelease"
 } else {
     $apkSubDir = "debug"
-    $apkName = "app-debug.apk"
+    $apkPattern = "app-debug.apk"
     $gradleTask = "assembleDebug"
 }
-$apkPath = Join-Path $androidDir "app\build\outputs\apk\$apkSubDir\$apkName"
+$apkOutputDir = Join-Path $androidDir "app\build\outputs\apk\$apkSubDir"
+$apkPath = Join-Path $apkOutputDir $(if ($BuildType -eq 'release') { "qingbrother-placeholder.apk" } else { $apkPattern })
 $buildStartTime = Get-Date
 
 if (-not (Test-Path $androidDir)) {
@@ -92,8 +93,10 @@ try {
     }
 
     Invoke-Step "Assemble Android $BuildType APK" {
-        if (Test-Path $apkPath) {
-            Remove-Item $apkPath -Force
+        if ($BuildType -eq 'release') {
+            Remove-Item (Join-Path $apkOutputDir "qingbrother-*.apk") -ErrorAction SilentlyContinue
+        } else {
+            if (Test-Path $apkPath) { Remove-Item $apkPath -Force }
         }
 
         Push-Location $androidDir
@@ -109,11 +112,16 @@ finally {
     Pop-Location
 }
 
+if ($BuildType -eq 'release') {
+    $builtApk = Get-ChildItem (Join-Path $apkOutputDir "qingbrother-*.apk") -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($builtApk) { $apkPath = $builtApk.FullName }
+}
 if ((Test-Path $apkPath) -and ((Get-Item $apkPath).LastWriteTime -ge $buildStartTime)) {
     Write-Host ""
     Write-Host "打包成功" -ForegroundColor Green
     Write-Host "APK 路径: $apkPath"
 }
 else {
-    throw "构建未产出新的 APK，请检查上方错误日志：$apkPath"
+    $errPath = if ($BuildType -eq 'release') { Join-Path $apkOutputDir "qingbrother-*.apk" } else { $apkPath }
+    throw "构建未产出新的 APK，请检查上方错误日志：$errPath"
 }

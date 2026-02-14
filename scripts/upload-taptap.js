@@ -18,7 +18,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const ANDROID_DIR = join(ROOT, 'android');
 const BUILD_GRADLE_PATH = join(ANDROID_DIR, 'app', 'build.gradle');
-const APK_PATH = join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
+function getApkPath(versionName) {
+  return join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', `qingbrother-${versionName}.apk`);
+}
 const CONFIG_PATH = join(__dirname, 'taptap-upload.config.json');
 const UPLOAD_PARAMS_URL = 'https://cloud.tapapis.cn/apk/v1/upload-params';
 
@@ -149,7 +151,7 @@ function bumpVersionAndSync(config) {
   log(`version_code ${prevCode} -> ${nextCode}，version_name "${versionName}"（仅手动在 config 中修改）`, 'ok');
 }
 
-function buildRelease() {
+function buildRelease(apkPath) {
   const isWin = process.platform === 'win32';
   const gradlew = isWin ? 'gradlew.bat' : 'gradlew';
   const gradlewPath = join(ANDROID_DIR, gradlew);
@@ -172,8 +174,8 @@ function buildRelease() {
   }
   log('构建成功', 'ok');
 
-  if (!existsSync(APK_PATH)) {
-    log('未找到 APK: ' + APK_PATH + '（可能未配置签名，请配置 keystore.properties 后重试）', 'err');
+  if (!existsSync(apkPath)) {
+    log('未找到 APK: ' + apkPath + '（可能未配置签名，请配置 keystore.properties 后重试）', 'err');
     process.exit(1);
   }
 }
@@ -206,13 +208,14 @@ async function main() {
   log('2/4 按 config 升级版本并写回 build.gradle');
   bumpVersionAndSync(config);
 
+  const apkPath = getApkPath(config.version_name);
+  const fileName = `qingbrother-${config.version_name}.apk`;
   log('3/4 构建 Release APK');
-  buildRelease();
+  buildRelease(apkPath);
 
-  const fileName = 'app-release.apk';
   log('4/4 获取上传参数并上传');
   const uploadData = await getUploadParams(config, fileName);
-  await uploadApk(APK_PATH, uploadData);
+  await uploadApk(apkPath, uploadData);
 
   console.log('');
 }

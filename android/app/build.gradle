@@ -44,6 +44,14 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            if (variant.buildType.name == 'release') {
+                def versionName = variant.versionName
+                output.outputFileName = "qingbrother-${versionName}.apk"
+            }
+        }
+    }
 }
 
 repositories {

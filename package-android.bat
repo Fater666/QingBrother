@@ -9,7 +9,7 @@ if /I "%1"=="release" set "BUILD=release"
 if /I "%1"=="dev"     set "BUILD=dev"
 
 if "%BUILD%"=="release" (
-    set "APK_PATH=%~dp0android\app\build\outputs\apk\release\app-release.apk"
+    set "APK_DIR=%~dp0android\app\build\outputs\apk\release"
 ) else (
     set "APK_PATH=%~dp0android\app\build\outputs\apk\debug\app-debug.apk"
 )
@@ -19,6 +19,9 @@ echo ==> Start Android packaging [%BUILD%]...
 powershell -ExecutionPolicy Bypass -File ".\scripts\package-android.ps1" -BuildType %BUILD%
 set "exitCode=%ERRORLEVEL%"
 
+if "%BUILD%"=="release" (
+    for %%f in ("%APK_DIR%\qingbrother-*.apk") do set "APK_PATH=%%f"
+)
 if not "%exitCode%"=="0" (
     echo.
     echo Packaging failed. Exit code: %exitCode%
