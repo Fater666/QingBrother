@@ -131,6 +131,8 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [levelUpRolls, setLevelUpRolls] = useState<LevelUpRolls | null>(null);
   const [selectedLevelUpStats, setSelectedLevelUpStats] = useState<LevelUpStatKey[]>([]);
   const [levelUpBatchTotal, setLevelUpBatchTotal] = useState(0);
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [renameInput, setRenameInput] = useState('');
 
   // 玩法提示：首次打开队伍管理
   useEffect(() => {
@@ -500,6 +502,30 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       applyFormationMove(char.id, null);
   };
 
+  const handleRenameMercenary = () => {
+      if (!selectedMerc) return;
+      setRenameInput(selectedMerc.name);
+      setIsRenameDialogOpen(true);
+  };
+
+  const handleConfirmRenameMercenary = () => {
+      if (!selectedMerc) return;
+      const nextName = renameInput.trim().slice(0, 8);
+      if (!nextName) return;
+      if (nextName === selectedMerc.name) {
+          setIsRenameDialogOpen(false);
+          return;
+      }
+
+      const newMercs = party.mercenaries.map(m => (
+          m.id === selectedMerc.id ? { ...m, name: nextName } : m
+      ));
+      const updatedParty = { ...party, mercenaries: newMercs };
+      onUpdateParty(updatedParty);
+      setSelectedMerc(newMercs.find(m => m.id === selectedMerc.id) || null);
+      setIsRenameDialogOpen(false);
+  };
+
   // --- 学习专精 ---
   const handleLearnPerk = (perkId: string) => {
     if (!selectedMerc) return;
@@ -603,13 +629,23 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                     className="flex items-center gap-2 min-w-0"
                                     style={{ fontSize: `clamp(0.56rem, ${1.05 * compactFontScale}vw, 0.72rem)` }}
                                 >
+                                    <span className="text-amber-200 font-bold truncate">{selectedMerc.name}</span>
                                     <span className="text-slate-400 shrink-0">Lv.<span className="text-amber-500 font-bold">{selectedMerc.level}</span></span>
                                     <span className="text-slate-600 font-mono truncate">({selectedMerc.xp}/{getXPForNextLevel(selectedMerc.level)})</span>
                                     <span className="text-slate-500 shrink-0">日薪 {selectedMerc.salary}</span>
                                 </div>
                             ) : (
                                 <div>
-                                    <h2 className="text-2xl font-bold text-amber-100 tracking-wide">{selectedMerc.name}</h2>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-2xl font-bold text-amber-100 tracking-wide">{selectedMerc.name}</h2>
+                                        <button
+                                            type="button"
+                                            onClick={handleRenameMercenary}
+                                            className="px-2 py-0.5 text-[10px] border border-amber-900/40 text-amber-500 hover:text-amber-300 hover:border-amber-700/70 bg-black/30 transition-colors"
+                                        >
+                                            改名
+                                        </button>
+                                    </div>
                                     <div className="flex items-center mt-1 gap-2">
                                         <span className="text-amber-700 text-sm">{selectedMerc.background}</span>
                                         <span className="text-slate-600">·</span>
@@ -622,6 +658,15 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                             <span className={`${isCompactLandscape ? 'px-1.5 py-0.5 text-[9px]' : 'text-[10px] px-2 py-1'} border shrink-0 ${selectedMerc.formationIndex !== null ? 'text-emerald-500 border-emerald-900/50 bg-emerald-950/20' : 'text-slate-500 border-slate-800 bg-slate-900/20'}`}>
                                 {selectedMerc.formationIndex !== null ? '出战' : '后备'}
                             </span>
+                            {isCompactLandscape && (
+                                <button
+                                    type="button"
+                                    onClick={handleRenameMercenary}
+                                    className="px-1.5 py-0.5 text-[9px] border border-amber-900/40 text-amber-500 hover:text-amber-300 hover:border-amber-700/70 bg-black/30 transition-colors shrink-0"
+                                >
+                                    改名
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -1491,6 +1536,53 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
               style={{ left: touchFormationDrag.x + 12, top: touchFormationDrag.y + 12 }}
           >
               {touchFormationDrag.charName}
+          </div>
+      )}
+
+      {isRenameDialogOpen && selectedMerc && (
+          <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center px-4">
+              <div className="w-full max-w-sm border border-amber-900/50 bg-[#0d0b08] shadow-2xl">
+                  <div className="px-4 py-3 border-b border-amber-900/30">
+                      <h3 className="text-amber-500 font-bold tracking-wide">改名</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">为 {selectedMerc.name} 设定新名字（最多8字）</p>
+                  </div>
+                  <div className="p-4 space-y-3">
+                      <input
+                          type="text"
+                          value={renameInput}
+                          maxLength={8}
+                          autoFocus
+                          onChange={(e) => setRenameInput(e.target.value)}
+                          onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                  setIsRenameDialogOpen(false);
+                                  return;
+                              }
+                              if (e.key === 'Enter') {
+                                  handleConfirmRenameMercenary();
+                              }
+                          }}
+                          className="w-full bg-black/80 border border-amber-900/40 text-amber-100 font-serif tracking-[0.1em] px-3 py-2 focus:outline-none focus:border-amber-600 transition-colors placeholder:text-slate-800"
+                          placeholder="输入姓名..."
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                          <button
+                              type="button"
+                              onClick={() => setIsRenameDialogOpen(false)}
+                              className="px-3 py-1.5 text-xs border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 bg-black/40 transition-colors"
+                          >
+                              取消
+                          </button>
+                          <button
+                              type="button"
+                              onClick={handleConfirmRenameMercenary}
+                              className="px-3 py-1.5 text-xs border border-amber-700/70 text-amber-400 hover:text-amber-200 hover:border-amber-500 bg-amber-900/20 transition-colors"
+                          >
+                              确认
+                          </button>
+                      </div>
+                  </div>
+              </div>
           </div>
       )}
 

@@ -405,7 +405,8 @@ const generateBattleResult = (
   isRetreat: boolean = false
 ): BattleResult => {
   const enemiesKilled = enemyUnits.filter(u => u.isDead).length;
-  const enemiesRouted = enemyUnits.filter(u => !u.isDead && u.morale === MoraleStatus.FLEEING).length;
+  // 逃离战场按“已脱离(hasEscaped)”统计，并兼容旧状态字段，避免巡逻进度漏算
+  const enemiesRouted = enemyUnits.filter(u => !u.isDead && (u.hasEscaped || u.morale === MoraleStatus.FLEEING)).length;
 
   // 阵亡己方
   const deadPlayerIds = new Set(
@@ -739,6 +740,7 @@ export const App: React.FC = () => {
   const combatEntityIdRef = useRef<string>(''); // 记录战斗实体ID，用于判断是否击杀了任务目标
   const combatBossLootIdsRef = useRef<string[]>([]); // Boss战斗掉落池（红装ID列表）
   const combatBossCampIdRef = useRef<string>(''); // Boss巢穴ID（用于胜利后标记cleared）
+  const patrolRespawnCooldownRef = useRef<Record<string, number>>({}); // 巡逻任务保底补位冷却
 
   const [party, setParty] = useState<Party>({
     x: 0, y: 0, targetX: null, targetY: null, gold: 0, food: 0,
@@ -1557,6 +1559,9 @@ export const App: React.FC = () => {
             const activeEscortQuest = party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted
               ? party.activeQuest
               : null;
+            const activePatrolQuest = party.activeQuest && party.activeQuest.type === 'PATROL' && !party.activeQuest.isCompleted
+              ? party.activeQuest
+              : null;
             
             for (let i = 0; i < updatedEntities.length; i++) {
               const a = updatedEntities[i];
@@ -1623,6 +1628,59 @@ export const App: React.FC = () => {
                   escortArrived = true;
                 }
               }
+            }
+
+            // 巡逻任务保底：到达巡逻区后，若区域内无敌方可战单位，则补位至少 1 个
+            if (
+              activePatrolQuest &&
+              activePatrolQuest.patrolArrived &&
+              typeof activePatrolQuest.patrolTargetX === 'number' &&
+              typeof activePatrolQuest.patrolTargetY === 'number'
+            ) {
+              const respawnCooldownDays = 0.08; // 约两个小时游戏内时间
+              const lastRespawnDay = patrolRespawnCooldownRef.current[activePatrolQuest.id] ?? -Infinity;
+              if (party.day - lastRespawnDay >= respawnCooldownDays) {
+                const patrolX = activePatrolQuest.patrolTargetX;
+                const patrolY = activePatrolQuest.patrolTargetY;
+                const patrolRadius = activePatrolQuest.patrolRadius ?? 1.4;
+                const hasHostileInPatrolArea = updatedEntities.some(ent =>
+                  !toRemoveIds.has(ent.id) &&
+                  ent.faction === 'HOSTILE' &&
+                  Math.hypot(ent.x - patrolX, ent.y - patrolY) <= patrolRadius + 1.6
+                );
+                if (!hasHostileInPatrolArea) {
+                  const beastNames = new Set(['北疆狼群', '雪狼', '冻土野狼']);
+                  const isBeast = !!activePatrolQuest.targetEntityName && beastNames.has(activePatrolQuest.targetEntityName);
+                  const entityType: WorldEntity['type'] = isBeast ? 'BEAST' : 'BANDIT';
+                  const worldAIType: WorldAIType = isBeast ? 'BEAST' : 'BANDIT';
+                  const spawnAngle = Math.random() * Math.PI * 2;
+                  const spawnDist = 0.6 + Math.random() * 1.2;
+                  const spawnX = Math.max(1, Math.min(MAP_SIZE - 2, patrolX + Math.cos(spawnAngle) * spawnDist));
+                  const spawnY = Math.max(1, Math.min(MAP_SIZE - 2, patrolY + Math.sin(spawnAngle) * spawnDist));
+                  updatedEntities.push({
+                    id: `patrol-hostile-respawn-${activePatrolQuest.id}-${Date.now()}`,
+                    name: activePatrolQuest.targetEntityName || '流窜匪众',
+                    type: entityType,
+                    faction: 'HOSTILE',
+                    x: spawnX,
+                    y: spawnY,
+                    targetX: null,
+                    targetY: null,
+                    speed: 0.58 + Math.random() * 0.22,
+                    aiState: 'WANDER',
+                    homeX: patrolX,
+                    homeY: patrolY,
+                    worldAIType,
+                    alertRadius: 4,
+                    chaseRadius: 8,
+                    wanderCooldown: Math.random() * 4,
+                    territoryRadius: 3 + Math.random() * 2,
+                  });
+                  patrolRespawnCooldownRef.current[activePatrolQuest.id] = party.day;
+                }
+              }
+            } else {
+              patrolRespawnCooldownRef.current = {};
             }
 
             if (toRemoveIds.size > 0) {
