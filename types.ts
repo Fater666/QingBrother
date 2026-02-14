@@ -327,6 +327,7 @@ export interface CombatUnit extends Character {
   team: 'PLAYER' | 'ENEMY';
   currentAP: number;
   isDead: boolean;
+  crossbowLoaded?: boolean;       // 弩装填状态：true=已装填可射击，false=需先装填
   hasEscaped?: boolean; // 已成功逃离战场（不再参与战斗）
   isShieldWall: boolean;
   isHalberdWall: boolean;

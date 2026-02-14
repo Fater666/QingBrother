@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { BattleResult, Item, Party } from '../types.ts';
 import { MAX_INVENTORY_SIZE } from '../constants';
-import { ItemIcon } from './ItemIcon.tsx';
 
 interface BattleResultViewProps {
   result: BattleResult;
@@ -42,6 +41,18 @@ const getItemQualityBg = (value: number, rarity?: string): string => {
   if (value >= 600) return 'bg-blue-950/40';
   if (value >= 200) return 'bg-emerald-950/30';
   return 'bg-slate-900/40';
+};
+
+const getItemBrief = (item: Item): string => {
+  if (item.type === 'CONSUMABLE' && item.subType) {
+    if (item.subType === 'FOOD') return `粮食 +${item.effectValue}`;
+    if (item.subType === 'MEDICINE') return `医药 +${item.effectValue}`;
+    if (item.subType === 'REPAIR_KIT') return `修甲材料 +${item.effectValue}`;
+  }
+  if (item.damage) return `伤害 ${item.damage[0]}-${item.damage[1]}`;
+  if (item.durability !== undefined && item.maxDurability > 1) return `耐久 ${item.durability}`;
+  if (item.defenseBonus !== undefined) return `防御 +${item.defenseBonus}`;
+  return ITEM_TYPE_NAMES[item.type] || item.type;
 };
 
 export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, party, onComplete }) => {
@@ -405,16 +416,18 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
                         : 'bg-black/20 border-slate-900 opacity-30 cursor-not-allowed'
                   }`}
                 >
-                  {/* 物品图标 */}
-                  <div className="w-full h-full p-2">
-                    <ItemIcon item={item} showBackground={false} />
+                  {/* 文本展示（与营地风格一致，不显示图标） */}
+                  <div className="w-full h-full px-2 py-2 flex flex-col items-center justify-center text-center">
+                    <span className={`text-[10px] font-bold leading-tight truncate w-full ${isSelected ? qualityColor.split(' ')[0] : 'text-slate-300'}`}>
+                      {item.name}
+                    </span>
+                    <span className={`text-[9px] mt-1 leading-tight truncate w-full ${isSelected ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {getItemBrief(item)}
+                    </span>
                   </div>
 
                   {/* 物品名称 */}
                   <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5 text-center">
-                    <span className={`text-[10px] font-bold truncate block ${isSelected ? qualityColor.split(' ')[0] : 'text-slate-500'}`}>
-                      {item.name}
-                    </span>
                     <span className="text-[8px] text-slate-600">{ITEM_TYPE_NAMES[item.type] || item.type}</span>
                   </div>
 

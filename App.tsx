@@ -11,7 +11,7 @@ import { MainMenu } from './components/MainMenu.tsx';
 import { Prologue } from './components/Prologue.tsx';
 import { OriginSelect, ORIGIN_CONFIGS } from './components/OriginSelect.tsx';
 import { BattleResultView } from './components/BattleResultView.tsx';
-import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta } from './components/SaveLoadPanel.tsx';
+import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta, getAutoSaveKey, saveAutoMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier, generateCityQuests } from './services/mapGenerator.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
@@ -728,6 +728,7 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 interface EnemyComp { name: string; bg: string; aiType: AIType }
 
 export const App: React.FC = () => {
+  const AUTO_SAVE_INTERVAL_MS = 120000;
   const [view, setView] = useState<GameView>('MAIN_MENU');
   const [gameInitialized, setGameInitialized] = useState(false);
   
@@ -911,120 +912,166 @@ export const App: React.FC = () => {
     setActiveTip(next || null);
   }, []);
 
-  // --- SAVE & LOAD SYSTEM (多栏位) ---
-  const saveGame = useCallback((slotIndex: number) => {
-    const saveData = {
-        tiles,
-        cities,
-        entities,
-        camps,
-        party,
+  // --- SAVE & LOAD SYSTEM (多栏位 + 自动存档) ---
+  const buildSaveData = useCallback(() => ({
+    tiles,
+    cities,
+    entities,
+    camps,
+    party,
+    day: party.day,
+    view: view === 'COMBAT' ? 'WORLD_MAP' : view, // 不保存战斗状态，退回地图
+  }), [tiles, cities, entities, camps, party, view]);
+
+  const writeSaveData = useCallback((saveData: ReturnType<typeof buildSaveData>, slotIndex: number, isAuto = false) => {
+    if (isAuto) {
+      localStorage.setItem(getAutoSaveKey(), JSON.stringify(saveData));
+      const autoMeta: SaveSlotMeta = {
+        slotIndex: -1,
+        timestamp: Date.now(),
         day: party.day,
-        view: view === 'COMBAT' ? 'WORLD_MAP' : view // 不保存战斗状态，退回地图
-    };
-    try {
-        localStorage.setItem(getSaveSlotKey(slotIndex), JSON.stringify(saveData));
-        // 更新元数据
-        const metas = getAllSaveMetas();
-        metas[slotIndex] = {
-          slotIndex,
-          timestamp: Date.now(),
-          day: party.day,
-          gold: party.gold,
-          mercCount: party.mercenaries.length,
-          leaderName: party.mercenaries[0]?.name || '无名',
-          view: saveData.view as string,
-        };
-        saveMetas(metas);
-        setHasSave(true);
-    } catch (e) {
-        alert("简牍告罄，无法刻录（存档失败）。");
+        gold: party.gold,
+        mercCount: party.mercenaries.length,
+        leaderName: party.mercenaries[0]?.name || '无名',
+        view: saveData.view as string,
+      };
+      saveAutoMeta(autoMeta);
+      return;
     }
-  }, [tiles, cities, entities, camps, party, view]);
+
+    localStorage.setItem(getSaveSlotKey(slotIndex), JSON.stringify(saveData));
+    const metas = getAllSaveMetas();
+    metas[slotIndex] = {
+      slotIndex,
+      timestamp: Date.now(),
+      day: party.day,
+      gold: party.gold,
+      mercCount: party.mercenaries.length,
+      leaderName: party.mercenaries[0]?.name || '无名',
+      view: saveData.view as string,
+    };
+    saveMetas(metas);
+  }, [party.day, party.gold, party.mercenaries]);
+
+  const saveGame = useCallback((slotIndex: number) => {
+    const saveData = buildSaveData();
+    try {
+      writeSaveData(saveData, slotIndex, false);
+      setHasSave(true);
+    } catch {
+      alert("简牍告罄，无法刻录（存档失败）。");
+    }
+  }, [buildSaveData, writeSaveData]);
+
+  const autoSaveGame = useCallback((trigger: 'combat' | 'timer') => {
+    const saveData = buildSaveData();
+    try {
+      writeSaveData(saveData, -1, true);
+      setHasSave(true);
+      if (trigger === 'combat') {
+        console.info('自动存档：战斗触发');
+      }
+    } catch {
+      // 自动存档失败不打断流程，避免战斗或循环中弹窗打断体验
+      console.warn('自动存档失败');
+    }
+  }, [buildSaveData, writeSaveData]);
+
+  const applyLoadedData = useCallback((raw: string) => {
+    const data = JSON.parse(raw);
+    setTiles(data.tiles);
+
+    // 旧存档兼容：为城市市场补充消耗品/盾牌/头盔 + 商店刷新字段
+    const loadedCities: City[] = (data.cities || []).map((city: City) => {
+      let updated = { ...city };
+      // 补充缺失的商店刷新字段
+      if (updated.lastMarketRefreshDay == null) updated.lastMarketRefreshDay = 1;
+      if (updated.priceModifier == null) updated.priceModifier = rollPriceModifier();
+      // 补充缺失的任务刷新字段和区域信息
+      if (updated.lastQuestRefreshDay == null) updated.lastQuestRefreshDay = 1;
+      if (!updated.biome) updated.biome = getBiome(updated.y, MAP_SIZE);
+
+      const hasConsumables = updated.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
+      const hasHelmets = updated.market.some((item: Item) => item.type === 'HELMET');
+      const hasShields = updated.market.some((item: Item) => item.type === 'SHIELD');
+      if (!hasConsumables || !hasHelmets || !hasShields) {
+        const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
+        const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
+        const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
+        const newItems: Item[] = [
+          ...(!hasHelmets ? HELMET_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
+          ...(!hasShields ? SHIELD_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
+          ...(!hasConsumables ? [
+            ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
+            ...medItems.sort(() => 0.5 - Math.random()).slice(0, 1 + Math.floor(Math.random() * 2)),
+            ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
+          ] : []),
+        ];
+        updated = { ...updated, market: [...updated.market, ...newItems] };
+      }
+      return updated;
+    });
+    setCities(loadedCities);
+
+    setEntities(data.entities);
+    // 旧存档兼容：巢穴系统
+    setCamps(data.camps || []);
+    // 旧存档兼容：补充缺失的野心/声望字段 + 医药/修甲资源池迁移
+    const oldInventory: Item[] = data.party.inventory || [];
+    // 如果旧存档没有 medicine/repairSupplies 字段，从库存中的消耗品转换
+    let migratedMedicine = data.party.medicine ?? 0;
+    let migratedRepair = data.party.repairSupplies ?? 0;
+    let migratedInventory = oldInventory;
+    if (data.party.medicine == null || data.party.repairSupplies == null) {
+      // 将库存中的 MEDICINE/REPAIR_KIT 物品转换为资源池数值
+      const medItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
+      const repItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT');
+      migratedMedicine = medItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 20), 0);
+      migratedRepair = repItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 50), 0);
+      // 从库存中移除这些消耗品
+      migratedInventory = oldInventory.filter((it: Item) => !(it.type === 'CONSUMABLE' && (it.subType === 'MEDICINE' || it.subType === 'REPAIR_KIT')));
+    }
+    const loadedParty: Party = {
+      ...data.party,
+      medicine: migratedMedicine,
+      repairSupplies: migratedRepair,
+      inventory: migratedInventory,
+      mercenaries: (data.party.mercenaries || []).map((merc: Character) => ({
+        ...merc,
+        pendingLevelUps: merc.pendingLevelUps ?? Math.max(0, (merc.level || 1) - 1),
+      })),
+      reputation: data.party.reputation ?? 0,
+      ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
+      moraleModifier: data.party.moraleModifier ?? 0,
+      shownTips: data.party.shownTips ?? [],
+    };
+    setParty(loadedParty);
+    // 同步每日消耗追踪，避免读档瞬间触发大量天数消耗
+    lastProcessedDayRef.current = Math.floor(loadedParty.day);
+    setGameInitialized(true);
+    setView(data.view || 'WORLD_MAP');
+    setTimeScale(0);
+  }, []);
 
   const loadGame = useCallback((slotIndex: number) => {
     const raw = localStorage.getItem(getSaveSlotKey(slotIndex));
-    if (!raw) {
-        return;
-    }
+    if (!raw) return;
     try {
-        const data = JSON.parse(raw);
-        setTiles(data.tiles);
-
-        // 旧存档兼容：为城市市场补充消耗品/盾牌/头盔 + 商店刷新字段
-        const loadedCities: City[] = (data.cities || []).map((city: City) => {
-            let updated = { ...city };
-            // 补充缺失的商店刷新字段
-            if (updated.lastMarketRefreshDay == null) updated.lastMarketRefreshDay = 1;
-            if (updated.priceModifier == null) updated.priceModifier = rollPriceModifier();
-            // 补充缺失的任务刷新字段和区域信息
-            if (updated.lastQuestRefreshDay == null) updated.lastQuestRefreshDay = 1;
-            if (!updated.biome) updated.biome = getBiome(updated.y, MAP_SIZE);
-
-            const hasConsumables = updated.market.some((item: Item) => item.type === 'CONSUMABLE' && item.subType);
-            const hasHelmets = updated.market.some((item: Item) => item.type === 'HELMET');
-            const hasShields = updated.market.some((item: Item) => item.type === 'SHIELD');
-            if (!hasConsumables || !hasHelmets || !hasShields) {
-                const foodItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'FOOD');
-                const medItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'MEDICINE');
-                const repairItems = CONSUMABLE_TEMPLATES.filter(c => c.subType === 'REPAIR_KIT');
-                const newItems: Item[] = [
-                    ...(!hasHelmets ? HELMET_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
-                    ...(!hasShields ? SHIELD_TEMPLATES.sort(() => 0.5 - Math.random()).slice(0, 2) : []),
-                    ...(!hasConsumables ? [
-                        ...foodItems.sort(() => 0.5 - Math.random()).slice(0, 2 + Math.floor(Math.random() * 3)),
-                        ...medItems.sort(() => 0.5 - Math.random()).slice(0, 1 + Math.floor(Math.random() * 2)),
-                        ...(Math.random() > 0.4 ? [repairItems[Math.floor(Math.random() * repairItems.length)]] : []),
-                    ] : []),
-                ];
-                updated = { ...updated, market: [...updated.market, ...newItems] };
-            }
-            return updated;
-        });
-        setCities(loadedCities);
-
-        setEntities(data.entities);
-        // 旧存档兼容：巢穴系统
-        setCamps(data.camps || []);
-        // 旧存档兼容：补充缺失的野心/声望字段 + 医药/修甲资源池迁移
-        const oldInventory: Item[] = data.party.inventory || [];
-        // 如果旧存档没有 medicine/repairSupplies 字段，从库存中的消耗品转换
-        let migratedMedicine = data.party.medicine ?? 0;
-        let migratedRepair = data.party.repairSupplies ?? 0;
-        let migratedInventory = oldInventory;
-        if (data.party.medicine == null || data.party.repairSupplies == null) {
-          // 将库存中的 MEDICINE/REPAIR_KIT 物品转换为资源池数值
-          const medItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'MEDICINE');
-          const repItems = oldInventory.filter((it: Item) => it.type === 'CONSUMABLE' && it.subType === 'REPAIR_KIT');
-          migratedMedicine = medItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 20), 0);
-          migratedRepair = repItems.reduce((sum: number, it: Item) => sum + (it.effectValue || 50), 0);
-          // 从库存中移除这些消耗品
-          migratedInventory = oldInventory.filter((it: Item) => !(it.type === 'CONSUMABLE' && (it.subType === 'MEDICINE' || it.subType === 'REPAIR_KIT')));
-        }
-        const loadedParty: Party = {
-          ...data.party,
-          medicine: migratedMedicine,
-          repairSupplies: migratedRepair,
-          inventory: migratedInventory,
-          mercenaries: (data.party.mercenaries || []).map((merc: Character) => ({
-            ...merc,
-            pendingLevelUps: merc.pendingLevelUps ?? Math.max(0, (merc.level || 1) - 1),
-          })),
-          reputation: data.party.reputation ?? 0,
-          ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
-          moraleModifier: data.party.moraleModifier ?? 0,
-          shownTips: data.party.shownTips ?? [],
-        };
-        setParty(loadedParty);
-        // 同步每日消耗追踪，避免读档瞬间触发大量天数消耗
-        lastProcessedDayRef.current = Math.floor(loadedParty.day);
-        setGameInitialized(true);
-        setView(data.view || 'WORLD_MAP');
-        setTimeScale(0);
-    } catch (e) {
-        alert("简牍残破，无法辨识（读档失败）。");
+      applyLoadedData(raw);
+    } catch {
+      alert("简牍残破，无法辨识（读档失败）。");
     }
-  }, []);
+  }, [applyLoadedData]);
+
+  const loadAutoSave = useCallback(() => {
+    const raw = localStorage.getItem(getAutoSaveKey());
+    if (!raw) return;
+    try {
+      applyLoadedData(raw);
+    } catch {
+      alert("自动简牍残破，无法辨识（读档失败）。");
+    }
+  }, [applyLoadedData]);
 
   // 兼容旧存档：迁移到新的多栏位系统
   useEffect(() => {
@@ -1050,6 +1097,17 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // 自动存档：定时触发（世界地图/战斗中）
+  useEffect(() => {
+    if (!gameInitialized) return;
+    const timer = window.setInterval(() => {
+      if (saveLoadMode) return;
+      if (view !== 'WORLD_MAP' && view !== 'COMBAT') return;
+      autoSaveGame('timer');
+    }, AUTO_SAVE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [gameInitialized, view, saveLoadMode, autoSaveGame]);
+
   // 战争迷雾更新
   useEffect(() => {
       if (!gameInitialized) return;
@@ -1074,6 +1132,8 @@ export const App: React.FC = () => {
 
   const startCombat = useCallback((entity: WorldEntity) => {
     setTimeScale(0);
+    // 进入战斗前自动存档（保留战前快照）
+    autoSaveGame('combat');
     
     // --- 难度曲线：根据天数决定敌人强度 ---
     const day = party.day;
@@ -1209,6 +1269,7 @@ export const App: React.FC = () => {
         combatPos: { q: 2, r: i - Math.floor(compositions.length / 2) },
         currentAP: 9,
         isDead: false,
+        crossbowLoaded: true,
         isShieldWall: false,
         isHalberdWall: false,
         movedThisTurn: false,
@@ -1231,7 +1292,7 @@ export const App: React.FC = () => {
         const col = m.formationIndex! % 9;
         const q = -2 - row;
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
-        let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
         // === 入场被动：应用专精效果 ===
         unit = applyColossus(unit);       // 强体：+25% HP
         unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
@@ -1270,7 +1331,7 @@ export const App: React.FC = () => {
       setParty(p => ({ ...p, moraleModifier: 0 }));
     }
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles, camps]);
+  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles, camps, autoSaveGame]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -2146,6 +2207,7 @@ export const App: React.FC = () => {
                     return;
                   }
                   setParty(p => ({ ...p, targetX: clampWorldTile(x), targetY: clampWorldTile(y) }));
+                  setTimeScale(prev => (prev === 0 ? 1 : prev));
                 }} 
             />
         )}
@@ -2666,6 +2728,7 @@ export const App: React.FC = () => {
             mode={saveLoadMode}
             onSave={(slot) => saveGame(slot)}
             onLoad={(slot) => loadGame(slot)}
+            onLoadAuto={loadAutoSave}
             onClose={() => setSaveLoadMode(null)}
           />
         )}

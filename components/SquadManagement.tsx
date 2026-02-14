@@ -1164,6 +1164,20 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             </span>
                                             <span className={`${isCompactLandscape ? 'text-[8px]' : 'text-[9px]'} text-slate-600 mt-0.5`}>{getItemTypeName(item.type)}</span>
                                             <span className={`${isCompactLandscape ? 'text-[9px] mt-0.5' : 'text-[10px] mt-1'} text-amber-700 font-mono`}>{item.value}</span>
+                                            {item.maxDurability > 1 && item.durability !== undefined && (
+                                                <div className="mt-0.5 w-full h-0.5 rounded-full bg-black/50 overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full transition-all ${
+                                                            item.durability / Math.max(1, item.maxDurability) > 0.6
+                                                                ? 'bg-emerald-500/90'
+                                                                : item.durability / Math.max(1, item.maxDurability) > 0.3
+                                                                    ? 'bg-amber-500/90'
+                                                                    : 'bg-red-500/90'
+                                                        }`}
+                                                        style={{ width: `${Math.max(0, Math.min(100, (item.durability / Math.max(1, item.maxDurability)) * 100))}%` }}
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                     {Array.from({ length: Math.max(0, 24 - party.inventory.length) }).map((_, i) => (
@@ -1745,6 +1759,20 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
                 >
                     {getItemBrief(item)}
                 </span>
+                {item.maxDurability > 1 && item.durability !== undefined && (
+                    <div className={`${dense ? 'mt-0.5' : 'mt-1'} w-full h-1 rounded-full bg-black/50 overflow-hidden`}>
+                        <div
+                            className={`h-full rounded-full transition-all ${
+                                item.durability / Math.max(1, item.maxDurability) > 0.6
+                                    ? 'bg-emerald-500/90'
+                                    : item.durability / Math.max(1, item.maxDurability) > 0.3
+                                        ? 'bg-amber-500/90'
+                                        : 'bg-red-500/90'
+                            }`}
+                            style={{ width: `${Math.max(0, Math.min(100, (item.durability / Math.max(1, item.maxDurability)) * 100))}%` }}
+                        />
+                    </div>
+                )}
             </>
         ) : (
             <span

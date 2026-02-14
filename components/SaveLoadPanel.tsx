@@ -13,9 +13,12 @@ export interface SaveSlotMeta {
 
 const SAVE_KEY_PREFIX = 'zhanguo_save_slot_';
 const SAVE_META_KEY = 'zhanguo_save_meta';
+const AUTO_SAVE_KEY = 'zhanguo_auto_save';
+const AUTO_SAVE_META_KEY = 'zhanguo_auto_save_meta';
 const MAX_SLOTS = 3;
 
 export const getSaveSlotKey = (slot: number) => `${SAVE_KEY_PREFIX}${slot}`;
+export const getAutoSaveKey = () => AUTO_SAVE_KEY;
 
 export const getAllSaveMetas = (): (SaveSlotMeta | null)[] => {
   try {
@@ -31,17 +34,32 @@ export const getAllSaveMetas = (): (SaveSlotMeta | null)[] => {
 };
 
 export const hasAnySaveData = (): boolean => {
-  return getAllSaveMetas().some(m => m !== null);
+  return getAllSaveMetas().some(m => m !== null) || getAutoSaveMeta() !== null;
 };
 
 export const saveMetas = (metas: (SaveSlotMeta | null)[]) => {
   localStorage.setItem(SAVE_META_KEY, JSON.stringify(metas));
 };
 
+export const getAutoSaveMeta = (): SaveSlotMeta | null => {
+  try {
+    const raw = localStorage.getItem(AUTO_SAVE_META_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+export const saveAutoMeta = (meta: SaveSlotMeta) => {
+  localStorage.setItem(AUTO_SAVE_META_KEY, JSON.stringify(meta));
+};
+
 interface SaveLoadPanelProps {
   mode: 'SAVE' | 'LOAD';
   onSave?: (slotIndex: number) => void;
   onLoad?: (slotIndex: number) => void;
+  onLoadAuto?: () => void;
   onClose: () => void;
 }
 
@@ -51,12 +69,14 @@ const formatDate = (ts: number): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-export const SaveLoadPanel: React.FC<SaveLoadPanelProps> = ({ mode, onSave, onLoad, onClose }) => {
+export const SaveLoadPanel: React.FC<SaveLoadPanelProps> = ({ mode, onSave, onLoad, onLoadAuto, onClose }) => {
   const [metas, setMetas] = useState<(SaveSlotMeta | null)[]>([]);
+  const [autoMeta, setAutoMeta] = useState<SaveSlotMeta | null>(null);
   const [confirmSlot, setConfirmSlot] = useState<number | null>(null);
 
   useEffect(() => {
     setMetas(getAllSaveMetas());
+    setAutoMeta(getAutoSaveMeta());
   }, []);
 
   const handleSlotClick = (slotIndex: number) => {
@@ -93,6 +113,12 @@ export const SaveLoadPanel: React.FC<SaveLoadPanelProps> = ({ mode, onSave, onLo
     setMetas(newMetas);
   };
 
+  const handleAutoSlotClick = () => {
+    if (mode !== 'LOAD' || !autoMeta) return;
+    onLoadAuto?.();
+    onClose();
+  };
+
   const title = mode === 'SAVE' ? '刻 录 简 牍' : '续 读 简 牍';
   const subtitle = mode === 'SAVE' ? '选择存档位' : '选择读档位';
 
@@ -126,7 +152,7 @@ export const SaveLoadPanel: React.FC<SaveLoadPanelProps> = ({ mode, onSave, onLo
         </div>
       )}
 
-      <div className="w-full max-w-lg bg-[#0d0906] border border-amber-900/40 shadow-2xl relative overflow-hidden mx-4">
+      <div className="w-full max-w-lg max-h-[88vh] bg-[#0d0906] border border-amber-900/40 shadow-2xl relative overflow-y-auto mx-4">
         {/* 竹简纹理背景 */}
         <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
           style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(139,69,19,0.5) 3px, rgba(139,69,19,0.5) 4px)' }}
@@ -138,7 +164,44 @@ export const SaveLoadPanel: React.FC<SaveLoadPanelProps> = ({ mode, onSave, onLo
           <p className="text-xs text-amber-700/50 tracking-widest text-center mt-2">{subtitle}</p>
         </div>
 
-        {/* 存档槽列表 */}
+        {/* 自动存档槽 */}
+        <div className="relative px-6 pt-4">
+          <div className="mb-1 text-[10px] text-cyan-500/80 tracking-[0.2em]">自动存档栏位（独立）</div>
+          <button
+            onClick={handleAutoSlotClick}
+            disabled={mode === 'LOAD' && !autoMeta}
+            className={`w-full text-left relative transition-all duration-300 border p-4 ${
+              mode === 'LOAD' && autoMeta
+                ? 'border-cyan-600/60 hover:border-cyan-400 hover:bg-cyan-900/20 cursor-pointer'
+                : 'border-cyan-900/60 bg-cyan-950/10 cursor-default'
+            }`}
+            title={mode === 'SAVE' ? '自动存档会在战斗与定时触发' : undefined}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-cyan-300 text-sm tracking-wider font-bold">
+                  自动存档
+                  <span className="text-cyan-700/70 font-normal ml-2 text-xs">AUTO</span>
+                </p>
+                {autoMeta ? (
+                  <>
+                    <p className="text-cyan-600/60 text-xs mt-1">
+                      {autoMeta.leaderName || '无名'} · 第 {Math.floor(autoMeta.day)} 天 · 金 {autoMeta.gold}
+                    </p>
+                    <p className="text-[10px] text-slate-600/70 mt-1">{formatDate(autoMeta.timestamp)}</p>
+                  </>
+                ) : (
+                  <p className="text-slate-600 text-xs mt-1">暂无自动存档</p>
+                )}
+              </div>
+              <span className="text-[10px] text-cyan-600/80 tracking-widest">
+                {mode === 'SAVE' ? '自动覆盖' : (autoMeta ? '可读档' : '暂无数据')}
+              </span>
+            </div>
+          </button>
+        </div>
+
+        {/* 手动存档槽列表 */}
         <div className="relative px-6 py-6 space-y-3">
           {Array.from({ length: MAX_SLOTS }).map((_, i) => {
             const meta = metas[i];

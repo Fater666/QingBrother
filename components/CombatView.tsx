@@ -148,6 +148,22 @@ const getAbilityIcon = (ability: Ability | null | undefined): string => {
   return ability.icon || '✦';
 };
 
+const isCrossbowWeapon = (weapon: Item | null | undefined): boolean => {
+  if (!weapon) return false;
+  return weapon.weaponClass === 'crossbow' || weapon.name.includes('弩');
+};
+
+const isCrossbowUnit = (unit: CombatUnit | null | undefined): boolean => {
+  if (!unit) return false;
+  return isCrossbowWeapon(unit.equipment.mainHand);
+};
+
+const isCrossbowLoaded = (unit: CombatUnit | null | undefined): boolean => {
+  if (!unit) return false;
+  // 默认视为已装填；仅显式 false 才判定未装填。
+  return unit.crossbowLoaded !== false;
+};
+
 const UnitCard: React.FC<{
   unit: CombatUnit;
   isActive: boolean;
@@ -186,6 +202,8 @@ const UnitCard: React.FC<{
   const weaponDamageText = weapon?.damage ? `${weapon.damage[0]}-${weapon.damage[1]}` : '--';
   const weaponHitText = weapon?.hitChanceMod ? `${weapon.hitChanceMod > 0 ? '+' : ''}${weapon.hitChanceMod}` : '0';
   const weaponDurabilityText = weapon ? `${weapon.durability}/${weapon.maxDurability}` : '-';
+  const isCrossbow = isCrossbowWeapon(weapon);
+  const crossbowLoaded = unit.crossbowLoaded !== false;
 
   // 盾牌信息
   const shield = unit.equipment.offHand;
@@ -342,7 +360,7 @@ const UnitCard: React.FC<{
         >
           {/* 主手武器 */}
           <div
-            className="px-1 py-0.5 text-center rounded-sm border border-amber-800/50"
+            className="px-1 py-0.5 text-center rounded-sm border border-amber-800/50 relative"
             style={{ 
               background: 'linear-gradient(180deg, rgba(60,40,20,0.95) 0%, rgba(40,25,10,0.98) 100%)',
               boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
@@ -353,6 +371,14 @@ const UnitCard: React.FC<{
               maxWidth: iconCardMaxWidth,
             }}
           >
+            {isCrossbow && (
+              <div
+                className="absolute -top-1 -right-1 text-[8px] leading-none bg-black/70 border border-amber-600/70 rounded-full w-3.5 h-3.5 flex items-center justify-center"
+                title={crossbowLoaded ? '弩已装填' : '弩未装填'}
+              >
+                {crossbowLoaded ? '🟢' : '🔴'}
+              </div>
+            )}
             <div className={showDetail ? 'text-[10px] leading-none' : 'text-[8px] leading-none'}>{weaponIcon}</div>
             {showDetail && (
               <>
@@ -360,6 +386,11 @@ const UnitCard: React.FC<{
                 <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">伤害 {weaponDamageText}</div>
                 <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">命中 {weaponHitText}</div>
                 <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">耐久 {weaponDurabilityText}</div>
+                {isCrossbow && (
+                  <div className={`text-[6px] leading-none mt-0.5 ${crossbowLoaded ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    装填 {crossbowLoaded ? '已装' : '未装'}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -2065,13 +2096,20 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       // 复制当前状态用于 AI 决策
       let currentAP = activeUnit.currentAP;
       let currentPos = { ...activeUnit.combatPos };
+      let currentCrossbowLoaded = activeUnit.crossbowLoaded;
       
       while (actionsPerformed < maxActions && currentAP >= 2) {
         // 等待一下让玩家看清
         await new Promise(r => setTimeout(r, 500));
         
         // 构造用于 AI 决策的单位状态
-        const unitForAI = { ...activeUnit, morale: moraleAfterRecovery, currentAP, combatPos: currentPos };
+        const unitForAI = {
+          ...activeUnit,
+          morale: moraleAfterRecovery,
+          currentAP,
+          combatPos: currentPos,
+          crossbowLoaded: currentCrossbowLoaded
+        };
         
         console.log(`[AI决策前] 单位: ${unitForAI.name}, AP: ${unitForAI.currentAP}, 位置: (${unitForAI.combatPos.q}, ${unitForAI.combatPos.r})`);
         console.log(`[AI决策前] 装备武器: ${unitForAI.equipment?.mainHand?.name || '无'}`);
@@ -2241,6 +2279,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff);
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             currentAP -= action.ability.apCost;
+            if (action.ability.id === 'SHOOT' && isCrossbowUnit(activeUnit)) {
+              currentCrossbowLoaded = false;
+            }
             
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             
@@ -2249,7 +2290,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               ...prev,
               units: prev.units.map(u => {
                 if (u.id === activeUnit.id) {
-                  return { ...u, currentAP };
+                  return {
+                    ...u,
+                    currentAP,
+                    crossbowLoaded: action.ability?.id === 'SHOOT' && isCrossbowUnit(u) ? false : u.crossbowLoaded,
+                  };
                 }
                 return u;
               })
@@ -2336,6 +2381,35 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           } else {
             break; // 目标无效，结束行动
           }
+        } else if (action.type === 'SKILL' && action.ability) {
+          if (action.ability.id === 'RELOAD') {
+            if (!isCrossbowUnit(activeUnit)) break;
+            if (currentCrossbowLoaded !== false) {
+              actionsPerformed++;
+              continue;
+            }
+            if (currentAP < action.ability.apCost) break;
+            currentAP -= action.ability.apCost;
+            currentCrossbowLoaded = true;
+            setState(prev => ({
+              ...prev,
+              units: prev.units.map(u => {
+                if (u.id === activeUnit.id) {
+                  return {
+                    ...u,
+                    currentAP,
+                    fatigue: Math.min(u.maxFatigue, u.fatigue + (action.ability?.fatCost || 0)),
+                    crossbowLoaded: true,
+                  };
+                }
+                return u;
+              })
+            }));
+            addToLog(`🔄 ${activeUnit.name} 装填弩矢。`, 'skill');
+            actionsPerformed++;
+            continue;
+          }
+          break;
         } else {
           break; // 无法执行更多动作
         }
@@ -2691,6 +2765,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (ability.targetType === 'SELF' && ability.range[0] === 0 && ability.range[1] === 0) {
       const hoveredHex = hoveredHexRef.current;
       if (hoveredHex || overrideAbility) {
+        if (ability.id === 'RELOAD') {
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
+          if (!isCrossbowUnit(activeUnit)) { addToLog('需要装备弩才能装填。', 'info'); return; }
+          if (isCrossbowLoaded(activeUnit)) { addToLog(`${activeUnit.name} 的弩已装填。`, 'info'); return; }
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === activeUnit.id
+                ? {
+                    ...u,
+                    currentAP: u.currentAP - ability.apCost,
+                    fatigue: Math.min(u.maxFatigue, u.fatigue + (ability.fatCost || 0)),
+                    crossbowLoaded: true,
+                  }
+                : u
+            )
+          }));
+          addToLog(`🔄 ${activeUnit.name} 完成装填。`, 'skill');
+          if (!overrideAbility) setSelectedAbility(null);
+          return;
+        }
         if (ability.id === 'SHIELDWALL') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.equipment.offHand?.type !== 'SHIELD') { addToLog('需要装备盾牌！'); return; }
@@ -2985,6 +3080,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         
         if (dist >= ability.range[0] && dist <= effectiveMaxRange) {
+            if (ability.id === 'SHOOT' && isCrossbowUnit(activeUnit) && !isCrossbowLoaded(activeUnit)) {
+              addToLog(`${activeUnit.name} 的弩尚未装填，无法射击。`, 'info');
+              return;
+            }
             // === 武器精通：AP消耗修正 ===
             let apCost = ability.apCost || 4;
             if (masteryEffects.reducedApCost) {
@@ -3018,6 +3117,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       ...u,
                       currentAP: u.currentAP - apCost,
                       fatigue: Math.min(u.maxFatigue, u.fatigue + effectiveFatCost),
+                      crossbowLoaded: ability.id === 'SHOOT' && isCrossbowUnit(u) ? false : u.crossbowLoaded,
                     };
                     return u;
                 })
@@ -4116,11 +4216,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
                       !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
                     );
+                    const isReloadSkillDisabled = skill.id === 'RELOAD' && (!isCrossbowUnit(activeUnit) || isCrossbowLoaded(activeUnit));
+                    const isCrossbowShootDisabled = skill.id === 'SHOOT' && isCrossbowUnit(activeUnit) && !isCrossbowLoaded(activeUnit);
                     const isAlreadyActiveBuff =
                       (skill.id === 'SHIELDWALL' && !!activeUnit.isShieldWall) ||
                       (skill.id === 'SPEARWALL' && !!activeUnit.isHalberdWall) ||
                       (skill.id === 'RIPOSTE' && !!activeUnit.isRiposte);
-                    const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff;
+                    const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff || isReloadSkillDisabled || isCrossbowShootDisabled;
                     return (
                       <button
                         key={skill.id}
@@ -4147,6 +4249,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                             ? '附近有敌人时无法架起矛墙'
                             : isAlreadyActiveBuff
                               ? '该姿态已生效，无法重复释放'
+                              : isReloadSkillDisabled
+                                ? '当前无需装填'
+                                : isCrossbowShootDisabled
+                                  ? '弩未装填，先使用装填'
                               : skill.name
                         }
                         className={`${isCompactLandscape ? 'w-12 h-14' : isMobile ? 'w-14 h-[4.5rem]' : 'w-16 h-[4.75rem]'} border-2 transition-all flex flex-col items-center justify-center relative

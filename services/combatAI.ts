@@ -227,7 +227,16 @@ const findBestMovePosition = (
  * 获取单位可用的攻击技能
  */
 const getAttackAbilities = (unit: CombatUnit): Ability[] => {
-  return getUnitAbilities(unit).filter(a => a.type === 'ATTACK');
+  return getUnitAbilities(unit).filter(a => {
+    if (a.type !== 'ATTACK') return false;
+    // 弩未装填时禁止选择射击，避免 AI 无限连射。
+    if (a.id === 'SHOOT') {
+      const weapon = unit.equipment.mainHand;
+      const isCrossbow = weapon?.weaponClass === 'crossbow' || weapon?.name.includes('弩');
+      if (isCrossbow && unit.crossbowLoaded === false) return false;
+    }
+    return true;
+  });
 };
 
 /**
@@ -998,6 +1007,16 @@ export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction =>
           return { type: 'MOVE', targetPos: fleePos };
         }
       }
+    }
+  }
+
+  // 弩未装填时优先装填，避免出现“无需装填即可连续射击”。
+  const weapon = unit.equipment.mainHand;
+  const isCrossbow = weapon?.weaponClass === 'crossbow' || weapon?.name.includes('弩');
+  if (isCrossbow && unit.crossbowLoaded === false) {
+    const reloadAbility = getUnitAbilities(unit).find(a => a.id === 'RELOAD');
+    if (reloadAbility && unit.currentAP >= reloadAbility.apCost) {
+      return { type: 'SKILL', ability: reloadAbility };
     }
   }
   
