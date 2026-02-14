@@ -1322,7 +1322,7 @@ export const App: React.FC = () => {
             const dx = party.targetX - party.x, dy = party.targetY - party.y, dist = Math.hypot(dx, dy);
             if (dist > 0.1) {
                 const step = 1.8 * timeScale * dt;
-                setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.003 * timeScale }));
+                setParty(p => ({ ...p, x: p.x + (dx/dist)*step, y: p.y + (dy/dist)*step, day: p.day + 0.0015 * timeScale }));
             } else {
                 setParty(p => ({ ...p, targetX: null, targetY: null }));
                 const city = cities.find(c => Math.hypot(c.x - party.x, c.y - party.y) < 0.6);
@@ -1366,6 +1366,7 @@ export const App: React.FC = () => {
         if (currentDay > lastProcessedDayRef.current) {
           lastProcessedDayRef.current = currentDay;
           let questFailedTitle: string | null = null;
+          let wagePenaltyTriggered = false;
           setParty(p => {
             const headcount = p.mercenaries.length;
             const foodCost = headcount; // 每人每天消耗1份粮食
@@ -1375,6 +1376,8 @@ export const App: React.FC = () => {
             // === 每日工资扣除 ===
             const totalWages = p.mercenaries.reduce((sum, m) => sum + m.salary, 0);
             const newGold = Math.max(0, p.gold - totalWages);
+            const isUnderpaid = p.gold < totalWages; // 工资支付不足：触发下次战斗士气低落
+            if (isUnderpaid && headcount > 0) wagePenaltyTriggered = true;
 
             // === 医药资源池消耗：每个受伤佣兵消耗5点medicine，获得额外5HP恢复 ===
             let remainingMedicine = p.medicine;
@@ -1457,7 +1460,7 @@ export const App: React.FC = () => {
               repairSupplies: remainingRepair,
               mercenaries: updatedMercs,
               inventory: updatedInv,
-              moraleModifier: isStarving ? -1 : p.moraleModifier,
+              moraleModifier: (isStarving || isUnderpaid) ? -1 : p.moraleModifier,
               activeQuest: updatedQuest,
               reputation: updatedQuest === null && p.activeQuest ? Math.max(0, p.reputation - 3) : p.reputation, // 任务失败扣3声望
             };
@@ -1468,6 +1471,12 @@ export const App: React.FC = () => {
             }
             setAmbitionNotification(`契约失败「${questFailedTitle}」：已超时（声望 -3）`);
             ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
+          } else if (wagePenaltyTriggered) {
+            if (ambitionNotifTimerRef.current) {
+              clearTimeout(ambitionNotifTimerRef.current);
+            }
+            setAmbitionNotification('军饷不足：全员士气受挫（下次战斗动摇）');
+            ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 3000);
           }
 
           // === 商店库存 & 佣兵招募池定期刷新（每 3 天） ===
@@ -1893,7 +1902,7 @@ export const App: React.FC = () => {
   return (
     <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
       {/* 游戏中导航栏 - 仅在游戏内视图显示 */}
-      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && (
+      {!isPreGameView && view !== 'COMBAT' && view !== 'BATTLE_RESULT' && view !== 'CAMP' && (
           <nav className="bg-black border-b border-amber-900/40 px-3 sm:px-6 py-2 sm:py-0 sm:h-14 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <button
