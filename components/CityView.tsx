@@ -194,6 +194,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const [subView, setSubView] = useState<SubView>('MAP');
   const [notification, setNotification] = useState<string | null>(null);
   const [activeTraitTooltip, setActiveTraitTooltip] = useState<string | null>(null);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
   const activeTrait = activeTraitTooltip ? TRAIT_TEMPLATES[activeTraitTooltip] : null;
 
   // 玩法提示：设施首次打开
@@ -241,6 +244,33 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       setActiveTraitTooltip(null);
   }, [selectedRecruit, subView, city.id]);
 
+  useEffect(() => {
+      const detectMobileLayout = () => {
+          const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+          const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+          const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+          const isLandscape = viewportWidth > viewportHeight;
+          // 统一手机横屏布局：不同 DPI 走同一套双栏规则，避免 270/440 分支不一致
+          const compactLandscape = coarsePointer && isLandscape;
+          const shortest = Math.min(viewportWidth, viewportHeight);
+          const dpr = window.devicePixelRatio || 1;
+          const BASELINE_DPR = 1.7; // 约等于 270dpi 常见机型的 DPR
+          const viewportScale = shortest / 440;
+          const dprScale = BASELINE_DPR / dpr;
+          // 视口 + DPR 双归一化，降低高 DPI 设备的“同构但过大”问题
+          const nextScale = Math.max(0.58, Math.min(1.08, viewportScale * dprScale));
+          setIsMobileLayout(coarsePointer || viewportWidth < 1024);
+          setIsCompactLandscape(compactLandscape);
+          setCompactFontScale(nextScale);
+      };
+      detectMobileLayout();
+      window.addEventListener('resize', detectMobileLayout);
+      window.visualViewport?.addEventListener('resize', detectMobileLayout);
+      return () => {
+          window.removeEventListener('resize', detectMobileLayout);
+          window.visualViewport?.removeEventListener('resize', detectMobileLayout);
+      };
+  }, []);
 
   const handleBuy = (item: Item, index: number) => {
       const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
@@ -380,7 +410,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   return (
-    <div className="w-full h-full bg-[#0a0908] flex flex-col font-serif text-slate-300 relative select-none overflow-hidden min-h-0">
+    <div className={`w-full h-full bg-[#0a0908] flex flex-col font-serif text-slate-300 relative select-none min-h-0 ${isMobileLayout && !isCompactLandscape ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
         {/* 竹简质感背景 */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
              style={{
@@ -461,30 +491,52 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
         {subView !== 'MAP' && (
             <div className="flex-1 min-h-0 flex flex-col relative z-10">
                 {/* 面板顶栏 */}
-                <div className="bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between px-3 sm:px-6 py-2 gap-2 shrink-0">
-                    <div className="flex items-center gap-2 sm:gap-4">
+                <div
+                    className={`bg-gradient-to-r from-[#1a1410] via-[#0d0b09] to-[#1a1410] border-b border-amber-900/50 flex ${isCompactLandscape ? 'flex-row items-center' : 'flex-col sm:flex-row sm:items-center'} justify-between ${isCompactLandscape ? '' : 'px-3 sm:px-6 py-2 gap-2'} shrink-0`}
+                    style={isCompactLandscape ? {
+                        paddingLeft: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingRight: `${Math.max(4, Math.round(8 * compactFontScale))}px`,
+                        paddingTop: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+                        paddingBottom: `${Math.max(1, Math.round(3 * compactFontScale))}px`,
+                        gap: `${Math.max(2, Math.round(5 * compactFontScale))}px`,
+                    } : undefined}
+                >
+                    <div className={`flex items-center ${isCompactLandscape ? 'gap-1 min-w-0' : 'gap-2 sm:gap-4'}`}>
                         <button
                             onClick={goBack}
-                            className="flex items-center gap-2 px-3 sm:px-4 py-1.5 border border-amber-900/40 hover:border-amber-600 text-slate-400 hover:text-amber-500 transition-all text-[11px] sm:text-xs tracking-widest"
+                            className={`flex items-center border border-amber-900/40 hover:border-amber-600 text-slate-400 hover:text-amber-500 transition-all tracking-widest ${isCompactLandscape ? 'gap-0.5 px-1.5 py-0.5 text-[9px] leading-none' : 'gap-2 px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs'}`}
                         >
-                            <span className="text-sm">←</span>
+                            <span className={isCompactLandscape ? 'text-[10px]' : 'text-sm'}>←</span>
                             <span>返回城镇</span>
                         </button>
-                        <div className="h-6 w-px bg-amber-900/30 hidden sm:block" />
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg">{FACILITY_CONFIG[subView as CityFacility]?.icon}</span>
-                            <h2 className="text-base sm:text-lg font-bold text-amber-500 tracking-[0.1em] sm:tracking-[0.15em]">{facilityLabel}</h2>
-                            <span className="text-xs text-slate-600">·</span>
-                            <span className="text-[11px] sm:text-xs text-slate-500">{city.name}</span>
+                        <div className={`h-6 w-px bg-amber-900/30 ${isCompactLandscape ? 'hidden' : 'hidden sm:block'}`} />
+                        <div className={`flex items-center ${isCompactLandscape ? 'gap-1 min-w-0' : 'gap-2'}`}>
+                            <span className={isCompactLandscape ? 'text-xs' : 'text-lg'}>{FACILITY_CONFIG[subView as CityFacility]?.icon}</span>
+                            <h2
+                                className="font-bold text-amber-500 tracking-[0.1em] sm:tracking-[0.15em]"
+                                style={isCompactLandscape ? { fontSize: `clamp(0.66rem, ${1.4 * compactFontScale}vw, 0.82rem)` } : undefined}
+                            >
+                                {facilityLabel}
+                            </h2>
+                            {!isCompactLandscape && <span className="text-xs text-slate-600">·</span>}
+                            <span
+                                className="text-slate-500"
+                                style={isCompactLandscape ? { fontSize: `clamp(0.52rem, ${0.95 * compactFontScale}vw, 0.64rem)` } : undefined}
+                            >
+                                {city.name}
+                            </span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <span className="text-amber-500 font-bold font-mono text-sm">{party.gold} <span className="text-amber-700 text-xs">金</span></span>
+                    <div className={`flex items-center ${isCompactLandscape ? 'gap-2 shrink-0' : 'gap-4'}`}>
+                        <span className={`text-amber-500 font-bold font-mono ${isCompactLandscape ? 'text-[10px] leading-none' : 'text-sm'}`}>{party.gold} <span className="text-amber-700 text-[10px]">金</span></span>
                     </div>
                 </div>
 
                 {/* 面板内容区 */}
-                <div className="flex-1 overflow-hidden p-2 sm:p-4 flex flex-col min-h-0">
+                <div
+                    className={`flex-1 ${isCompactLandscape ? '' : 'p-2 sm:p-4'} flex flex-col min-h-0 ${isMobileLayout && !isCompactLandscape ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}
+                    style={isCompactLandscape ? { padding: `${Math.max(3, Math.round(8 * compactFontScale))}px` } : undefined}
+                >
                     {/* ===== 市集 (仿募兵面板: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'MARKET' && (() => {
                         const sourceItems = marketTab === 'BUY' ? city.market : party.inventory;
@@ -500,15 +552,15 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                         const isBuyMode = marketTab === 'BUY';
 
                         return (
-                        <div className={`flex-1 gap-3 overflow-hidden min-h-0 ${isBuyMode ? 'flex flex-row' : 'flex flex-col lg:flex-row lg:gap-4'}`}>
+                        <div className={`${isCompactLandscape ? 'flex-1 flex flex-row gap-2 overflow-hidden min-h-0' : (isMobileLayout ? 'w-full flex-none flex flex-col gap-3 overflow-visible' : `flex-1 gap-3 overflow-hidden min-h-0 ${isBuyMode ? 'flex flex-row' : 'flex flex-col lg:flex-row lg:gap-4'}`)}`}>
                             {/* 左侧: 物品名录 */}
-                            <div className={`${isBuyMode ? 'w-[60%] min-w-0' : 'lg:flex-[3] flex-1'} bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden`}>
+                            <div className={`${isCompactLandscape ? 'flex-[12] min-w-0 p-1.5' : (isMobileLayout ? 'w-full flex-none p-2 sm:p-3' : (isBuyMode ? 'w-[60%] min-w-0 p-2 sm:p-3' : 'lg:flex-[3] flex-1 p-2 sm:p-3'))} bg-black/40 border border-amber-900/30 flex flex-col min-h-0 relative ${isCompactLandscape ? 'overflow-hidden' : (isMobileLayout ? 'overflow-visible' : 'overflow-hidden')}`}>
                                 {/* 购入/出售/修缮 标签切换 */}
-                                <div className="flex items-center justify-between mb-2 pb-2 border-b border-amber-900/20 shrink-0">
+                                <div className={`flex items-center justify-between ${isCompactLandscape ? 'mb-1 pb-1.5' : 'mb-2 pb-2'} border-b border-amber-900/20 shrink-0`}>
                                     <div className="flex gap-1 overflow-x-auto">
                                         <button
                                             onClick={() => { setMarketTab('BUY'); setSelectedItem(null); }}
-                                            className={`px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
+                                            className={`${isCompactLandscape ? 'px-2 py-1 text-[10px]' : 'px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs'} tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
                                                 marketTab === 'BUY'
                                                     ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
@@ -516,7 +568,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         >货物供应</button>
                                         <button
                                             onClick={() => { setMarketTab('SELL'); setSelectedItem(null); }}
-                                            className={`px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
+                                            className={`${isCompactLandscape ? 'px-2 py-1 text-[10px]' : 'px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs'} tracking-[0.1em] sm:tracking-[0.15em] font-bold transition-all border whitespace-nowrap ${
                                                 marketTab === 'SELL'
                                                     ? 'bg-amber-900/30 border-amber-600 text-amber-400 shadow-[inset_0_0_10px_rgba(245,158,11,0.1)]'
                                                     : 'bg-transparent border-slate-800/50 text-slate-500 hover:border-amber-800 hover:text-slate-400'
@@ -529,12 +581,12 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 </div>
 
                                 {/* 类型筛选栏 */}
-                                <div className="flex gap-1 mb-2 shrink-0 flex-wrap">
+                                <div className={`flex gap-1 ${isCompactLandscape ? 'mb-1.5' : 'mb-2'} shrink-0 flex-wrap`}>
                                     {ITEM_FILTER_TABS.map(tab => (
                                         <button
                                             key={tab.key}
                                             onClick={() => { setItemFilter(tab.key); setSelectedItem(null); }}
-                                            className={`px-2.5 py-1 text-[10px] tracking-wider transition-all border ${
+                                            className={`${isCompactLandscape ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'} tracking-wider transition-all border ${
                                                 itemFilter === tab.key
                                                     ? 'bg-amber-900/20 border-amber-700/50 text-amber-500'
                                                     : 'bg-transparent border-slate-800/30 text-slate-600 hover:text-slate-400 hover:border-slate-700'
@@ -544,9 +596,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 </div>
 
                                 {/* 物品卡片网格（当前页，纯分页不滚动） */}
-                                <div className="flex-1 min-h-0">
+                                <div className={`${isCompactLandscape ? 'flex-1 min-h-0' : (isMobileLayout ? 'flex-none' : 'flex-1 min-h-0')}`}>
                                     {filteredItems.length > 0 ? (
-                                        <div className={`grid gap-2 h-full ${isBuyMode ? 'grid-cols-2 grid-rows-3' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'}`}>
+                                        <div className={`grid gap-2 ${isCompactLandscape ? 'h-full grid-cols-1 overflow-y-auto pr-1 custom-scrollbar' : (isMobileLayout ? 'grid-cols-1 sm:grid-cols-2' : `h-full ${isBuyMode ? 'grid-cols-2 grid-rows-3' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'}`)}`}>
                                             {paginatedItems.map((item) => {
                                                 // 找到在原始数组中的真实index
                                                 const realIndex = sourceItems.indexOf(item);
@@ -580,7 +632,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     )}
                                 </div>
 
-                                <div className="mt-2 pt-2 border-t border-amber-900/20 shrink-0">
+                                <div className={`${isCompactLandscape ? 'mt-1.5 pt-1.5' : 'mt-2 pt-2'} border-t border-amber-900/20 shrink-0`}>
                                     <div className="flex items-center justify-between gap-2">
                                         <button
                                             type="button"
@@ -606,8 +658,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             </div>
 
                             {/* 右侧: 物品详情面板 */}
-                            {(
-                            <div className={`${isBuyMode ? 'w-[40%] min-w-[260px] max-w-[460px]' : 'lg:flex-[2] flex-1 lg:min-w-[300px]'} bg-[#0d0b08] border border-amber-900/30 p-3 sm:p-4 flex flex-col shadow-xl min-h-0 relative overflow-hidden`}>
+                            <div className={`${isCompactLandscape ? 'flex-[9] min-w-0 p-2' : (isMobileLayout ? 'w-full flex-none p-3 sm:p-4' : (isBuyMode ? 'w-[40%] min-w-[260px] max-w-[460px] p-3 sm:p-4' : 'lg:flex-[2] flex-1 lg:min-w-[300px] p-3 sm:p-4'))} bg-[#0d0b08] border border-amber-900/30 flex flex-col shadow-xl min-h-0 relative ${isCompactLandscape ? 'overflow-hidden' : (isMobileLayout ? 'overflow-visible' : 'overflow-hidden')}`}>
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
@@ -617,11 +668,18 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     return (
                                         <>
                                             {/* 头部: 物品名 + 品质 + 类型 */}
-                                            <div className={`mb-3 shrink-0 border-b ${tier.detailBorderColor} pb-3`}>
-                                                <div className="flex items-center gap-3 mb-2">
+                                            <div className={`${isCompactLandscape ? 'mb-1 pb-1' : 'mb-3 pb-3'} shrink-0 border-b ${tier.detailBorderColor}`}>
+                                                <div className={`flex items-center ${isCompactLandscape ? 'gap-2 mb-1' : 'gap-3 mb-2'}`}>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-baseline gap-2">
-                                                            <h2 className={`${isBuyMode ? 'text-lg' : 'text-xl'} font-bold ${tier.nameColor} truncate`}>{item.name}</h2>
+                                                            <h2
+                                                                className={`font-bold ${tier.nameColor} truncate`}
+                                                                style={isCompactLandscape
+                                                                    ? { fontSize: `clamp(0.66rem, ${1.3 * compactFontScale}vw, 0.82rem)` }
+                                                                    : undefined}
+                                                            >
+                                                                {item.name}
+                                                            </h2>
                                                             {tier.label && (
                                                                 <span className={`text-[10px] px-1.5 py-0.5 border ${tier.labelColor} ${
                                                                     tier.tier === 'LEGENDARY' ? 'border-amber-500/50 bg-amber-950/30' :
@@ -636,15 +694,20 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     </div>
                                                 </div>
                                                 {/* 价格区块 (仿募兵费用排版) */}
-                                                <div className="flex items-center justify-between mt-2 bg-black/30 p-2 border border-white/5">
-                                                    <div className="flex gap-4">
+                                                <div className={`flex items-center justify-between ${isCompactLandscape ? 'mt-1 p-1.5' : 'mt-2 p-2'} bg-black/30 border border-white/5`}>
+                                                    <div className={`flex ${isCompactLandscape ? 'gap-2' : 'gap-4'}`}>
                                                         <div>
-                                                            <span className="text-[9px] text-slate-600 block">{selectedItem.from === 'MARKET' ? '购入价' : '售出价'}</span>
-                                                            <span className={`${isBuyMode ? 'text-base' : 'text-lg'} font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}>
+                                                            <span className={`${isCompactLandscape ? 'text-[8px]' : 'text-[9px]'} text-slate-600 block`}>{selectedItem.from === 'MARKET' ? '购入价' : '售出价'}</span>
+                                                            <span
+                                                                className={`font-mono font-bold ${canAfford ? tier.priceLabelColor : 'text-red-500'}`}
+                                                                style={isCompactLandscape
+                                                                    ? { fontSize: `clamp(0.62rem, ${1.25 * compactFontScale}vw, 0.8rem)` }
+                                                                    : undefined}
+                                                            >
                                                                 {price} <span className="text-xs text-amber-700">金</span>
                                                             </span>
                                                         </div>
-                                                        <div className="border-l border-white/5 pl-4">
+                                                        <div className={`border-l border-white/5 ${isCompactLandscape ? 'pl-2' : 'pl-4'}`}>
                                                             <span className="text-[9px] text-slate-600 block">基础价值</span>
                                                             <span className="text-sm font-mono text-slate-300">{item.value} <span className="text-xs text-slate-600">金</span></span>
                                                         </div>
@@ -657,7 +720,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                             </div>
 
                                             {/* 属性面板 - 可滚动区域 */}
-                                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+                                            <div className={`min-h-0 ${isCompactLandscape ? 'flex-1 overflow-y-auto custom-scrollbar' : (isMobileLayout ? 'overflow-visible' : 'flex-1 overflow-y-auto custom-scrollbar')}`}>
                                                 {/* 属性条可视化 */}
                                                 <div className="bg-black/20 p-3 border border-white/5 mb-3 space-y-2">
                                                     {item.damage && (
@@ -727,31 +790,31 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 })() : (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-700">
                                         <div className="text-4xl mb-4 text-slate-800">🏪</div>
-                                        <p className="text-sm tracking-widest">从左侧选择一件物品</p>
+                                        <p className="text-sm tracking-widest">从列表中选择一件物品</p>
                                         <p className="text-sm tracking-widest">查看详情或进行交易</p>
                                         <p className="text-[10px] text-slate-800 mt-3">双击可直接交易</p>
                                     </div>
                                 )}
                             </div>
-                            )}
                         </div>
                         );
                     })()}
 
                     {/* ===== 募兵 (Battle Brothers风格: 左侧名录 + 右侧详情) ===== */}
                     {subView === 'RECRUIT' && (
-                        <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0">
+                        <div className={`${isCompactLandscape ? 'flex-1 flex flex-row gap-2 overflow-hidden min-h-0' : (isMobileLayout ? 'w-full flex-none flex flex-col gap-3 overflow-visible' : 'flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden min-h-0')}`}>
                             {/* 左侧: 候选人名录 */}
-                            <div className="lg:flex-[3] flex-1 bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative overflow-hidden">
+                            <div className={`${isCompactLandscape ? 'flex-[12] min-w-0' : (isMobileLayout ? 'w-full flex-none' : 'lg:flex-[3] flex-1')} bg-black/40 border border-amber-900/30 p-2 sm:p-3 flex flex-col min-h-0 relative ${isCompactLandscape ? 'overflow-hidden' : (isMobileLayout ? 'overflow-visible' : 'overflow-hidden')}`}>
                                 <div className="flex justify-between items-center mb-2 pb-1 border-b border-amber-900/20 shrink-0">
                                     <h2 className="text-[10px] text-amber-700 uppercase tracking-[0.2em]">可招募人员</h2>
                                     <span className="text-[10px] text-slate-600">当前战团 {party.mercenaries.length}/20 人</span>
                                 </div>
-                                <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
+                                <div className={`${isCompactLandscape ? 'overflow-y-auto flex-1 min-h-0 custom-scrollbar' : (isMobileLayout ? 'overflow-y-auto max-h-[44vh] custom-scrollbar' : 'overflow-y-auto flex-1 min-h-0 custom-scrollbar')}`}>
                                     {city.recruits.length > 0 ? (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                                        <div className={`${isCompactLandscape ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2'}`}>
                                 {city.recruits.map((merc, i) => {
                                                 const hireCost = merc.hireCost;
+                                                const role = getRoleRecommendation(merc);
                                                 const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
                                                 const bgIcon = bgEntry?.icon || '?';
                                                 const isSelected = selectedRecruit === i;
@@ -759,7 +822,10 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 return (
                                                     <div
                                                         key={merc.id}
-                                                        onClick={() => setSelectedRecruit(isSelected ? null : i)}
+                                                        onClick={() => {
+                                                            const nextSelected = isSelected ? null : i;
+                                                            setSelectedRecruit(nextSelected);
+                                                        }}
                                                         className={`border p-3 cursor-pointer transition-all flex flex-col gap-1.5 relative group ${
                                                             isSelected
                                                                 ? 'bg-amber-900/30 border-amber-500 shadow-[inset_0_0_15px_rgba(245,158,11,0.15)]'
@@ -771,13 +837,17 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                             <span className="text-xl leading-none">{bgIcon}</span>
                                                             <div className="flex-1 min-w-0">
                                                                 <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : 'text-slate-200'}`}>{merc.name}</div>
-                                                                <div className="text-[10px] text-amber-700 truncate">{merc.background}</div>
+                                                                <div className="text-[10px] text-amber-700 truncate">{merc.background} · {role}</div>
                                                             </div>
                                                         </div>
                                                         {/* 费用 */}
                                                         <div className="flex justify-between items-center mt-0.5">
                                                             <span className="text-[9px] text-slate-600">雇佣费</span>
                                                             <span className={`text-xs font-mono font-bold ${canAfford ? 'text-amber-500' : 'text-red-500'}`}>{hireCost} 金</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-[9px] text-slate-600">日薪</span>
+                                                            <span className="text-[10px] font-mono text-slate-400">{merc.salary} 金/日</span>
                                                         </div>
                                                     </div>
                                                 );
@@ -790,54 +860,50 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         </div>
                                     )}
                                 </div>
-                            </div>
-
-                            {/* 右侧: 选中角色详情面板 */}
-                            <div className="lg:flex-[2] flex-1 bg-[#0d0b08] border border-amber-900/30 p-4 sm:p-5 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative overflow-hidden">
-                                {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
+                                {selectedRecruit !== null && city.recruits[selectedRecruit] && (() => {
                                     const merc = city.recruits[selectedRecruit];
                                     const hireCost = merc.hireCost;
                                     const role = getRoleRecommendation(merc);
-                                    const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
-                                    const bgIcon = bgEntry?.icon || '?';
                                     const canAfford = party.gold >= hireCost;
+                                    const canHire = canAfford && party.mercenaries.length < 20;
                                     return (
-                                        <>
-                                            {/* 头部: 姓名 + 背景 */}
-                                            <div className="mb-4 shrink-0 border-b border-amber-900/40 pb-4">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <span className="text-3xl">{bgIcon}</span>
-                                                <div>
-                                                        <h2 className="text-xl font-bold text-amber-100">{merc.name}</h2>
-                                                        <div className="flex items-center gap-2 mt-0.5">
-                                                            <span className="text-xs text-amber-700">{merc.background}</span>
-                                                            <span className="text-slate-700">·</span>
-                                                            <span className="text-xs text-slate-500 font-mono">Lv.{merc.level}</span>
-                                                    </div>
-                                                    </div>
+                                        <div className={`${isCompactLandscape ? 'mt-1.5 p-1.5 gap-1.5' : 'mt-2 p-2 gap-2'} shrink-0 border border-amber-900/40 bg-black/25 flex items-center justify-between`}>
+                                            <div className="min-w-0">
+                                                <div className={`${isCompactLandscape ? 'text-[11px]' : 'text-xs'} text-amber-200 font-bold truncate`}>
+                                                    {merc.name}
                                                 </div>
-                                                {/* 费用信息 + 角色评语 */}
-                                                <div className="flex items-center justify-between mt-2 bg-black/30 p-2 border border-white/5">
-                                                    <div className="flex gap-4">
-                                                        <div>
-                                                            <span className="text-[9px] text-slate-600 block">雇佣费</span>
-                                                            <span className={`text-lg font-mono font-bold ${canAfford ? 'text-amber-500' : 'text-red-500'}`}>{hireCost} <span className="text-xs text-amber-700">金</span></span>
-                                                        </div>
-                                                        <div className="border-l border-white/5 pl-4">
-                                                            <span className="text-[9px] text-slate-600 block">日薪</span>
-                                                            <span className="text-sm font-mono text-slate-300">{merc.salary} <span className="text-xs text-slate-600">金/日</span></span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <span className="text-[9px] text-slate-600 block">评估定位</span>
-                                                        <span className="text-sm text-amber-500 font-bold">{role}</span>
-                                                    </div>
+                                                <div className="text-[10px] text-slate-500 truncate">
+                                                    雇佣费 {hireCost} 金 · 日薪 {merc.salary} 金/日 · {role}
                                                 </div>
                                             </div>
+                                            <button
+                                                onClick={() => {
+                                                    handleRecruit(merc, selectedRecruit);
+                                                    setSelectedRecruit(null);
+                                                }}
+                                                disabled={!canHire}
+                                                className={`${isCompactLandscape ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'} border font-bold tracking-wider transition-all whitespace-nowrap ${
+                                                    canHire
+                                                        ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
+                                                        : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {party.mercenaries.length >= 20 ? '已满' : !canAfford ? '金币不足' : '雇佣'}
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
 
+                            {/* 右侧: 选中角色详情面板 */}
+                            <div className={`${isCompactLandscape ? 'flex-[9] min-w-0 p-2.5' : (isMobileLayout ? 'w-full flex-none p-4 sm:p-5' : 'lg:flex-[2] flex-1 p-4 sm:p-5')} bg-[#0d0b08] border border-amber-900/30 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative ${isCompactLandscape ? 'overflow-hidden' : (isMobileLayout ? 'overflow-visible' : 'overflow-hidden')}`}>
+                                {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
+                                    const merc = city.recruits[selectedRecruit];
+                                    return (
+                                        <>
                                             {/* 特质标签 */}
                                             {merc.traits && merc.traits.length > 0 && (
-                                                <div className="flex flex-wrap gap-1.5 mb-4 shrink-0">
+                                                <div className={`flex flex-wrap ${isCompactLandscape ? 'gap-1 mb-2' : 'gap-1.5 mb-4'} shrink-0`}>
                                                     {merc.traits.map(tid => {
                                                         const trait = TRAIT_TEMPLATES[tid];
                                                         if (!trait) return null;
@@ -864,25 +930,25 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 </div>
                                             )}
                                             {activeTrait && (
-                                                <div className="mb-4 shrink-0 px-3 py-2 bg-black/70 border border-amber-900/40 rounded text-xs text-slate-300">
+                                                <div className={`${isCompactLandscape ? 'mb-2 px-2 py-1.5 text-[11px]' : 'mb-4 px-3 py-2 text-xs'} shrink-0 bg-black/70 border border-amber-900/40 rounded text-slate-300`}>
                                                     <div className="font-bold text-amber-400 mb-1">{activeTrait.icon} {activeTrait.name}</div>
                                                     <div>{activeTrait.description}</div>
                                                 </div>
                                             )}
 
                                             {/* 属性面板 - 可滚动区域 */}
-                                            <div className="flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar">
+                                            <div className={`${isCompactLandscape ? 'flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar' : (isMobileLayout ? 'mb-4 overflow-visible' : 'flex-1 overflow-y-auto mb-4 min-h-0 custom-scrollbar')}`}>
                                                 {/* 属性条 */}
                                                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-black/20 p-3 border border-white/5 mb-4">
-                                                    <StatBarSmall label="生命" val={merc.maxHp} max={120} stars={merc.stars.hp} colorBar="bg-red-800" colorText="text-red-400" />
-                                                    <StatBarSmall label="体力" val={merc.maxFatigue} max={140} stars={merc.stars.fatigue} colorBar="bg-sky-800" colorText="text-sky-400" />
-                                                    <StatBarSmall label="胆识" val={merc.stats.resolve} max={80} stars={merc.stars.resolve} colorBar="bg-purple-800" colorText="text-purple-400" />
-                                                    <StatBarSmall label="先手" val={merc.stats.initiative} max={160} stars={merc.stars.initiative} colorBar="bg-emerald-800" colorText="text-emerald-400" />
+                                                    <StatBarSmall label="生命" val={merc.maxHp} max={120} stars={merc.stars.hp} colorBar="bg-red-800" colorText="text-red-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="体力" val={merc.maxFatigue} max={140} stars={merc.stars.fatigue} colorBar="bg-sky-800" colorText="text-sky-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="胆识" val={merc.stats.resolve} max={80} stars={merc.stars.resolve} colorBar="bg-purple-800" colorText="text-purple-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="先手" val={merc.stats.initiative} max={160} stars={merc.stars.initiative} colorBar="bg-emerald-800" colorText="text-emerald-400" dense={isCompactLandscape} />
                                                     <div className="col-span-2 h-px bg-white/5 my-1" />
-                                                    <StatBarSmall label="近战命中" val={merc.stats.meleeSkill} max={100} stars={merc.stars.meleeSkill} colorBar="bg-amber-800" colorText="text-amber-400" />
-                                                    <StatBarSmall label="远程命中" val={merc.stats.rangedSkill} max={100} stars={merc.stars.rangedSkill} colorBar="bg-orange-800" colorText="text-orange-400" />
-                                                    <StatBarSmall label="近战防御" val={merc.stats.meleeDefense} max={50} stars={merc.stars.meleeDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
-                                                    <StatBarSmall label="远程防御" val={merc.stats.rangedDefense} max={50} stars={merc.stars.rangedDefense} colorBar="bg-slate-700" colorText="text-slate-400" />
+                                                    <StatBarSmall label="近战命中" val={merc.stats.meleeSkill} max={100} stars={merc.stars.meleeSkill} colorBar="bg-amber-800" colorText="text-amber-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="远程命中" val={merc.stats.rangedSkill} max={100} stars={merc.stars.rangedSkill} colorBar="bg-orange-800" colorText="text-orange-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="近战防御" val={merc.stats.meleeDefense} max={50} stars={merc.stars.meleeDefense} colorBar="bg-slate-700" colorText="text-slate-400" dense={isCompactLandscape} />
+                                                    <StatBarSmall label="远程防御" val={merc.stats.rangedDefense} max={50} stars={merc.stars.rangedDefense} colorBar="bg-slate-700" colorText="text-slate-400" dense={isCompactLandscape} />
                                                 </div>
 
                                                 {/* 背景故事 */}
@@ -893,28 +959,12 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     </p>
                                                 </div>
                                             </div>
-
-                                            {/* 雇佣按钮 */}
-                                            <button
-                                                onClick={() => {
-                                                    handleRecruit(merc, selectedRecruit);
-                                                    setSelectedRecruit(null);
-                                                }}
-                                                disabled={!canAfford || party.mercenaries.length >= 20}
-                                                className={`w-full py-3 border font-bold tracking-widest shadow-lg shrink-0 transition-all uppercase ${
-                                                    canAfford && party.mercenaries.length < 20
-                                                        ? 'bg-amber-900/30 hover:bg-amber-700 border-amber-700/50 hover:border-amber-500 text-amber-500 hover:text-white'
-                                                        : 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed'
-                                                }`}
-                                            >
-                                                {party.mercenaries.length >= 20 ? '战团已满' : !canAfford ? `金币不足 (需 ${hireCost})` : `雇 佣 — ${hireCost} 金`}
-                                            </button>
                                         </>
                                     );
                                 })() : (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-700">
                                         <div className="text-4xl mb-4 text-slate-800">⚔️</div>
-                                        <p className="text-sm tracking-widest">从左侧名录中选择</p>
+                                        <p className="text-sm tracking-widest">从列表中选择候选人</p>
                                         <p className="text-sm tracking-widest">一名候选人以查看详情</p>
                                         <p className="text-[10px] text-slate-800 mt-3">点击下方按钮进行雇佣</p>
                                     </div>
@@ -1187,20 +1237,21 @@ interface StatBarSmallProps {
     stars: number;
     colorBar: string;
     colorText: string;
+    dense?: boolean;
 }
 
-const StatBarSmall: React.FC<StatBarSmallProps> = ({ label, val, max, stars, colorBar, colorText }) => {
+const StatBarSmall: React.FC<StatBarSmallProps> = ({ label, val, max, stars, colorBar, colorText, dense = false }) => {
     const pct = Math.min(100, (val / max) * 100);
     return (
         <div className="space-y-1">
-            <div className="flex justify-between items-center text-[10px]">
+            <div className={`flex justify-between items-center ${dense ? 'text-[11px]' : 'text-[10px]'}`}>
                 <span className="text-slate-500">{label}</span>
                 <div className="flex items-center gap-1">
-                    {stars > 0 && <span className="text-amber-500 text-[9px]">{'★'.repeat(stars)}</span>}
+                    {stars > 0 && <span className={`text-amber-500 ${dense ? 'text-[10px]' : 'text-[9px]'}`}>{'★'.repeat(stars)}</span>}
                     <span className={`font-mono font-bold ${colorText}`}>{val}</span>
                 </div>
             </div>
-            <div className="h-2 bg-black/60 w-full overflow-hidden border border-white/10 relative">
+            <div className={`${dense ? 'h-2.5' : 'h-2'} bg-black/60 w-full overflow-hidden border border-white/10 relative`}>
                 <div className={`h-full ${colorBar} transition-all duration-300`} style={{ width: `${pct}%` }} />
             </div>
         </div>

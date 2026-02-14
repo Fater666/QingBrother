@@ -1,9 +1,9 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
-REM 可选: release 或 dev（默认 dev）
+REM build type: release or dev (default dev)
 set "BUILD=dev"
 if /I "%1"=="release" set "BUILD=release"
 if /I "%1"=="dev"     set "BUILD=dev"
@@ -44,42 +44,54 @@ if errorlevel 1 (
 )
 
 echo.
-echo ==> Try auto install to emulator...
+echo ==> Auto install to all connected devices...
 adb start-server >nul 2>nul
 
 if "%MUMU_SERIAL%"=="" set "MUMU_SERIAL=127.0.0.1:7555"
 adb connect %MUMU_SERIAL% >nul 2>nul
 
-set "TARGET_DEVICE="
-for /f "tokens=1,2" %%a in ('adb devices ^| findstr /R "device$"') do (
-    if /I not "%%a"=="List" (
-        set "TARGET_DEVICE=%%a"
+set "DEVICE_COUNT=0"
+set "FAIL_COUNT=0"
+REM Install to all connected devices (any state: device, offline, etc.)
+for /f "tokens=1,2" %%a in ('adb devices') do (
+    if /I not "%%a"=="List" if not "%%b"=="" (
+        set /a DEVICE_COUNT+=1
+        echo.
+        echo [%%a] state=%%b
+        if /I not "%%b"=="device" (
+            echo Waiting for device to come online...
+            adb -s %%a wait-for-device
+        )
+        echo Installing...
+        adb -s %%a install -r -d -t "%APK_PATH%"
+        if errorlevel 1 (
+            set /a FAIL_COUNT+=1
+            echo [%%a] Install failed.
+            echo   If signature mismatch, try: adb -s %%a uninstall com.qingbrother.app
+        ) else (
+            echo [%%a] Install completed.
+        )
     )
 )
 
-if "%TARGET_DEVICE%"=="" (
-    echo No online emulator/device found.
-    echo Please start MuMu first, then run:
+if "!DEVICE_COUNT!"=="0" (
+    echo.
+    echo No emulator/device found.
+    echo Please start emulator(s^) first, then run:
     echo adb connect %MUMU_SERIAL%
     echo adb install -r "%APK_PATH%"
     exit /b 1
 )
 
-echo Installing to: %TARGET_DEVICE%
-echo Running: adb -s %TARGET_DEVICE% install -r -d -t "%APK_PATH%"
-adb -s %TARGET_DEVICE% install -r -d -t "%APK_PATH%"
-if errorlevel 1 (
-    echo Install failed.
-    echo.
-    echo Possible reasons:
-    echo 1^) Signature mismatch with the installed app ^(INSTALL_FAILED_UPDATE_INCOMPATIBLE^)
-    echo 2^) Device policy or permission issue
-    echo.
-    echo If signature mismatch, uninstall then reinstall:
-    echo adb -s %TARGET_DEVICE% uninstall com.qingbrother.app
-    echo adb -s %TARGET_DEVICE% install -t "%APK_PATH%"
-    exit /b 1
-)
+echo.
+if "!FAIL_COUNT!"=="0" goto install_ok
+goto install_some_failed
 
-echo Install completed.
+:install_ok
+call echo All %%DEVICE_COUNT%% device(s^) installed successfully.
 exit /b 0
+
+:install_some_failed
+call echo %%FAIL_COUNT%% of %%DEVICE_COUNT%% device(s^) failed.
+echo Possible: signature mismatch ^(INSTALL_FAILED_UPDATE_INCOMPATIBLE^), uninstall then reinstall.
+exit /b 1
