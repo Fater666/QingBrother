@@ -6,6 +6,7 @@ import {
     PERK_TREE,
     TRAIT_TEMPLATES,
     getXPForNextLevel,
+    getPerkEffect,
     generateLevelUpRolls,
     type LevelUpRolls,
     type LevelUpStatKey,
@@ -537,11 +538,21 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
     
     const newMercs = party.mercenaries.map(m => {
       if (m.id !== selectedMerc.id) return m;
-      return {
+      const updatedMerc: Character = {
         ...m,
         perks: [...m.perks, perkId],
         perkPoints: m.perkPoints - 1,
       };
+      // 强体：学习时立即永久生效（非战斗内临时加成）
+      if (perkId === 'colossus') {
+        const hpMult = getPerkEffect('colossus', 'hpMult', 0.25);
+        const bonus = Math.floor(m.maxHp * hpMult);
+        const baseHp = Math.min(updatedMerc.hp, updatedMerc.maxHp);
+        updatedMerc.maxHp += bonus;
+        updatedMerc.hp = baseHp + bonus;
+        updatedMerc.colossusPermanentApplied = true;
+      }
+      return updatedMerc;
     });
     const updatedParty = { ...party, mercenaries: newMercs };
     onUpdateParty(updatedParty);

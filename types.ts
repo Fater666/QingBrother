@@ -145,6 +145,7 @@ export interface Character {
   perkPoints: number;
   pendingLevelUps: number;
   perks: string[]; 
+  colossusPermanentApplied?: boolean; // 强体是否已按“永久效果”结算（用于旧存档迁移）
   equipment: {
     mainHand: Item | null;
     offHand: Item | null;
@@ -337,6 +338,7 @@ export interface CombatUnit extends Character {
   hasUsedFreeAttack: boolean; // 本回合是否已使用过截击（控制区机制）
   aiType?: AIType; // 敌人AI行为类型
   // --- 专精被动战斗状态 ---
+  colossusApplied?: boolean;       // 强体是否已在本场战斗中应用（防止重复叠加）
   nineLivesUsed?: boolean;         // 命不该绝是否已触发
   fastAdaptationStacks?: number;   // 临机应变叠加层数
   headHunterActive?: boolean;      // 索首：下次攻击必定命中头部

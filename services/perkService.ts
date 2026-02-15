@@ -22,13 +22,15 @@ export const hasPerk = (unit: CombatUnit | { perks?: string[] }, perkId: string)
 /**
  * 强体 (colossus)
  * 效果：生命值上限提高 hpMult（CSV 配置，默认 25%）
- * 应用时机：进入战斗时
+ * 注意：当前设计改为“学习时永久生效”，不在战斗入场调用。
+ * 本函数保留用于兼容旧逻辑/潜在复用。
  */
 export const applyColossus = (unit: CombatUnit): CombatUnit => {
-  if (!unit.perks?.includes('colossus')) return unit;
+  if (!unit.perks?.includes('colossus') || unit.colossusApplied) return unit;
   const mult = getPerkEffect('colossus', 'hpMult', 0.25);
   const bonus = Math.floor(unit.maxHp * mult);
-  return { ...unit, maxHp: unit.maxHp + bonus, hp: unit.hp + bonus };
+  const safeHp = Math.min(unit.hp, unit.maxHp);
+  return { ...unit, maxHp: unit.maxHp + bonus, hp: safeHp + bonus, colossusApplied: true };
 };
 
 /**

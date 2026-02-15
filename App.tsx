@@ -1,8 +1,8 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp } from './constants';
-import { applyStudentXPBonus, applyColossus, applyFortifiedMind, applyBrawny } from './services/perkService';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect } from './constants';
+import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
 import { SquadManagement } from './components/SquadManagement.tsx';
@@ -1031,15 +1031,33 @@ export const App: React.FC = () => {
       // 从库存中移除这些消耗品
       migratedInventory = oldInventory.filter((it: Item) => !(it.type === 'CONSUMABLE' && (it.subType === 'MEDICINE' || it.subType === 'REPAIR_KIT')));
     }
+    const migrateMercenary = (merc: Character): Character => {
+      // 旧存档兼容：强体从“战斗入场”改为“学习时永久生效”
+      // 若角色已学强体但尚未结算永久效果，则在读档时补结算一次
+      let migratedMerc: Character = {
+        ...merc,
+        hp: Math.min(merc.hp, merc.maxHp),
+        pendingLevelUps: merc.pendingLevelUps ?? Math.max(0, (merc.level || 1) - 1),
+      };
+      if (migratedMerc.perks?.includes('colossus') && !migratedMerc.colossusPermanentApplied) {
+        const hpMult = getPerkEffect('colossus', 'hpMult', 0.25);
+        const bonus = Math.floor(migratedMerc.maxHp * hpMult);
+        migratedMerc = {
+          ...migratedMerc,
+          maxHp: migratedMerc.maxHp + bonus,
+          hp: migratedMerc.hp + bonus,
+          colossusPermanentApplied: true,
+        };
+      }
+      return migratedMerc;
+    };
+
     const loadedParty: Party = {
       ...data.party,
       medicine: migratedMedicine,
       repairSupplies: migratedRepair,
       inventory: migratedInventory,
-      mercenaries: (data.party.mercenaries || []).map((merc: Character) => ({
-        ...merc,
-        pendingLevelUps: merc.pendingLevelUps ?? Math.max(0, (merc.level || 1) - 1),
-      })),
+      mercenaries: (data.party.mercenaries || []).map((merc: Character) => migrateMercenary(merc)),
       reputation: data.party.reputation ?? 0,
       ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
       moraleModifier: data.party.moraleModifier ?? 0,
@@ -1294,7 +1312,7 @@ export const App: React.FC = () => {
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
         let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
         // === 入场被动：应用专精效果 ===
-        unit = applyColossus(unit);       // 强体：+25% HP
+        // 强体(colossus)改为“学习时永久生效”，不再在战斗入场时临时加成
         unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
         unit = applyBrawny(unit);         // 负重者：减少护甲疲劳惩罚
         return unit;
@@ -1469,7 +1487,8 @@ export const App: React.FC = () => {
 
             // 自然恢复 + 自动修复装备
             const updatedMercs = p.mercenaries.map(m => {
-              let updated = m;
+              // 防御性修正：历史存档可能存在 hp > maxHp（旧版强体回写导致）
+              let updated = m.hp > m.maxHp ? { ...m, hp: m.maxHp } : m;
               // HP恢复/断粮惩罚
               if (isStarving) {
                 const hpLoss = 2 + Math.floor(Math.random() * 3);
@@ -2341,7 +2360,7 @@ export const App: React.FC = () => {
                         ...p,
                         mercenaries: p.mercenaries.map(m => {
                           const sur = survivors.find(s => s.id === m.id);
-                          if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
+                          if (sur) return { ...m, hp: Math.min(m.maxHp, sur.hp), fatigue: 0 };
                           return m;
                         }),
                       }));
@@ -2410,7 +2429,7 @@ export const App: React.FC = () => {
                           food: p.food + dropFood,
                           mercenaries: p.mercenaries.map(m => {
                             const sur = survivors.find(s => s.id === m.id);
-                            if (sur) return { ...m, hp: sur.hp, fatigue: 0 };
+                            if (sur) return { ...m, hp: Math.min(m.maxHp, sur.hp), fatigue: 0 };
                             return m; // 阵亡者暂时保留，在结算完成后移除
                           }),
                           ambitionState: {
