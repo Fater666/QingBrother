@@ -169,6 +169,34 @@ const isCrossbowLoaded = (unit: CombatUnit | null | undefined): boolean => {
 
 const AIMED_SHOT_DAMAGE_MULT = 1.2;
 const TURN_START_FATIGUE_RECOVERY = 15;
+const HAMMER_BASH_STUN_CHANCE_ONE_HANDED = 35;
+const HAMMER_BASH_STUN_CHANCE_TWO_HANDED = 45;
+const HAMMER_BASH_STUN_HEADSHOT_BONUS = 10;
+
+const clampPercent = (value: number, min: number, max: number): number => {
+  return Math.max(min, Math.min(max, value));
+};
+
+const isHammerBashStunAttack = (ability: Ability, attacker: CombatUnit): boolean => {
+  const weapon = attacker.equipment.mainHand;
+  if (!weapon || ability.id !== 'BASH') return false;
+  return weapon.weaponClass === 'hammer';
+};
+
+const getHammerBashStunChance = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  hitLocation: HitLocation
+): number => {
+  const weapon = attacker.equipment.mainHand;
+  const baseChance = weapon?.twoHanded
+    ? HAMMER_BASH_STUN_CHANCE_TWO_HANDED
+    : HAMMER_BASH_STUN_CHANCE_ONE_HANDED;
+  const headBonus = hitLocation === 'HEAD' ? HAMMER_BASH_STUN_HEADSHOT_BONUS : 0;
+  const masteryBonus = hasPerk(attacker, 'hammer_mastery') ? 10 : 0;
+  const resolveReduction = Math.max(0, Math.floor((target.stats.resolve - 40) / 5));
+  return clampPercent(baseChance + headBonus + masteryBonus - resolveReduction, 15, 75);
+};
 
 interface DisplayStatus {
   id: string;
@@ -215,6 +243,15 @@ const getUnitDisplayStatuses = (unit: CombatUnit): DisplayStatus[] => {
       label: '压制（攻击力下降）',
       tone: 'debuff',
       badge: `${unit.overwhelmStacks}`,
+    });
+  }
+  if ((unit.stunnedTurns || 0) > 0) {
+    statuses.push({
+      id: 'stunned',
+      icon: '😵',
+      label: '击晕（下回合无法行动）',
+      tone: 'debuff',
+      badge: `${unit.stunnedTurns}T`,
     });
   }
   if (unit.headHunterActive) {
@@ -2314,6 +2351,31 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
 
+    if ((activeUnit.stunnedTurns || 0) > 0) {
+      addToLog(`😵 ${activeUnit.name} 被击晕，无法行动！`, 'skill');
+      setFloatingTexts(prev => [...prev, {
+        id: Date.now(),
+        text: '😵 眩晕',
+        x: activeUnit.combatPos.q,
+        y: activeUnit.combatPos.r,
+        color: '#a78bfa',
+        type: 'morale' as FloatingTextType,
+        size: 'md' as const,
+      }]);
+      setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u =>
+          u.id === activeUnit.id
+            ? { ...u, stunnedTurns: Math.max(0, (u.stunnedTurns || 0) - 1) }
+            : u
+        ),
+      }));
+      isProcessingAI.current = false;
+      setTimeout(nextTurn, 800);
+      return;
+    }
+
     if (activeUnit.team === 'PLAYER') {
       console.log('[AI] 玩家回合，跳过');
       isProcessingAI.current = false;
@@ -2654,6 +2716,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             } else {
               // ==================== AI命中：使用护甲伤害系统 ====================
               const dmgResult = calculateDamage(activeUnit, target, action.ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
+              const shouldTryStun = isHammerBashStunAttack(action.ability, activeUnit) && !dmgResult.willKill;
+              const stunChance = shouldTryStun ? getHammerBashStunChance(activeUnit, target, dmgResult.hitLocation) : 0;
+              const didStun = shouldTryStun && Math.random() * 100 < stunChance;
+              if (didStun) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u =>
+                    u.id === target.id
+                      ? { ...u, stunnedTurns: Math.max(u.stunnedTurns || 0, 1) }
+                      : u
+                  ),
+                }));
+              }
               
               // 显示护甲伤害浮动文字
               const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
@@ -2677,6 +2752,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 type: (dmgResult.isCritical ? 'critical' : 'damage') as FloatingTextType,
                 size: dmgResult.isCritical ? 'lg' as const : 'md' as const,
               });
+              if (didStun) {
+                floatTexts.push({
+                  id: Date.now() + 2,
+                  text: '😵 击晕',
+                  x: target.combatPos.q,
+                  y: target.combatPos.r,
+                  color: '#a78bfa',
+                  type: 'morale' as FloatingTextType,
+                  size: 'md' as const,
+                });
+              }
               setFloatingTexts(prev => [...prev, ...floatTexts]);
               
               // 触发受击特效
@@ -2687,6 +2773,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               // 详细播报（含护甲信息）
               const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, action.ability.name, dmgResult);
               addToLog(logMsg, 'attack');
+              if (didStun) {
+                addToLog(`😵 ${target.name} 被${weaponName}击晕！（${Math.round(stunChance)}%）`, 'skill');
+              }
               
               // 暴击横幅
               if (dmgResult.isCritical) {
@@ -3503,6 +3592,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             }
             const dmgResult = calculateDamage(activeUnit, target, ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
+            const shouldTryStun = isHammerBashStunAttack(ability, activeUnit) && !dmgResult.willKill;
+            const stunChance = shouldTryStun ? getHammerBashStunChance(activeUnit, target, dmgResult.hitLocation) : 0;
+            const didStun = shouldTryStun && Math.random() * 100 < stunChance;
             
             // === 命中后的专精效果 ===
             setState(prev => ({
@@ -3529,6 +3621,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   const overwhelmAdd = getOverwhelmStacks(activeUnit);
                   if (overwhelmAdd > 0) {
                     updates.overwhelmStacks = (u.overwhelmStacks || 0) + overwhelmAdd;
+                  }
+                  if (didStun) {
+                    updates.stunnedTurns = Math.max(u.stunnedTurns || 0, 1);
                   }
                   return Object.keys(updates).length > 0 ? { ...u, ...updates } : u;
                 }
@@ -3589,6 +3684,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               type: (dmgResult.isCritical ? 'critical' : 'damage') as FloatingTextType,
               size: dmgResult.isCritical ? 'lg' as const : 'md' as const,
             });
+            if (didStun) {
+              floatTexts.push({
+                id: Date.now() + 2,
+                text: '😵 击晕',
+                x: hoveredHex.q,
+                y: hoveredHex.r,
+                color: '#a78bfa',
+                type: 'morale' as FloatingTextType,
+                size: 'md' as const,
+              });
+            }
             
             setFloatingTexts(prev => [...prev, ...floatTexts]);
             
@@ -3600,6 +3706,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             // 详细播报（含护甲信息）
             const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, ability.name, dmgResult);
             addToLog(logMsg, 'attack');
+            if (didStun) {
+              addToLog(`😵 ${target.name} 被${weaponName}击晕！（${Math.round(stunChance)}%）`, 'skill');
+            }
             
             if (dmgResult.isCritical) {
               showCenterBanner(`${activeUnit.name} 暴击！-${dmgResult.hpDamageDealt}`, '#ff6b35', '💥');

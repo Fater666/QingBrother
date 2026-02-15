@@ -349,6 +349,7 @@ export interface CombatUnit extends Character {
   adrenalineActive?: boolean;      // 血勇：下回合行动顺序提前至最先
   taunting?: boolean;              // 挑衅：迫使周围敌人攻击自己
   isRiposte?: boolean;             // 反击：受到近战攻击时自动反击，持续到下回合
+  stunnedTurns?: number;           // 击晕：剩余将被跳过的回合数
 }
 
 export interface CombatState {
