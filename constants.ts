@@ -258,6 +258,12 @@ parseCSV(ABILITIES_CSV).forEach(a => {
     };
 });
 
+// 仿 BB：弩可在 9 AP 回合内完成「装填 + 射击」
+const CROSSBOW_SHOOT_AP_COST = 5;
+const CROSSBOW_RELOAD_AP_COST = 4;
+// 瞄准射击：更高命中
+export const AIMED_SHOT_HIT_BONUS = 15;
+
 export const getUnitAbilities = (char: Character): Ability[] => {
     const skills: Ability[] = [ABILITIES['MOVE']];
     const main = char.equipment.mainHand;
@@ -314,10 +320,14 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         // 弓类
         else if (wc === 'bow' || wn.includes('弓')) {
             skills.push(ABILITIES['SHOOT']);
+            if (ABILITIES['AIMED_SHOT']) {
+                skills.push(ABILITIES['AIMED_SHOT']);
+            }
         }
         // 弩类
         else if (wc === 'crossbow' || wn.includes('弩')) {
-            skills.push(ABILITIES['SHOOT']); skills.push(ABILITIES['RELOAD']);
+            skills.push({ ...ABILITIES['SHOOT'], apCost: CROSSBOW_SHOOT_AP_COST });
+            skills.push({ ...ABILITIES['RELOAD'], apCost: CROSSBOW_RELOAD_AP_COST });
         }
         // 默认近战攻击
         else { skills.push(ABILITIES['SLASH']); }
@@ -1154,7 +1164,8 @@ export const calculateHitChance = (
   attacker: CombatUnit,
   target: CombatUnit,
   state: CombatState,
-  heightDiff: number = 0
+  heightDiff: number = 0,
+  ability?: Ability
 ): HitChanceBreakdown => {
   const isRanged = attacker.equipment.mainHand?.range
     ? attacker.equipment.mainHand.range > 1
@@ -1200,7 +1211,8 @@ export const calculateHitChance = (
 
   // 武器命中修正
   const weapon = attacker.equipment.mainHand;
-  const weaponMod = weapon?.hitChanceMod || 0;
+  const aimedShotBonus = ability?.id === 'AIMED_SHOT' ? AIMED_SHOT_HIT_BONUS : 0;
+  const weaponMod = (weapon?.hitChanceMod || 0) + aimedShotBonus;
 
   // 士气修正
   const moraleEffects = getMoraleEffects(attacker.morale);

@@ -164,6 +164,8 @@ const isCrossbowLoaded = (unit: CombatUnit | null | undefined): boolean => {
   return unit.crossbowLoaded !== false;
 };
 
+const AIMED_SHOT_DAMAGE_MULT = 1.2;
+
 const UnitCard: React.FC<{
   unit: CombatUnit;
   isActive: boolean;
@@ -251,19 +253,17 @@ const UnitCard: React.FC<{
       className={`relative ${dodgeDirection === 'left' ? 'anim-dodge-left' : dodgeDirection === 'right' ? 'anim-dodge-right' : ''}`}
       style={{ width: `${cardWidth}px` }}
     >
-      {showDetail && (
-        <div
-          className={`absolute left-1/2 -translate-x-1/2 -top-3 px-1.5 py-0.5 rounded-full text-[8px] leading-none font-black z-30 border ${
-            isActive
-              ? 'bg-amber-500 border-amber-300 text-black'
-              : 'bg-slate-800 border-slate-600 text-slate-200'
-          }`}
-          style={{ boxShadow: isActive ? '0 0 6px rgba(245,158,11,0.6)' : '0 1px 3px rgba(0,0,0,0.5)' }}
-          title={isActive ? '当前行动' : `第${turnIndex + 1}个行动`}
-        >
-          {turnIndex + 1}
-        </div>
-      )}
+      <div
+        className={`absolute left-1/2 -translate-x-1/2 -top-3 px-1.5 py-0.5 rounded-full text-[8px] leading-none font-black z-30 border ${
+          isActive
+            ? 'bg-amber-500 border-amber-300 text-black'
+            : 'bg-slate-800 border-slate-600 text-slate-200'
+        }`}
+        style={{ boxShadow: isActive ? '0 0 6px rgba(245,158,11,0.6)' : '0 1px 3px rgba(0,0,0,0.5)' }}
+        title={isActive ? '当前行动' : `第${turnIndex + 1}个行动`}
+      >
+        {turnIndex + 1}
+      </div>
       {/* 主卡片 */}
       <div
         className={`
@@ -309,7 +309,7 @@ const UnitCard: React.FC<{
             {helmet && (
               <div className="flex items-center gap-0.5 mb-0.5">
                 <span className="text-[7px] text-slate-400 min-w-[10px] w-2.5 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>⛑</span>
-                <div className="flex-1 h-[6px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                <div className="flex-1 min-w-[46px] h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
                   <div className="h-full transition-all relative" style={{ width: `${helmetPercent}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
                     <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
                   </div>
@@ -322,7 +322,7 @@ const UnitCard: React.FC<{
             {armor && (
               <div className="flex items-center gap-0.5 mb-0.5">
                 <span className="text-[7px] text-slate-400 min-w-[10px] w-2.5 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>🛡</span>
-                <div className="flex-1 h-[6px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                <div className="flex-1 min-w-[46px] h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
                   <div className="h-full transition-all relative" style={{ width: `${armorPercent}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
                     <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
                   </div>
@@ -334,13 +334,21 @@ const UnitCard: React.FC<{
             {/* HP条 */}
             <div className="flex items-center gap-0.5 mb-0.5">
               <span className="text-[7px] w-2.5 flex-shrink-0" style={{ color: hpBarColor }}>♥</span>
-              <div className="flex-1 h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+              <div className="flex-1 min-w-[46px] h-[8px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
                 <div className="h-full transition-all relative" style={{ width: `${hpPercent}%`, backgroundColor: hpBarColor }}>
                   <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
                 </div>
               </div>
               <span className="text-[6px] font-bold w-8 text-right" style={{ color: hpBarColor }}>{unit.hp}/{unit.maxHp}</span>
             </div>
+            <div className="text-[6px] text-amber-300/90 leading-none truncate mt-0.5">
+              ⚔ {weaponName.slice(0, 6)} 伤害 {weaponDamageText}
+            </div>
+            {hasShield && (
+              <div className="text-[6px] text-sky-300/90 leading-none truncate mt-0.5">
+                🛡 格挡 {shieldDefenseText} 耐久 {shieldDurabilityText}
+              </div>
+            )}
           </>
         )}
 
@@ -946,7 +954,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
     let animId: number;
     const render = () => {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
       if (canvas.width !== rect.width * dpr) {
         canvas.width = rect.width * dpr;
@@ -1156,7 +1164,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const targetHeight = targetTerrain?.height || 0;
           const heightOffset = targetHeight * HEIGHT_MULTIPLIER;
           const atkHeightDiff = attackerHeight - targetHeight;
-          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff);
+          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility);
           const hitChance = breakdown.final;
 
           const { x, y: baseY } = getPixelPos(enemy.combatPos.q, enemy.combatPos.r);
@@ -2276,7 +2284,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiAttackerTerrain = terrainData.get(`${currentPos.q},${currentPos.r}`);
             const aiTargetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const aiHeightDiff = (aiAttackerTerrain?.height || 0) - (aiTargetTerrain?.height || 0);
-            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff);
+            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability);
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             currentAP -= action.ability.apCost;
             if (action.ability.id === 'SHOOT' && isCrossbowUnit(activeUnit)) {
@@ -2319,7 +2327,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               actionsPerformed++;
             } else {
               // ==================== AI命中：使用护甲伤害系统 ====================
-              const dmgResult = calculateDamage(activeUnit, target);
+              const dmgResult = calculateDamage(activeUnit, target, action.ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
               
               // 显示护甲伤害浮动文字
               const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
@@ -2538,7 +2546,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
           const targetHeight = terrainData.get(`${q},${r}`)?.height || 0;
           const atkHeightDiff = attackerHeight - targetHeight;
-          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff);
+          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility);
           setMobileAttackTarget({ unit: targetUnit, hitBreakdown, ability: selectedAbility });
           return;
         }
@@ -3106,7 +3114,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const attackerTerrain = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`);
             const targetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const heightDiff = (attackerTerrain?.height || 0) - (targetTerrain?.height || 0);
-            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff);
+            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability);
             const isHit = rollHitCheck(hitInfo.final);
             
             // 先扣除 AP 和疲劳（无论命中与否）
@@ -3162,7 +3170,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   : u)
               }));
             }
-            const dmgResult = calculateDamage(activeUnit, target);
+            const dmgResult = calculateDamage(activeUnit, target, ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             
             // === 命中后的专精效果 ===
@@ -3904,7 +3912,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 key={u.id} 
                 ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
                 className="absolute"
-                style={{ width: `${Math.max(96, Math.round((showUnitDetail ? 136 : 112) * compactFontScale))}px`, height: 'auto' }}
+                style={{ width: `${Math.max(104, Math.round((showUnitDetail ? 152 : 112) * compactFontScale))}px`, height: 'auto' }}
               >
                 <UnitCard
                   unit={u}
@@ -3971,7 +3979,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
             const targetHeight = terrainAtHover?.height || 0;
             const atkHeightDiff = attackerHeight - targetHeight;
-            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff);
+            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility);
             hitChance = hitBreakdown.final;
           }
 

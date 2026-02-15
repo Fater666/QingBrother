@@ -10,6 +10,7 @@ SPEARWALL|矛墙|阻止敌人进入近身范围。|6|25|0|0|🚧|SKILL|SELF
 BASH|重击|造成大量疲劳伤害，有几率击晕。|4|14|1|1|🔨|ATTACK|ENEMY
 IMPALE|穿刺|长柄武器攻击，无视部分护甲。|6|15|1|2|🍢|ATTACK|ENEMY
 SHOOT|射击|远程攻击。|4|10|2|7|🏹|ATTACK|ENEMY
+AIMED_SHOT|瞄准射击|更稳定的远程攻击，命中率更高且伤害更高。|6|18|2|7|🎯|ATTACK|ENEMY
 RELOAD|装填|为弩装填箭矢。|6|15|0|0|🔄|UTILITY|SELF
 PUNCTURE|透甲|匕首攻击，完全无视护甲，但很难命中。|4|15|1|1|🔪|ATTACK|ENEMY
 SHIELDWALL|盾墙|大幅提高近战和远程防御。|4|20|0|0|🛡️|SKILL|SELF
