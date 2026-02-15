@@ -1065,6 +1065,13 @@ export const SURROUND_BONUS_PER_UNIT = 5;
 /** 合围加成上限 */
 export const SURROUND_BONUS_MAX = 25;
 
+/** 远程命中最佳距离（超过后开始衰减） */
+export const RANGED_HIT_OPTIMAL_DISTANCE = 2;
+/** 远程命中每超出1格的惩罚 */
+export const RANGED_HIT_PENALTY_PER_TILE = 8;
+/** 远程命中距离惩罚上限 */
+export const RANGED_HIT_PENALTY_MAX = 32;
+
 /**
  * 计算合围加成
  * 统计目标周围与攻击者同阵营的存活单位数（不含攻击者自身），
@@ -1199,11 +1206,16 @@ export const calculateHitChance = (
   const moraleEffects = getMoraleEffects(attacker.morale);
   const moraleMod = moraleEffects.hitChanceMod || 0;
 
-  // 盾牌防御
+  // 盾牌防御：远程优先使用 rangedBonus，近战使用 defenseBonus
   const targetShield = target.equipment.offHand;
-  let shieldDef = (targetShield?.type === 'SHIELD' && targetShield.defenseBonus)
-    ? targetShield.defenseBonus
-    : 0;
+  let shieldDef = 0;
+  if (targetShield?.type === 'SHIELD') {
+    if (isRangedByName) {
+      shieldDef = targetShield.rangedBonus ?? targetShield.defenseBonus ?? 0;
+    } else {
+      shieldDef = targetShield.defenseBonus ?? 0;
+    }
+  }
 
   // === 盾法精通 (shield_expert): 盾牌防御+25% ===
   const shieldExpertBonus = getShieldExpertBonus(target);
@@ -1223,14 +1235,23 @@ export const calculateHitChance = (
   if (heightDiff > 0) heightMod = 10;
   else if (heightDiff < 0) heightMod = -10;
 
-  // 合围加成
-  const surroundBonus = getSurroundingBonus(attacker, target, state);
+  // 合围加成：仅近战生效，远程不享受合围
+  const surroundBonus = isRangedByName ? 0 : getSurroundingBonus(attacker, target, state);
+
+  // 远程距离惩罚：超过最佳距离后逐格降低命中
+  const attackDistance = getHexDistance(attacker.combatPos, target.combatPos);
+  const distancePenalty = isRangedByName && attackDistance > RANGED_HIT_OPTIMAL_DISTANCE
+    ? Math.min(
+        RANGED_HIT_PENALTY_MAX,
+        (attackDistance - RANGED_HIT_OPTIMAL_DISTANCE) * RANGED_HIT_PENALTY_PER_TILE
+      )
+    : 0;
 
   // 临机应变(fast_adaptation)命中加成
   const adaptationBonus = getFastAdaptationBonus(attacker);
 
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus;
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty;
   final = Math.max(5, Math.min(95, final));
 
   return {
