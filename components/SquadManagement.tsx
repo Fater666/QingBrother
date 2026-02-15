@@ -509,6 +509,46 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       setIsRenameDialogOpen(true);
   };
 
+  const dismissCost = selectedMerc ? Math.max(10, selectedMerc.salary * 3) : 0;
+  const cannotDismissLast = party.mercenaries.length <= 1;
+  const cannotAffordDismiss = !!selectedMerc && party.gold < dismissCost;
+  const dismissDisabled = !selectedMerc || cannotDismissLast || cannotAffordDismiss;
+
+  const handleDismissMercenary = () => {
+      if (!selectedMerc) return;
+      if (cannotDismissLast) return;
+      if (party.gold < dismissCost) {
+          window.alert(`金币不足，解雇 ${selectedMerc.name} 需要 ${dismissCost} 金。`);
+          return;
+      }
+
+      const confirmed = window.confirm(`确认支付 ${dismissCost} 金遣散 ${selectedMerc.name} 吗？其装备将返回仓库。`);
+      if (!confirmed) return;
+
+      const recoveredItems: Item[] = [
+          selectedMerc.equipment.mainHand,
+          selectedMerc.equipment.offHand,
+          selectedMerc.equipment.armor,
+          selectedMerc.equipment.helmet,
+          selectedMerc.equipment.ammo,
+          selectedMerc.equipment.accessory,
+          ...selectedMerc.bag,
+      ].filter((item): item is Item => !!item);
+
+      const remainingMercs = party.mercenaries.filter(m => m.id !== selectedMerc.id);
+      const updatedParty: Party = {
+          ...party,
+          gold: party.gold - dismissCost,
+          mercenaries: remainingMercs,
+          inventory: [...party.inventory, ...recoveredItems],
+      };
+      onUpdateParty(updatedParty);
+      setSelectedMerc(remainingMercs[0] || null);
+      setHoveredItem(null);
+      setInspectedItem(null);
+      setSelectedEquipSlot(null);
+  };
+
   const handleConfirmRenameMercenary = () => {
       if (!selectedMerc) return;
       const nextName = renameInput.trim().slice(0, 8);
@@ -656,6 +696,25 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                         >
                                             改名
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleDismissMercenary}
+                                            disabled={dismissDisabled}
+                                            title={
+                                                cannotDismissLast
+                                                    ? '至少保留 1 名成员'
+                                                    : cannotAffordDismiss
+                                                        ? `金币不足（需要 ${dismissCost} 金）`
+                                                        : `解雇 ${selectedMerc.name}（遣散费 ${dismissCost} 金）`
+                                            }
+                                            className={`px-2 py-0.5 text-[10px] border transition-colors ${
+                                                dismissDisabled
+                                                    ? 'border-slate-800/70 text-slate-700 bg-black/20 cursor-not-allowed'
+                                                    : 'border-red-900/50 text-red-400 hover:text-red-300 hover:border-red-700/70 bg-red-950/20'
+                                            }`}
+                                        >
+                                            解雇(-{dismissCost})
+                                        </button>
                                     </div>
                                     <div className="flex items-center mt-1 gap-2">
                                         <span className="text-amber-700 text-sm">{selectedMerc.background}</span>
@@ -670,13 +729,27 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                 {selectedMerc.formationIndex !== null ? '出战' : '后备'}
                             </span>
                             {isCompactLandscape && (
-                                <button
-                                    type="button"
-                                    onClick={handleRenameMercenary}
-                                    className="px-1.5 py-0.5 text-[9px] border border-amber-900/40 text-amber-500 hover:text-amber-300 hover:border-amber-700/70 bg-black/30 transition-colors shrink-0"
-                                >
-                                    改名
-                                </button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={handleRenameMercenary}
+                                        className="px-1.5 py-0.5 text-[9px] border border-amber-900/40 text-amber-500 hover:text-amber-300 hover:border-amber-700/70 bg-black/30 transition-colors"
+                                    >
+                                        改名
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDismissMercenary}
+                                        disabled={dismissDisabled}
+                                        className={`px-1.5 py-0.5 text-[9px] border transition-colors ${
+                                            dismissDisabled
+                                                ? 'border-slate-800/70 text-slate-700 bg-black/20 cursor-not-allowed'
+                                                : 'border-red-900/50 text-red-400 hover:text-red-300 hover:border-red-700/70 bg-red-950/20'
+                                        }`}
+                                    >
+                                        解雇(-{dismissCost})
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>

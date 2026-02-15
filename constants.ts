@@ -411,9 +411,35 @@ parseCSV(MARKET_CONFIG_CSV).forEach(m => {
 // --- DIFFICULTY TIERS (from difficulty_tiers.csv) ---
 const _difficultyTiers = parseCSV(DIFFICULTY_TIERS_CSV);
 export const getDifficultyTier = (day: number) => {
-    for (const t of _difficultyTiers) {
-        if (day <= t.maxDay) return { tier: t.tier, valueLimit: t.valueLimit, statMult: t.statMult };
+    if (_difficultyTiers.length === 0) return { tier: 0, valueLimit: 0, statMult: 1 };
+    if (_difficultyTiers.length === 1) {
+        const only = _difficultyTiers[0];
+        return { tier: only.tier, valueLimit: only.valueLimit, statMult: only.statMult };
     }
+
+    const safeDay = Math.max(1, day);
+    const first = _difficultyTiers[0];
+    if (safeDay <= first.maxDay) {
+        return { tier: first.tier, valueLimit: first.valueLimit, statMult: first.statMult };
+    }
+
+    for (let i = 1; i < _difficultyTiers.length; i++) {
+        const prev = _difficultyTiers[i - 1];
+        const curr = _difficultyTiers[i];
+        if (safeDay <= curr.maxDay) {
+            const segmentStartDay = prev.maxDay;
+            const segmentEndDay = curr.maxDay;
+            const range = Math.max(1, segmentEndDay - segmentStartDay);
+            const t = Math.min(1, Math.max(0, (safeDay - segmentStartDay) / range));
+
+            const valueLimit = Math.floor(prev.valueLimit + (curr.valueLimit - prev.valueLimit) * t);
+            const statMult = prev.statMult + (curr.statMult - prev.statMult) * t;
+
+            // tier 仍按离散阶段走，编制切换保持原有节奏；仅数值与装备预算平滑增长
+            return { tier: curr.tier, valueLimit, statMult };
+        }
+    }
+
     const last = _difficultyTiers[_difficultyTiers.length - 1];
     return { tier: last.tier, valueLimit: last.valueLimit, statMult: last.statMult };
 };

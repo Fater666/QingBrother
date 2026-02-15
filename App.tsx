@@ -1189,7 +1189,7 @@ export const App: React.FC = () => {
       compositions = tierComps[Math.min(tier, tierComps.length - 1)];
     }
     
-    const ENEMY_STAT_NERF = 0.9;
+    const ENEMY_STAT_NERF = 0.95;
     const enemies: CombatUnit[] = compositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
