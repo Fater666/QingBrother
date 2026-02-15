@@ -985,15 +985,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     setTimeout(() => setCenterBanner(prev => prev?.id === banner.id ? null : prev), 2200);
   }, []);
 
-  /** 统一处理“行动点不足”提示：日志 + 横幅 + 轻微震屏 */
+  /** 统一处理“行动点不足”提示：日志 + 横幅（无震屏） */
   const showInsufficientActionPoints = useCallback((ability: Ability, unit = activeUnit) => {
     if (!unit) return;
     const required = ability.apCost ?? 0;
     const current = unit.currentAP ?? 0;
     addToLog(`行动点不足！${ability.name} 需要 ${required} 点，当前仅 ${current} 点。`, 'info');
     showCenterBanner(`行动点不足 ${current}/${required}`, '#ef4444', '⚠️');
-    triggerScreenShake('light');
-  }, [activeUnit, showCenterBanner, triggerScreenShake]);
+  }, [activeUnit, showCenterBanner]);
 
   const getRemainingFatigue = useCallback((unit: CombatUnit): number => {
     return Math.max(0, unit.maxFatigue - unit.fatigue);
@@ -4626,8 +4625,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       {activeUnit.morale === MoraleStatus.FLEEING && (
                         <span className="text-[9px] text-red-400 animate-pulse">无法控制!</span>
                       )}
-                      <span className={`${isCompactLandscape ? 'text-[9px]' : 'text-[10px]'} font-bold text-amber-500 ml-auto`}>
-                        ⚡ {currentAP}/{totalAP}
+                      <span
+                        className={`${isCompactLandscape ? 'text-[9px] px-1.5 py-0.5' : 'text-[11px] px-2 py-0.5'} font-extrabold rounded border ml-auto shadow-sm`}
+                        style={{
+                          color: currentAP > 0 ? '#facc15' : '#ef4444',
+                          backgroundColor: currentAP > 0 ? 'rgba(120, 53, 15, 0.45)' : 'rgba(127, 29, 29, 0.45)',
+                          borderColor: currentAP > 0 ? 'rgba(251, 191, 36, 0.55)' : 'rgba(248, 113, 113, 0.55)',
+                          textShadow: '0 0 6px rgba(0,0,0,0.65)'
+                        }}
+                      >
+                        ⚡ 行动点 {currentAP}/{totalAP}
                       </span>
                     </div>
 
@@ -4726,8 +4733,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       (skill.id === 'SPEARWALL' && !!activeUnit.isHalberdWall) ||
                       (skill.id === 'RIPOSTE' && !!activeUnit.isRiposte);
                     const skillFatigueCost = getEffectiveFatigueCost(activeUnit, skill);
+                    const isAPDisabled = activeUnit.currentAP < skill.apCost;
                     const isFatigueDisabled = getRemainingFatigue(activeUnit) < skillFatigueCost;
-                    const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff || isReloadSkillDisabled || isCrossbowShootDisabled || isFatigueDisabled;
+                    const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff || isReloadSkillDisabled || isCrossbowShootDisabled || isAPDisabled || isFatigueDisabled;
                     return (
                       <button
                         key={skill.id}
@@ -4758,6 +4766,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                                 ? '当前无需装填'
                                 : isCrossbowShootDisabled
                                   ? '弩未装填，先使用装填'
+                              : isAPDisabled
+                                  ? `行动点不足（需要 ${skill.apCost}）`
                               : isFatigueDisabled
                                   ? `疲劳不足（需要 ${skillFatigueCost}）`
                               : skill.name
