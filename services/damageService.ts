@@ -62,6 +62,9 @@ export const UNARMED_ARMOR_PEN = 0.3;
 /** 徒手破甲效率 */
 export const UNARMED_ARMOR_DMG = 0.5;
 
+/** 近战双手武器基础伤害倍率（弓/弩不生效） */
+export const TWO_HANDED_MELEE_DAMAGE_MULT = 1.1;
+
 // ==================== 类型定义 ====================
 
 export type HitLocation = 'HEAD' | 'BODY';
@@ -130,6 +133,15 @@ const getArmorDmg = (weapon: Item | null): number => {
 };
 
 /**
+ * 是否为可享受双手加伤的近战武器
+ * 规则：必须 twoHanded，且排除 bow/crossbow
+ */
+const isTwoHandedMeleeWeapon = (weapon: Item | null): boolean => {
+  if (!weapon?.twoHanded) return false;
+  return weapon.weaponClass !== 'bow' && weapon.weaponClass !== 'crossbow';
+};
+
+/**
  * 核心伤害计算函数
  * 
  * @param attacker 攻击者
@@ -170,6 +182,11 @@ export const calculateDamage = (
   // 应用额外伤害加成
   if (options?.bonusDamage) {
     baseDamage += options.bonusDamage;
+  }
+
+  // === 近战双手武器：基础伤害加成（弓/弩排除） ===
+  if (isTwoHandedMeleeWeapon(weapon)) {
+    baseDamage = Math.floor(baseDamage * TWO_HANDED_MELEE_DAMAGE_MULT);
   }
   
   // === 补刀手 (executioner): 对重伤敌人+20%伤害 ===
