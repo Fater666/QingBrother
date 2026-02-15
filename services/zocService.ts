@@ -54,6 +54,11 @@ export interface ZoCCheckResult {
   footworkFatCost: number;
 }
 
+export interface ZoCStepEnterResult {
+  enteringEnemyZoC: boolean;
+  threateningEnemies: CombatUnit[];
+}
+
 // ==================== 截击计算函数 ====================
 
 /**
@@ -261,6 +266,31 @@ export const checkZoCOnMove = (
     canUseFootwork,
     footworkApCost: FOOTWORK_AP_COST,
     footworkFatCost: FOOTWORK_FATIGUE_COST
+  };
+};
+
+/**
+ * 检查一步移动是否从“非敌方控制区”进入“敌方控制区”
+ * @param unit 移动的单位
+ * @param fromPos 上一步位置
+ * @param toPos 本步目标位置
+ * @param state 战斗状态
+ */
+export const checkZoCEnterOnStep = (
+  unit: CombatUnit,
+  fromPos: { q: number; r: number },
+  toPos: { q: number; r: number },
+  state: CombatState
+): ZoCStepEnterResult => {
+  const wasInEnemyZoC = isInEnemyZoC(fromPos, unit, state);
+  const nowInEnemyZoC = isInEnemyZoC(toPos, unit, state);
+  const threateningEnemies = nowInEnemyZoC
+    ? getThreateningEnemies(toPos, unit, state)
+    : [];
+
+  return {
+    enteringEnemyZoC: !wasInEnemyZoC && nowInEnemyZoC && threateningEnemies.length > 0,
+    threateningEnemies,
   };
 };
 

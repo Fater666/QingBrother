@@ -368,9 +368,9 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
           let formationIndex: number | null = null;
 
           if (activeMercs.length < 12) {
-              // 寻找第一个空余阵位 (0-17)
+              // 寻找第一个空余阵位 (0-26)
               const occupiedIndices = activeMercs.map(m => m.formationIndex as number);
-              for (let i = 0; i < 18; i++) {
+              for (let i = 0; i < 27; i++) {
                   if (!occupiedIndices.includes(i)) {
                       formationIndex = i;
                       break;

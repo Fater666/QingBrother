@@ -1281,10 +1281,14 @@ export const App: React.FC = () => {
         enemyStartMorale = MoraleStatus.CONFIDENT;
       }
 
+      const enemyR = i - Math.floor(compositions.length / 2);
+      // 轴坐标里 r 变化会带来 x 偏移，这里对 q 做补偿，让开局队列在屏幕上更接近竖直
+      const enemyQ = 5 - Math.trunc(enemyR / 2);
       return {
         ...baseChar,
         team: 'ENEMY' as const,
-        combatPos: { q: 2, r: i - Math.floor(compositions.length / 2) },
+        // 敌我左右平行且竖直：敌方在右侧纵列，围绕中心线展开
+        combatPos: { q: enemyQ, r: enemyR },
         currentAP: 9,
         isDead: false,
         crossbowLoaded: true,
@@ -1305,11 +1309,12 @@ export const App: React.FC = () => {
       : MoraleStatus.STEADY;
     
     const playerUnits: CombatUnit[] = party.mercenaries.filter(m => m.formationIndex !== null).map((m, idx) => {
-        // 调整玩家位置：前排 q=-2，后排 q=-3
-        const row = m.formationIndex! >= 9 ? 1 : 0; // 0=前排, 1=后排
+        // 三排映射：前/中/后分别是基础 q=-2/-3/-4，r 由列号映射到中心线
+        const row = Math.floor(m.formationIndex! / 9); // 0=前排, 1=中排, 2=后排
         const col = m.formationIndex! % 9;
-        const q = -2 - row;
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
+        // 轴坐标补偿：抵消 r 带来的横向偏移，让列在视觉上更竖直
+        const q = -2 - row - Math.trunc(r / 2);
         let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
         // === 入场被动：应用专精效果 ===
         // 强体(colossus)改为“学习时永久生效”，不再在战斗入场时临时加成

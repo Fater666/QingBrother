@@ -412,7 +412,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       const usedSlots = party.mercenaries
           .filter(m => m.formationIndex !== null)
           .map(m => m.formationIndex);
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 27; i++) {
           if (!usedSlots.includes(i)) return i;
       }
       return null;
@@ -1223,10 +1223,10 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                         {isMobileLayout ? ' · 长按拖动' : ''}
                                     </span>
                                 </div>
-                                <div className={`grid grid-cols-9 grid-rows-2 ${isCompactLandscape ? 'gap-0.5' : 'gap-1 md:gap-1.5 min-h-[120px] md:min-h-[140px]'}`}>
-                                    {Array.from({length: 18}).map((_, i) => {
+                                <div className={`grid grid-cols-9 grid-rows-3 ${isCompactLandscape ? 'gap-0.5' : 'gap-1 md:gap-1.5 min-h-[120px] md:min-h-[140px]'}`}>
+                                    {Array.from({length: 27}).map((_, i) => {
                                         const char = party.mercenaries.find(m => m.formationIndex === i);
-                                        const isBackRow = i >= 9;
+                                        const row = Math.floor(i / 9); // 0=前排, 1=中排, 2=后排
                                         const isTouchSource = touchFormationDrag?.charId === char?.id;
                                         const isTouchTarget = touchFormationDrag?.overIndex === i;
                                         return (
@@ -1259,9 +1259,11 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                         ? (selectedMerc?.id === char.id 
                                                             ? 'border-amber-500 bg-amber-950/40 cursor-grab' 
                                                             : 'border-slate-700 bg-slate-900/50 cursor-grab hover:border-slate-500') 
-                                                        : isBackRow 
-                                                            ? 'border-slate-800/20 bg-black/10' 
-                                                            : 'border-slate-800/30 bg-black/20'
+                                                        : row === 2
+                                                            ? 'border-slate-800/20 bg-black/10'
+                                                            : row === 1
+                                                                ? 'border-slate-800/25 bg-black/15'
+                                                                : 'border-slate-800/30 bg-black/20'
                                                 }`}
                                             >
                                                 {char ? (
@@ -1285,7 +1287,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                                         className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} text-slate-800`}
                                                         style={isCompactLandscape ? { fontSize: `clamp(0.44rem, ${0.75 * compactFontScale}vw, 0.54rem)` } : undefined}
                                                     >
-                                                        {isBackRow ? '后' : '前'}{(i % 9) + 1}
+                                                        {row === 0 ? '前' : row === 1 ? '中' : '后'}{(i % 9) + 1}
                                                     </span>
                                                 )}
                                             </div>

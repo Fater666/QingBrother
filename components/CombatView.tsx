@@ -28,6 +28,7 @@ import {
 } from '../services/moraleService.ts';
 import {
   checkZoCOnMove,
+  checkZoCEnterOnStep,
   processZoCAttacks,
   getFreeAttackLogText,
   FreeAttackResult
@@ -90,6 +91,8 @@ interface DeathEffect {
     r: number;
     startTime: number;
 }
+
+type HexPos = { q: number; r: number };
 
 // 日志类型颜色和图标映射
 const LOG_STYLES: Record<CombatLogType, { color: string; icon: string }> = {
@@ -622,6 +625,151 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
   const isPlayerTurn = activeUnit?.team === 'PLAYER';
   const movePreviewHex = pendingMoveHex ?? hoveredHex;
+  const movePreviewHexKey = movePreviewHex ? `${movePreviewHex.q},${movePreviewHex.r}` : null;
+
+  const buildBlockedHexSet = useCallback((units: CombatUnit[], movingUnitId: string): Set<string> => {
+    const blocked = new Set<string>();
+    units.forEach(u => {
+      if (u.isDead || u.hasEscaped || u.id === movingUnitId) return;
+      blocked.add(`${u.combatPos.q},${u.combatPos.r}`);
+    });
+    return blocked;
+  }, []);
+
+  const getMaxMoveSteps = useCallback((unit: CombatUnit, currentAP: number, currentFatigue: number): number => {
+    const remainingFatigue = unit.maxFatigue - currentFatigue;
+    if (currentAP < 2 || remainingFatigue <= 0) return 0;
+
+    let maxSteps = 0;
+    for (let steps = 1; steps <= 40; steps++) {
+      const cost = getMovementCost(steps, hasPerk(unit, 'pathfinder'));
+      if (cost.apCost > currentAP || cost.fatigueCost > remainingFatigue) break;
+      maxSteps = steps;
+    }
+    return maxSteps;
+  }, []);
+
+  const isPathHexInBounds = useCallback((pos: HexPos) => {
+    const range = 21;
+    const { q, r } = pos;
+    if (q < -range || q > range) return false;
+    const minR = Math.max(-range, -q - range);
+    const maxR = Math.min(range, -q + range);
+    return r >= minR && r <= maxR;
+  }, []);
+
+  const findPathWithinSteps = useCallback((
+    start: HexPos,
+    target: HexPos,
+    blockedHexes: Set<string>,
+    maxSteps: number
+  ): HexPos[] | null => {
+    if (maxSteps <= 0) return null;
+    const startKey = `${start.q},${start.r}`;
+    const targetKey = `${target.q},${target.r}`;
+    if (startKey === targetKey) return [];
+    if (blockedHexes.has(targetKey)) return null;
+    if (!isPathHexInBounds(target)) return null;
+
+    const visited = new Set<string>([startKey]);
+    const parent = new Map<string, string>();
+    const queue: Array<{ pos: HexPos; steps: number }> = [{ pos: start, steps: 0 }];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.steps >= maxSteps) continue;
+
+      const neighbors = getHexNeighbors(current.pos.q, current.pos.r);
+      for (const next of neighbors) {
+        const nextKey = `${next.q},${next.r}`;
+        if (visited.has(nextKey)) continue;
+        if (!isPathHexInBounds(next)) continue;
+        if (blockedHexes.has(nextKey)) continue;
+
+        visited.add(nextKey);
+        parent.set(nextKey, `${current.pos.q},${current.pos.r}`);
+
+        if (nextKey === targetKey) {
+          const path: HexPos[] = [];
+          let traceKey = targetKey;
+          while (traceKey !== startKey) {
+            const [q, r] = traceKey.split(',').map(Number);
+            path.push({ q, r });
+            const prevKey = parent.get(traceKey);
+            if (!prevKey) break;
+            traceKey = prevKey;
+          }
+          path.reverse();
+          return path;
+        }
+
+        queue.push({ pos: next, steps: current.steps + 1 });
+      }
+    }
+
+    return null;
+  }, [isPathHexInBounds]);
+
+  const evaluateMovePathOutcome = useCallback((unit: CombatUnit, path: HexPos[]) => {
+    let cursor = unit.combatPos;
+    let stepsMoved = 0;
+    let enteredEnemyZoC = false;
+    let threateningEnemies: CombatUnit[] = [];
+
+    for (const step of path) {
+      const enterCheck = checkZoCEnterOnStep(unit, cursor, step, state);
+      cursor = step;
+      stepsMoved += 1;
+
+      if (enterCheck.enteringEnemyZoC) {
+        enteredEnemyZoC = true;
+        threateningEnemies = enterCheck.threateningEnemies;
+        break;
+      }
+    }
+
+    return {
+      finalPos: cursor,
+      stepsMoved,
+      enteredEnemyZoC,
+      threateningEnemies,
+    };
+  }, [state]);
+
+  const movePreviewPath = useMemo(() => {
+    if (!activeUnit || !isPlayerTurn || selectedAbility || !movePreviewHex || !movePreviewHexKey) return null;
+
+    const blocked = buildBlockedHexSet(state.units, activeUnit.id);
+    const maxSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
+    return findPathWithinSteps(activeUnit.combatPos, movePreviewHex, blocked, maxSteps);
+  }, [
+    activeUnit,
+    isPlayerTurn,
+    selectedAbility,
+    movePreviewHex,
+    movePreviewHexKey,
+    state.units,
+    buildBlockedHexSet,
+    getMaxMoveSteps,
+    findPathWithinSteps,
+  ]);
+
+  const movePreviewOutcome = useMemo(() => {
+    if (!activeUnit || !movePreviewPath) return null;
+    return evaluateMovePathOutcome(activeUnit, movePreviewPath);
+  }, [activeUnit, movePreviewPath, evaluateMovePathOutcome]);
+
+  const effectiveMovePreviewPath = useMemo(() => {
+    if (!movePreviewPath || !movePreviewOutcome) return movePreviewPath;
+    return movePreviewPath.slice(0, movePreviewOutcome.stepsMoved);
+  }, [movePreviewPath, movePreviewOutcome]);
+
+  const movePreviewPathSet = useMemo(() => {
+    const set = new Set<string>();
+    if (!effectiveMovePreviewPath) return set;
+    effectiveMovePreviewPath.forEach(p => set.add(`${p.q},${p.r}`));
+    return set;
+  }, [effectiveMovePreviewPath]);
 
   // ==================== 底栏操作预览消耗计算 ====================
   const previewCosts = useMemo(() => {
@@ -645,17 +793,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return { apCost, fatigueCost };
     }
 
-    // 未选技能时显示移动消耗（优先使用首次点击确认的目标）
-    if (movePreviewHex) {
-      const dist = getHexDistance(activeUnit.combatPos, movePreviewHex);
-      if (dist > 0) {
-        const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
+    // 未选技能时显示移动消耗（基于预览路径的实际可移动步数）
+    if (movePreviewOutcome && movePreviewOutcome.stepsMoved > 0) {
+        const moveCost = getMovementCost(movePreviewOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
         return { apCost: moveCost.apCost, fatigueCost: moveCost.fatigueCost };
-      }
     }
 
     return null;
-  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewHex]);
+  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewOutcome]);
 
   useEffect(() => {
     // 回合切换/模式切换时清空待确认移动，避免误触二次确认。
@@ -1113,6 +1258,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         const isVisible = visibleSet.has(key);
         const moveTargetHex = !selectedAbility && pendingMoveHex ? pendingMoveHex : hoveredHex;
         const isHovered = moveTargetHex?.q === q && moveTargetHex?.r === r;
+        const isMovePathTile = !selectedAbility && movePreviewPathSet.has(key);
         const terrain = TERRAIN_TYPES[data.type];
         const heightOffset = data.height * HEIGHT_MULTIPLIER; // 高度偏移
 
@@ -1165,6 +1311,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             ctx.lineTo(x + (HEX_SIZE - HEX_GAP) * hexPoints[i].x, topY + (HEX_SIZE - HEX_GAP) * hexPoints[i].y);
           }
           ctx.stroke();
+
+          // 移动路径预览（经过格）
+          if (isMovePathTile) {
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
+            drawHex(x, topY, HEX_SIZE - HEX_GAP - 6);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+            ctx.lineWidth = 2;
+            drawHex(x, topY, HEX_SIZE - HEX_GAP - 6);
+            ctx.stroke();
+          }
 
           // 地形图标（简化）
           ctx.textAlign = 'center';
@@ -1423,7 +1580,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [terrainData, visibleSet, hoveredHex, pendingMoveHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile]);
+  }, [terrainData, visibleSet, hoveredHex, pendingMoveHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile, movePreviewPathSet]);
 
   // DOM 图层同步 - 考虑地形高度 + 平滑移动动画 + 活动单位z-index
   const activeUnitId = state.turnOrder[state.currentUnitIndex];
@@ -2266,149 +2423,175 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         
         if (action.type === 'MOVE' && action.targetPos) {
-          const moveDistance = getHexDistance(currentPos, action.targetPos);
-          const moveCost = getMovementCost(moveDistance, hasPerk(activeUnit, 'pathfinder'));
+          const aiUnit = state.units.find(u => u.id === activeUnit.id);
+          if (!aiUnit) break;
+
+          const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id);
+          const maxMoveSteps = getMaxMoveSteps(aiUnit, currentAP, currentFatigue);
+          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps);
+          if (!movePath || movePath.length === 0) break;
+
+          const aiMoveUnit = {
+            ...aiUnit,
+            combatPos: currentPos,
+            currentAP,
+            fatigue: currentFatigue
+          };
+          const moveOutcome = evaluateMovePathOutcome(aiMoveUnit, movePath);
+          if (moveOutcome.stepsMoved <= 0) break;
+
+          const moveCost = getMovementCost(moveOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
           if (currentAP < moveCost.apCost) break;
           if (getRemainingFatigue({ ...activeUnit, fatigue: currentFatigue }) < moveCost.fatigueCost) break;
           currentAP -= moveCost.apCost;
           currentFatigue = Math.min(activeUnit.maxFatigue, currentFatigue + moveCost.fatigueCost);
-          
-          // ==================== AI移动时的控制区检查 ====================
-          const aiUnit = state.units.find(u => u.id === activeUnit.id);
-          if (aiUnit) {
-            const zocCheck = checkZoCOnMove(aiUnit, currentPos, action.targetPos, state);
+
+          const movementTargetPos = moveOutcome.finalPos;
+          const leaveZoCCheck = checkZoCOnMove(aiMoveUnit, currentPos, movementTargetPos, state);
+          const shouldStopOnZoCEntry = moveOutcome.enteredEnemyZoC;
+          const shouldTriggerLeaveZoCIntercept = !shouldStopOnZoCEntry && leaveZoCCheck.inEnemyZoC && leaveZoCCheck.threateningEnemies.length > 0;
+          const interceptFromPos = currentPos;
+
+          if (shouldTriggerLeaveZoCIntercept) {
+            const { results, movementAllowed, totalDamage } = processZoCAttacks(
+              aiMoveUnit,
+              interceptFromPos,
+              state
+            );
             
-            if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
-              // 处理截击攻击
-              const { results, movementAllowed, totalDamage } = processZoCAttacks(
-                aiUnit,
-                currentPos,
-                state
-              );
+            // 显示截击结果（含护甲伤害信息）
+            for (const result of results) {
+              addToLog(getFreeAttackLogText(result), 'intercept');
               
-              // 显示截击结果（含护甲伤害信息）
-              for (const result of results) {
-                addToLog(getFreeAttackLogText(result), 'intercept');
-                
-                if (result.hit && result.hpDamage > 0) {
-                  const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
-                  if (result.damageResult && result.damageResult.armorDamageDealt > 0) {
-                    floatTexts.push({
-                      id: Date.now() + Math.random(),
-                      text: result.damageResult.armorDestroyed ? `⚡🛡💥-${result.damageResult.armorDamageDealt}` : `⚡🛡-${result.damageResult.armorDamageDealt}`,
-                      x: currentPos.q,
-                      y: currentPos.r,
-                      color: result.damageResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
-                      type: 'intercept' as FloatingTextType,
-                      size: 'sm' as const,
-                    });
-                  }
+              if (result.hit && result.hpDamage > 0) {
+                const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
+                if (result.damageResult && result.damageResult.armorDamageDealt > 0) {
                   floatTexts.push({
-                    id: Date.now() + Math.random() + 0.1,
-                    text: `⚡-${result.hpDamage}`,
-                    x: currentPos.q,
-                    y: currentPos.r,
-                    color: '#3b82f6',
-                    type: 'intercept' as FloatingTextType,
-                    size: 'md' as const,
-                  });
-                  setFloatingTexts(prev => [...prev, ...floatTexts]);
-                  triggerHitEffect(activeUnit.id);
-                  triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, currentPos.q, currentPos.r, '#3b82f6');
-                  triggerScreenShake('light');
-                  if (result.damageResult?.armorDestroyed) {
-                    const armorName = result.damageResult.armorType === 'HELMET' ? '头盔' : '护甲';
-                    addToLog(`🛡 ${activeUnit.name} 的${armorName}破碎了！`, 'intercept');
-                  }
-                } else if (!result.hit) {
-                  triggerDodgeEffect(activeUnit.id, result.attacker.combatPos, currentPos);
-                  setFloatingTexts(prev => [...prev, {
                     id: Date.now() + Math.random(),
-                    text: 'MISS',
-                    x: currentPos.q,
-                    y: currentPos.r,
-                    color: '#94a3b8',
-                    type: 'miss' as FloatingTextType,
-                    size: 'md' as const,
-                  }]);
-                  triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, currentPos.q, currentPos.r, '#475569');
-                  setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+                    text: result.damageResult.armorDestroyed ? `⚡🛡💥-${result.damageResult.armorDamageDealt}` : `⚡🛡-${result.damageResult.armorDamageDealt}`,
+                    x: interceptFromPos.q,
+                    y: interceptFromPos.r,
+                    color: result.damageResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
+                    type: 'intercept' as FloatingTextType,
+                    size: 'sm' as const,
+                  });
                 }
-              }
-              
-              // 更新状态（含护甲耐久扣减）
-              setState(prev => {
-                let newUnits = prev.units.map(u => {
-                  // 标记已使用截击的玩家单位
-                  const usedFreeAttack = results.find(r => r.attacker.id === u.id);
-                  if (usedFreeAttack) {
-                    return { ...u, hasUsedFreeAttack: true };
-                  }
-                  // 更新AI单位（HP和护甲耐久）
-                  if (u.id === activeUnit.id) {
-                    const newHp = Math.max(0, u.hp - totalDamage);
-                    const isDead = newHp <= 0;
-                    // 累计护甲损伤
-                    let updatedEquipment = { ...u.equipment };
-                    results.forEach(r => {
-                      if (r.hit && r.damageResult) {
-                        const dr = r.damageResult;
-                        if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
-                          updatedEquipment = {
-                            ...updatedEquipment,
-                            helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
-                          };
-                        } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
-                          updatedEquipment = {
-                            ...updatedEquipment,
-                            armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
-                          };
-                        }
-                      }
-                    });
-                    return {
-                      ...u,
-                      hp: newHp,
-                      isDead,
-                      equipment: updatedEquipment,
-                      combatPos: movementAllowed && !isDead ? action.targetPos! : u.combatPos,
-                      currentAP,
-                      fatigue: currentFatigue,
-                    };
-                  }
-                  return u;
+                floatTexts.push({
+                  id: Date.now() + Math.random() + 0.1,
+                  text: `⚡-${result.hpDamage}`,
+                  x: interceptFromPos.q,
+                  y: interceptFromPos.r,
+                  color: '#3b82f6',
+                  type: 'intercept' as FloatingTextType,
+                  size: 'md' as const,
                 });
-                return { ...prev, units: newUnits };
-              });
-              
-              if (movementAllowed) {
-                currentPos = { ...action.targetPos };
-                addToLog(`${activeUnit.name} 受到截击后继续移动。`, 'move');
-              } else {
-                addToLog(`${activeUnit.name} 的移动被截击阻止！`, 'intercept');
+                setFloatingTexts(prev => [...prev, ...floatTexts]);
+                triggerHitEffect(activeUnit.id);
+                triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, interceptFromPos.q, interceptFromPos.r, '#3b82f6');
+                triggerScreenShake('light');
+                if (result.damageResult?.armorDestroyed) {
+                  const armorName = result.damageResult.armorType === 'HELMET' ? '头盔' : '护甲';
+                  addToLog(`🛡 ${activeUnit.name} 的${armorName}破碎了！`, 'intercept');
+                }
+              } else if (!result.hit) {
+                triggerDodgeEffect(activeUnit.id, result.attacker.combatPos, interceptFromPos);
+                setFloatingTexts(prev => [...prev, {
+                  id: Date.now() + Math.random(),
+                  text: 'MISS',
+                  x: interceptFromPos.q,
+                  y: interceptFromPos.r,
+                  color: '#94a3b8',
+                  type: 'miss' as FloatingTextType,
+                  size: 'md' as const,
+                }]);
+                triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, interceptFromPos.q, interceptFromPos.r, '#475569');
+                setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
               }
-              
-              actionsPerformed++;
-              
-              // 如果AI单位死亡，结束回合
-              const updatedAiUnit = state.units.find(u => u.id === activeUnit.id);
-              if (updatedAiUnit && updatedAiUnit.hp - totalDamage <= 0) {
-                break;
-              }
-              
-              continue; // 已处理，继续下一个行动
             }
+            
+            setState(prev => {
+              const postInterceptPos = movementAllowed ? movementTargetPos : currentPos;
+
+              let newUnits = prev.units.map(u => {
+                const usedFreeAttack = results.find(r => r.attacker.id === u.id);
+                if (usedFreeAttack) {
+                  return { ...u, hasUsedFreeAttack: true };
+                }
+                if (u.id === activeUnit.id) {
+                  const newHp = Math.max(0, u.hp - totalDamage);
+                  const isDead = newHp <= 0;
+                  let updatedEquipment = { ...u.equipment };
+                  results.forEach(r => {
+                    if (r.hit && r.damageResult) {
+                      const dr = r.damageResult;
+                      if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
+                        updatedEquipment = {
+                          ...updatedEquipment,
+                          helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
+                        };
+                      } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
+                        updatedEquipment = {
+                          ...updatedEquipment,
+                          armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
+                        };
+                      }
+                    }
+                  });
+                  return {
+                    ...u,
+                    hp: newHp,
+                    isDead,
+                    equipment: updatedEquipment,
+                    combatPos: postInterceptPos,
+                    currentAP,
+                    fatigue: currentFatigue,
+                  };
+                }
+                return u;
+              });
+              return { ...prev, units: newUnits };
+            });
+            
+            currentPos = movementAllowed ? movementTargetPos : currentPos;
+            if (movementAllowed) {
+              addToLog(`${activeUnit.name} 受到截击后继续移动。`, 'move');
+            } else {
+              addToLog(`${activeUnit.name} 的移动被截击阻止！`, 'intercept');
+            }
+            
+            actionsPerformed++;
+            
+            if (aiUnit.hp - totalDamage <= 0) {
+              break;
+            }
+            
+            continue; // 已处理，继续下一个行动
+          }
+
+          if (shouldStopOnZoCEntry) {
+            currentPos = { ...movementTargetPos };
+            setState(prev => ({
+              ...prev,
+              units: prev.units.map(u =>
+                u.id === activeUnit.id
+                  ? { ...u, combatPos: movementTargetPos, currentAP, fatigue: currentFatigue }
+                  : u
+              )
+            }));
+            addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
+            actionsPerformed++;
+            continue;
           }
           
-          // 没有截击，正常移动
-          currentPos = { ...action.targetPos };
+          // 没有截击，正常移动到可到达目标（可能短于AI原目标）
+          currentPos = { ...movementTargetPos };
           
           // 更新状态
           setState(prev => ({
             ...prev,
             units: prev.units.map(u => 
               u.id === activeUnit.id 
-                ? { ...u, combatPos: action.targetPos!, currentAP, fatigue: currentFatigue }
+                ? { ...u, combatPos: movementTargetPos, currentAP, fatigue: currentFatigue }
                 : u
             )
           }));
@@ -3486,23 +3669,26 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
-    
-    const dist = getHexDistance(activeUnit.combatPos, hoveredHex);
-    // 识途(pathfinder)：移动 AP 消耗减少
-    const moveCost = getMovementCost(dist, hasPerk(activeUnit, 'pathfinder'));
+
+    const blockedHexes = buildBlockedHexSet(state.units, activeUnit.id);
+    const maxMoveSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
+    const movePath = findPathWithinSteps(activeUnit.combatPos, hoveredHex, blockedHexes, maxMoveSteps);
+    if (!movePath || movePath.length === 0) return;
+
+    const moveOutcome = evaluateMovePathOutcome(activeUnit, movePath);
+    if (moveOutcome.stepsMoved <= 0) return;
+
+    const moveCost = getMovementCost(moveOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
     const apCost = moveCost.apCost;
     const fatigueCost = moveCost.fatigueCost;
     
-    // 检查AP、疲劳是否足够且目标位置未被占用
+    // 双保险：二次确认前再次校验资源
     if (activeUnit.currentAP < apCost) {
       showInsufficientActionPoints({ ...ABILITIES.MOVE, apCost });
       return;
     }
     if (getRemainingFatigue(activeUnit) < fatigueCost) {
       showInsufficientFatigue('移动', fatigueCost);
-      return;
-    }
-    if (state.units.some(u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r)) {
       return;
     }
 
@@ -3515,15 +3701,18 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
     setPendingMoveHex(null);
+
+    const movementTargetPos = moveOutcome.finalPos;
+    const leaveZoCCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, movementTargetPos, state);
+    const shouldStopOnZoCEntry = moveOutcome.enteredEnemyZoC;
+    const shouldTriggerLeaveZoCIntercept = !shouldStopOnZoCEntry && leaveZoCCheck.inEnemyZoC && leaveZoCCheck.threateningEnemies.length > 0;
+    const interceptFromPos = activeUnit.combatPos;
     
-    // ==================== 控制区检查 ====================
-    const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, hoveredHex, state);
-    
-    if (zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0) {
+    if (shouldTriggerLeaveZoCIntercept) {
       // 处理截击攻击
       const { results, movementAllowed, totalDamage } = processZoCAttacks(
         activeUnit,
-        activeUnit.combatPos,
+        interceptFromPos,
         state
       );
       
@@ -3541,8 +3730,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               floatTexts.push({
                 id: Date.now() + index * 10,
                 text: result.damageResult.armorDestroyed ? `⚡🛡💥-${result.damageResult.armorDamageDealt}` : `⚡🛡-${result.damageResult.armorDamageDealt}`,
-                x: activeUnit.combatPos.q,
-                y: activeUnit.combatPos.r,
+                x: interceptFromPos.q,
+                y: interceptFromPos.r,
                 color: result.damageResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
                 type: 'intercept' as FloatingTextType,
                 size: 'sm' as const,
@@ -3552,15 +3741,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             floatTexts.push({
               id: Date.now() + index * 10 + 1,
               text: `⚡-${result.hpDamage}`,
-              x: activeUnit.combatPos.q,
-              y: activeUnit.combatPos.r,
+              x: interceptFromPos.q,
+              y: interceptFromPos.r,
               color: '#f97316',
               type: 'intercept' as FloatingTextType,
               size: 'md' as const,
             });
             setFloatingTexts(prev => [...prev, ...floatTexts]);
             triggerHitEffect(activeUnit.id);
-            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, activeUnit.combatPos.q, activeUnit.combatPos.r, '#f97316');
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, interceptFromPos.q, interceptFromPos.r, '#f97316');
             triggerScreenShake('light');
             // 护甲破碎提示
             if (result.damageResult?.armorDestroyed) {
@@ -3573,13 +3762,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             setFloatingTexts(prev => [...prev, {
               id: Date.now() + index * 10 + 2,
               text: 'MISS',
-              x: activeUnit.combatPos.q,
-              y: activeUnit.combatPos.r,
+              x: interceptFromPos.q,
+              y: interceptFromPos.r,
               color: '#94a3b8',
               type: 'miss' as FloatingTextType,
               size: 'md' as const,
             }]);
-            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, activeUnit.combatPos.q, activeUnit.combatPos.r, '#475569');
+            triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, interceptFromPos.q, interceptFromPos.r, '#475569');
             setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
           }
         }, index * 300);
@@ -3587,6 +3776,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       
       // 更新状态：标记截击者已使用截击，处理伤害
       setState(prev => {
+        const postInterceptPos = movementAllowed ? movementTargetPos : activeUnit.combatPos;
+
         let newUnits = prev.units.map(u => {
           // 标记已使用截击的敌人
           const usedFreeAttack = results.find(r => r.attacker.id === u.id);
@@ -3624,21 +3815,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 hp: newHp,
                 isDead: newHp <= 0,
                 equipment: updatedEquipment,
-                // 如果移动被允许，执行移动并扣除AP
-                combatPos: movementAllowed ? hoveredHex : u.combatPos,
-                currentAP: u.currentAP - apCost,
-                fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost),
-              };
-            }
-            return u;
-          });
-        } else if (movementAllowed) {
-          // 无伤害但移动允许
-          newUnits = newUnits.map(u => {
-            if (u.id === activeUnit.id) {
-              return { 
-                ...u, 
-                combatPos: hoveredHex,
+                combatPos: postInterceptPos,
                 currentAP: u.currentAP - apCost,
                 fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost),
               };
@@ -3646,11 +3823,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             return u;
           });
         } else {
-          // 移动被阻止，只扣除AP
+          // 无伤害，按截击结论落点（进入ZoC时固定停在进入格）
           newUnits = newUnits.map(u => {
             if (u.id === activeUnit.id) {
               return { 
                 ...u, 
+                combatPos: postInterceptPos,
                 currentAP: u.currentAP - apCost,
                 fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost),
               };
@@ -3662,12 +3840,13 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         return { ...prev, units: newUnits };
       });
       
-      // 如果移动被阻止，显示提示
-      if (!movementAllowed) {
+      // 离开ZoC被阻止时提示
+      if (!movementAllowed && shouldTriggerLeaveZoCIntercept) {
+        addToLog(`${activeUnit.name} 的移动被截击阻止！`, 'intercept');
         const lastResult = results[results.length - 1];
         if (lastResult?.targetKilled) {
           addToLog(`${activeUnit.name} 被截击击杀！`, 'kill');
-          triggerDeathEffect(activeUnit.combatPos.q, activeUnit.combatPos.r);
+          triggerDeathEffect(interceptFromPos.q, interceptFromPos.r);
           showCenterBanner(`${activeUnit.name} 被截击击杀！`, '#ef4444', '💀');
         }
       }
@@ -3682,12 +3861,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           });
         }, results.length * 300 + 100);
       }
+    } else if (shouldStopOnZoCEntry) {
+      // 中途首次进入敌方控制区：停在进入格，不触发截击
+      setState(prev => ({
+        ...prev,
+        units: prev.units.map(u => u.id === activeUnit.id
+          ? { ...u, combatPos: movementTargetPos, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
+          : u)
+      }));
+      addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
     } else {
       // 没有截击，正常移动
       setState(prev => ({
         ...prev,
         units: prev.units.map(u => u.id === activeUnit.id
-          ? { ...u, combatPos: hoveredHex, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
+          ? { ...u, combatPos: movementTargetPos, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
           : u)
       }));
     }
@@ -4128,9 +4316,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const terrainInfo = terrainAtHover ? TERRAIN_TYPES[terrainAtHover.type] : null;
           const heightDiff = terrainAtHover ? terrainAtHover.height - (terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0) : 0;
           
-          // 检查当前单位是否在敌方控制区内（移动会触发截击）
-          const zocCheck = checkZoCOnMove(activeUnit, activeUnit.combatPos, infoHex, state);
-          const willTriggerZoC = zocCheck.inEnemyZoC && zocCheck.threateningEnemies.length > 0;
+          // 路径预览：中途首次进入控制区将停步
+          const willTriggerZoC = !selectedAbility && !!movePreviewOutcome?.enteredEnemyZoC;
           
           // 攻击命中率计算（使用统一函数，含合围加成）
           const targetUnit = state.units.find(u => !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && u.combatPos.q === infoHex.q && u.combatPos.r === infoHex.r);
@@ -4202,7 +4389,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 </div>
               )}
               <div className="font-bold">
-                移动消耗: {getMovementCost(getHexDistance(activeUnit.combatPos, infoHex), hasPerk(activeUnit, 'pathfinder')).apCost} 行动点 / {getMovementCost(getHexDistance(activeUnit.combatPos, infoHex), hasPerk(activeUnit, 'pathfinder')).fatigueCost} 疲劳{hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}
+                {(() => {
+                  const moveSteps = movePreviewOutcome?.stepsMoved ?? 0;
+                  if (moveSteps <= 0) return '移动消耗: -';
+                  const moveCost = getMovementCost(moveSteps, hasPerk(activeUnit, 'pathfinder'));
+                  return `移动消耗: ${moveCost.apCost} 行动点 / ${moveCost.fatigueCost} 疲劳${hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}`;
+                })()}
               </div>
               
               {/* 控制区警告 */}
@@ -4210,15 +4402,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 <div className="mt-1.5 pt-1.5 border-t border-orange-500/30">
                   <div className="flex items-center gap-1 text-orange-400 font-bold">
                     <span>⚠️</span>
-                    <span>离开敌方控制区！</span>
+                    <span>路径将进入敌方控制区！</span>
                   </div>
                   <div className="text-orange-300 text-[9px] mt-0.5">
-                    将触发 {zocCheck.threateningEnemies.length} 次截击攻击
+                    将在进入控制区第一格停步（不触发截击）
                   </div>
                   <div className="text-orange-200/70 text-[8px] mt-0.5">
-                    截击可能阻止移动
+                    单位会停在进入控制区的第一格
                   </div>
-                  {zocCheck.canUseFootwork && (
+                  {checkZoCOnMove(activeUnit, activeUnit.combatPos, infoHex, state).canUseFootwork && (
                     <div className="text-green-400 text-[8px] mt-1">
                       💨 可使用"脱身"技能安全撤离
                     </div>
