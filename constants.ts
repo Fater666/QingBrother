@@ -1148,6 +1148,8 @@ export interface HitChanceBreakdown {
   dodgeDef: number;
   /** 临机应变(fast_adaptation)命中加成 */
   adaptationBonus: number;
+  /** 额外命中修正（如长柄贴脸惩罚） */
+  extraHitMod: number;
 }
 
 /**
@@ -1165,7 +1167,8 @@ export const calculateHitChance = (
   target: CombatUnit,
   state: CombatState,
   heightDiff: number = 0,
-  ability?: Ability
+  ability?: Ability,
+  extraHitMod: number = 0
 ): HitChanceBreakdown => {
   const isRanged = attacker.equipment.mainHand?.range
     ? attacker.equipment.mainHand.range > 1
@@ -1263,7 +1266,7 @@ export const calculateHitChance = (
   const adaptationBonus = getFastAdaptationBonus(attacker);
 
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty;
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty + extraHitMod;
   final = Math.max(5, Math.min(95, final));
 
   return {
@@ -1278,6 +1281,7 @@ export const calculateHitChance = (
     surroundBonus,
     dodgeDef,
     adaptationBonus,
+    extraHitMod,
   };
 };
 

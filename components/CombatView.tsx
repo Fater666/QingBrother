@@ -33,6 +33,7 @@ import {
   getFreeAttackLogText,
   FreeAttackResult
 } from '../services/zocService.ts';
+import { getPolearmAdjacentHitPenalty } from '../services/combatUtils';
 import {
   calculateDamage,
   getDamageLogText,
@@ -1481,7 +1482,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const targetHeight = targetTerrain?.height || 0;
           const heightOffset = targetHeight * HEIGHT_MULTIPLIER;
           const atkHeightDiff = attackerHeight - targetHeight;
-          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility);
+          const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
+          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility, polearmHitMod);
           const hitChance = breakdown.final;
 
           const { x, y: baseY } = getPixelPos(enemy.combatPos.q, enemy.combatPos.r);
@@ -2667,7 +2669,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiAttackerTerrain = terrainData.get(`${currentPos.q},${currentPos.r}`);
             const aiTargetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const aiHeightDiff = (aiAttackerTerrain?.height || 0) - (aiTargetTerrain?.height || 0);
-            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability);
+            const aiDist = getHexDistance(currentPos, target.combatPos);
+            const aiPolearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, action.ability, aiDist);
+            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod);
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             const aiFatigueCost = getEffectiveFatigueCost(activeUnit, action.ability);
             if (currentAP < action.ability.apCost) break;
@@ -2964,7 +2968,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
           const targetHeight = terrainData.get(`${q},${r}`)?.height || 0;
           const atkHeightDiff = attackerHeight - targetHeight;
-          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility);
+          const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
+          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod);
           setMobileAttackTarget({ unit: targetUnit, hitBreakdown, ability: selectedAbility });
           return;
         }
@@ -3534,7 +3539,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const attackerTerrain = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`);
             const targetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const heightDiff = (attackerTerrain?.height || 0) - (targetTerrain?.height || 0);
-            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability);
+            const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, ability, dist);
+            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability, polearmHitMod);
             const isHit = rollHitCheck(hitInfo.final);
             
             // 先扣除 AP 和疲劳（无论命中与否）
@@ -4443,7 +4449,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const attackerHeight = terrainData.get(`${activeUnit.combatPos.q},${activeUnit.combatPos.r}`)?.height || 0;
             const targetHeight = terrainAtHover?.height || 0;
             const atkHeightDiff = attackerHeight - targetHeight;
-            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility);
+            const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
+            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod);
             hitChance = hitBreakdown.final;
           }
 

@@ -6,6 +6,7 @@
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus } from '../constants';
 import { MORALE_ORDER } from './moraleService';
+import { isPolearmBacklineAttack } from './combatUtils';
 
 // 行为树执行结果
 type BehaviorResult = 'SUCCESS' | 'FAILURE' | 'RUNNING';
@@ -248,9 +249,16 @@ const canAttackTarget = (
   ability: Ability
 ): boolean => {
   const dist = getHexDistance(unit.combatPos, target.combatPos);
-  return dist >= ability.range[0] && 
-         dist <= ability.range[1] && 
-         unit.currentAP >= ability.apCost;
+  if (unit.currentAP < ability.apCost) return false;
+  const inBaseRange = dist >= ability.range[0] && dist <= ability.range[1];
+  if (!inBaseRange) return false;
+
+  // 显式接入长柄后排规则：polearm 的攻击仅视为 1~2 格有效。
+  if (unit.equipment.mainHand?.weaponClass === 'polearm' && ability.type === 'ATTACK') {
+    return isPolearmBacklineAttack(unit, ability, dist);
+  }
+
+  return true;
 };
 
 // ==================== 行为树实现 ====================
