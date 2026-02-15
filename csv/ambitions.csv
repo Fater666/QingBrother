@@ -28,3 +28,4 @@ survive_90_days|不朽传说|在乱世中存活90天以上，书写属于战团�
 gather_10000_gold|富可敌国|积累10000金币的巨额财富。|ECONOMY|200|200|3|3|gold_ge_10000|completed_gather_5000_gold_and_gold_lt_10000|gold/10000
 win_30_battles|百战百胜|累计赢得30场战斗，所向披靡。|COMBAT|200|200|3|3|battlesWon_ge_30|completed_win_15_battles_and_battlesWon_lt_30|battlesWon/30
 complete_5_ambitions|志在千里|完成5个宏愿，证明你不仅是武夫，更是有远见的统帅。|DIPLOMACY|150|100|2|3|totalCompleted_ge_5|totalCompleted_ge_2_and_lt_5|totalCompleted/5
+obtain_war_banner|立旗立号|你的战团已渐成声势。累计赢得8场战斗后，诸城将授予一面专属战旗。|DIPLOMACY|120|0|2|2|battlesWon_ge_8|completed_win_5_battles|battlesWon/8

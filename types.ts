@@ -328,6 +328,8 @@ export interface CombatUnit extends Character {
   team: 'PLAYER' | 'ENEMY';
   currentAP: number;
   isDead: boolean;
+  isBannerman?: boolean;         // 是否为旗手（持有战旗）
+  bannerAuraActive?: boolean;    // 是否受战旗光环影响（用于UI展示）
   crossbowLoaded?: boolean;       // 弩装填状态：true=已装填可射击，false=需先装填
   hasEscaped?: boolean; // 已成功逃离战场（不再参与战斗）
   isShieldWall: boolean;

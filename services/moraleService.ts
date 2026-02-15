@@ -33,6 +33,11 @@ const ALLY_DEATH_RADIUS = 3;
 /** 队伍伤亡触发全员检定的阈值（百分比） */
 const MASS_CASUALTY_THRESHOLD = 0.3;
 
+/** 旗手光环范围（格数） */
+const BANNER_AURA_RADIUS = 4;
+/** 旗手光环：士气检定难度下调（负值代表更容易通过） */
+const BANNER_AURA_DIFFICULTY_MOD = -10;
+
 /** 士气状态图标 */
 export const MORALE_ICONS: Record<MoraleStatus, string> = {
   [MoraleStatus.CONFIDENT]: '😤',
@@ -119,6 +124,22 @@ const getMoraleByIndex = (index: number): MoraleStatus => {
 };
 
 /**
+ * 玩家侧旗手光环判定
+ * 规则：仅玩家队伍生效；旗手本人或4格内友军生效
+ */
+const hasPlayerBannerAura = (unit: CombatUnit, state: CombatState): boolean => {
+  if (unit.team !== 'PLAYER' || unit.isDead || unit.hasEscaped) return false;
+  const bannermen = state.units.filter(u =>
+    u.team === 'PLAYER' &&
+    !u.isDead &&
+    !u.hasEscaped &&
+    u.isBannerman
+  );
+  if (bannermen.length === 0) return false;
+  return bannermen.some(b => getHexDistance(b.combatPos, unit.combatPos) <= BANNER_AURA_RADIUS);
+};
+
+/**
  * 计算士气检定的难度修正
  */
 export const calculateMoraleModifier = (
@@ -177,6 +198,11 @@ export const calculateMoraleModifier = (
     case 'ENEMY_KILLED':
       modifier -= 20; // 击杀敌人时检定更容易
       break;
+  }
+
+  // 旗手光环：降低士气检定难度（仅玩家队伍）
+  if (hasPlayerBannerAura(unit, state)) {
+    modifier += BANNER_AURA_DIFFICULTY_MOD;
   }
   
   // 6. 被包围修正
@@ -259,7 +285,11 @@ export const performMoraleCheck = (
       // 失败则士气下降
       // 大失败（差距超过20）下降两级
       const failMargin = difficulty - roll;
-      const dropLevels = failMargin > 20 ? 2 : 1;
+      let dropLevels = failMargin > 20 ? 2 : 1;
+      // 旗手防崩：光环内负面检定失败时，降级幅度 -1（最低不降）
+      if (hasPlayerBannerAura(unit, state)) {
+        dropLevels = Math.max(0, dropLevels - 1);
+      }
       newMorale = getMoraleByIndex(currentIndex + dropLevels);
     }
     // 成功则保持不变

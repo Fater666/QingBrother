@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon } from './constants';
 import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -77,7 +77,7 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
       fatigue: genStars(bg.fatigueMod),
   };
 
-  let weaponPool = WEAPON_TEMPLATES.filter(w => w.value < 400);
+  let weaponPool = WEAPON_TEMPLATES.filter(w => w.value < 400 && w.rarity !== 'UNIQUE' && !isBannerWeapon(w));
   const weapon = weaponPool[Math.floor(Math.random() * weaponPool.length)];
   const armor = Math.random() > 0.4 ? ARMOR_TEMPLATES[Math.floor(Math.random() * 2)] : null;
   const helmet = Math.random() > 0.6 ? HELMET_TEMPLATES[Math.floor(Math.random() * 2)] : null;
@@ -502,7 +502,7 @@ const generateBattleResult = (
         ...UNIQUE_ARMOR_TEMPLATES,
         ...UNIQUE_HELMET_TEMPLATES,
         ...UNIQUE_SHIELD_TEMPLATES,
-      ];
+      ].filter(item => !isBannerWeapon(item));
       // 从掉落池中随机选一个ID
       const chosenId = bossLootIds[Math.floor(Math.random() * bossLootIds.length)];
       const uniqueItem = allUniqueItems.find(item => item.id === chosenId);
@@ -840,6 +840,16 @@ export const App: React.FC = () => {
     const found = templates.find(t => t.id === chosenId);
     return found ? { ...found } : null;
   };
+
+  const buildBannerRewardItem = useCallback((): Item | null => {
+    const bannerTemplate = WEAPON_TEMPLATES.find(w => w.id === BANNER_WEAPON_ID);
+    if (!bannerTemplate) return null;
+    return {
+      ...bannerTemplate,
+      id: `reward-${bannerTemplate.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      durability: bannerTemplate.maxDurability,
+    };
+  }, []);
 
   // --- 新战役：根据起源生成初始队伍 ---
   const initGameWithOrigin = useCallback((origin: OriginConfig, name: string, mapData: { tiles: WorldTile[], cities: City[] }) => {
@@ -1316,6 +1326,8 @@ export const App: React.FC = () => {
         // 轴坐标补偿：抵消 r 带来的横向偏移，让列在视觉上更竖直
         const q = -2 - row - Math.trunc(r / 2);
         let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        const isBannerman = isBannerWeapon(unit.equipment.mainHand);
+        unit = { ...unit, isBannerman, bannerAuraActive: isBannerman };
         // === 入场被动：应用专精效果 ===
         // 强体(colossus)改为“学习时永久生效”，不再在战斗入场时临时加成
         unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
@@ -1949,21 +1961,33 @@ export const App: React.FC = () => {
     
     if (checkAmbitionComplete(party)) {
       const completedName = party.ambitionState.currentAmbition.name;
+      const completedId = party.ambitionState.currentAmbition.id;
       const rep = party.ambitionState.currentAmbition.reputationReward;
       const gold = party.ambitionState.currentAmbition.goldReward ?? 0;
-      setParty(p => ({
-        ...p,
-        reputation: p.reputation + rep,
-        gold: p.gold + gold,
-        ambitionState: completeAmbition(p),
-        moraleModifier: 1, // 下次战斗全员自信开场
-      }));
+      setParty(p => {
+        const base: Party = {
+          ...p,
+          reputation: p.reputation + rep,
+          gold: p.gold + gold,
+          ambitionState: completeAmbition(p),
+          moraleModifier: 1, // 下次战斗全员自信开场
+        };
+        if (completedId !== BANNER_AMBITION_ID) return base;
+        const alreadyHasBanner =
+          p.inventory.some(item => isBannerWeapon(item)) ||
+          p.mercenaries.some(m => isBannerWeapon(m.equipment.mainHand) || isBannerWeapon(m.equipment.offHand));
+        if (alreadyHasBanner) return base;
+        const reward = buildBannerRewardItem();
+        if (!reward) return base;
+        return { ...base, inventory: [...base.inventory, reward] };
+      });
       // 显示通知
-      setAmbitionNotification(`目标达成「${completedName}」！声望 +${rep}${gold ? `，金币 +${gold}` : ''}`);
+      const bannerText = completedId === BANNER_AMBITION_ID ? '，获得战团战旗 ×1' : '';
+      setAmbitionNotification(`目标达成「${completedName}」！声望 +${rep}${gold ? `，金币 +${gold}` : ''}${bannerText}`);
       if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
       ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
     }
-  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, party.reputation, party.ambitionState.contractsCompleted, party.ambitionState.campsDestroyed, party.ambitionState.totalCompleted, gameInitialized]);
+  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, party.reputation, party.ambitionState.contractsCompleted, party.ambitionState.campsDestroyed, party.ambitionState.totalCompleted, gameInitialized, buildBannerRewardItem]);
 
   // --- 野心目标：弹出选择界面 ---
   useEffect(() => {

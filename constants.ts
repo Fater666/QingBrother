@@ -86,6 +86,13 @@ export const UNIQUE_HELMET_TEMPLATES: Item[] = HELMET_TEMPLATES.filter(h => h.ra
 /** 所有传世红装盾牌模板 */
 export const UNIQUE_SHIELD_TEMPLATES: Item[] = SHIELD_TEMPLATES.filter(s => s.rarity === 'UNIQUE');
 
+// 旗手机制：战旗唯一物品与对应志向ID
+export const BANNER_WEAPON_ID = 'w_banner_warflag';
+export const BANNER_AMBITION_ID = 'obtain_war_banner';
+export const isBannerWeapon = (item: Item | null | undefined): boolean => {
+  return !!item && item.type === 'WEAPON' && item.id === BANNER_WEAPON_ID;
+};
+
 export const PERK_TREE: Record<string, Perk> = {};
 parseCSV(PERKS_CSV).forEach(p => {
     PERK_TREE[p.id] = p;

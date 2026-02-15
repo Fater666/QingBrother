@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG, isBannerWeapon } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -398,7 +398,7 @@ export const generateCityMarket = (cityType: 'CAPITAL' | 'TOWN' | 'VILLAGE'): It
   const market: Item[] = [];
 
   // --- 武器：按 weaponClass 分类，每类最多抽 1 把，保证多样性 ---
-  const nonUniqueWeapons = WEAPON_TEMPLATES.filter(w => w.rarity !== 'UNIQUE');
+  const nonUniqueWeapons = WEAPON_TEMPLATES.filter(w => w.rarity !== 'UNIQUE' && !isBannerWeapon(w));
   const weaponClasses = [...new Set(nonUniqueWeapons.map(w => w.weaponClass).filter(Boolean))] as string[];
   const weaponCount = randRange(config.weapons[0], config.weapons[1]);
   // 打乱类别顺序，取前 N 个类别各出一把

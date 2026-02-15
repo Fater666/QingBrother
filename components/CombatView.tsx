@@ -228,6 +228,9 @@ const getUnitDisplayStatuses = (unit: CombatUnit): DisplayStatus[] => {
   if (unit.taunting) {
     statuses.push({ id: 'taunt', icon: '🤬', label: '挑衅（敌方优先攻击）', tone: 'buff' });
   }
+  if (unit.isBannerman) {
+    statuses.push({ id: 'bannerman', icon: '🚩', label: '旗手（士气光环）', tone: 'buff' });
+  }
   if ((unit.killingFrenzyTurns || 0) > 0) {
     statuses.push({
       id: 'killing_frenzy',
@@ -3334,13 +3337,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     // 振军 (rally): 提高范围内盟友士气
     if (ability.id === 'RALLY_SKILL') {
       if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
+      const isBannermanRally = !!activeUnit.isBannerman;
+      const rallyRange = isBannermanRally ? 6 : 4;
       setState(prev => {
-        // 提升自身和周围4格内盟友的士气
+        // 旗手强化振军：范围更大，低士气单位恢复更强
         const affectedAllies = prev.units.filter(u =>
           !u.isDead && !u.hasEscaped && u.team === activeUnit.team &&
-          getHexDistance(u.combatPos, activeUnit.combatPos) <= 4
+          getHexDistance(u.combatPos, activeUnit.combatPos) <= rallyRange
         );
         const rallyNames: string[] = [];
+        const moraleOrder: MoraleStatus[] = [
+          MoraleStatus.FLEEING,
+          MoraleStatus.BREAKING,
+          MoraleStatus.WAVERING,
+          MoraleStatus.STEADY,
+          MoraleStatus.CONFIDENT,
+        ];
+        const improveMorale = (morale: MoraleStatus, steps: number): MoraleStatus => {
+          const idx = moraleOrder.indexOf(morale);
+          if (idx < 0) return morale;
+          return moraleOrder[Math.min(moraleOrder.length - 1, idx + steps)];
+        };
         const updatedUnits = prev.units.map(u => {
           if (u.id === activeUnit.id) {
             return {
@@ -3351,14 +3368,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           }
           // 提升盟友士气
           if (affectedAllies.some(a => a.id === u.id) && u.morale !== MoraleStatus.CONFIDENT) {
-            const MORALE_UPGRADE: Record<string, MoraleStatus> = {
-              [MoraleStatus.FLEEING]: MoraleStatus.BREAKING,
-              [MoraleStatus.BREAKING]: MoraleStatus.WAVERING,
-              [MoraleStatus.WAVERING]: MoraleStatus.STEADY,
-              [MoraleStatus.STEADY]: MoraleStatus.CONFIDENT,
-            };
-            const newMorale = MORALE_UPGRADE[u.morale];
-            if (newMorale) {
+            const boostSteps = isBannermanRally && (u.morale === MoraleStatus.FLEEING || u.morale === MoraleStatus.BREAKING) ? 2 : 1;
+            const newMorale = improveMorale(u.morale, boostSteps);
+            if (newMorale !== u.morale) {
               rallyNames.push(u.name);
               return { ...u, morale: newMorale };
             }
@@ -3367,7 +3379,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         });
         return { ...prev, units: updatedUnits };
       });
-      addToLog(`📢 ${activeUnit.name} 振军鼓舞！周围盟友士气提升！`, 'skill');
+      addToLog(isBannermanRally
+        ? `🚩 ${activeUnit.name} 挥旗振军！大范围盟友士气提升！`
+        : `📢 ${activeUnit.name} 振军鼓舞！周围盟友士气提升！`, 'skill');
       setSelectedAbility(null);
       return;
     }
