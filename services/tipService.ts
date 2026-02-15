@@ -80,7 +80,7 @@ export const GAME_TIPS: Record<string, GameTipData> = {
   },
   combat_ap_zero: {
     id: 'combat_ap_zero',
-    text: '行动力耗尽后可结束回合，或使用"等待"在本轮稍后再行动。',
+    text: '行动力耗尽后可结束回合',
     duration: 7000,
     position: 'top',
   },

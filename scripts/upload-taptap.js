@@ -18,8 +18,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const ANDROID_DIR = join(ROOT, 'android');
 const BUILD_GRADLE_PATH = join(ANDROID_DIR, 'app', 'build.gradle');
-function getApkPath(versionName) {
-  return join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', `qingbrother-${versionName}.apk`);
+function getApkPath(versionName, versionCode) {
+  return join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', `qingbrother-${versionName}-${versionCode}.apk`);
 }
 const CONFIG_PATH = join(__dirname, 'taptap-upload.config.json');
 const UPLOAD_PARAMS_URL = 'https://cloud.tapapis.cn/apk/v1/upload-params';
@@ -208,8 +208,8 @@ async function main() {
   log('2/4 按 config 升级版本并写回 build.gradle');
   bumpVersionAndSync(config);
 
-  const apkPath = getApkPath(config.version_name);
-  const fileName = `qingbrother-${config.version_name}.apk`;
+  const apkPath = getApkPath(config.version_name, config.version_code);
+  const fileName = `qingbrother-${config.version_name}-${config.version_code}.apk`;
   log('3/4 构建 Release APK');
   buildRelease(apkPath);
 

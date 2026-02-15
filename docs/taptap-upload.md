@@ -41,7 +41,7 @@ node scripts/upload-taptap.js
 1. 读取 `scripts/taptap-upload.config.json`（含版本号；若无则从 build.gradle 同步）
 2. 按 config 递增 `version_code`（`version_name` 仅用 config 中的值，不自动改），写回 config 并同步到 `android/app/build.gradle`
 3. 执行 `android/gradlew assembleRelease` 构建 Release APK
-4. 调用 TapTap 接口获取上传参数（含签算）并上传 `qingbrother-{versionName}.apk`
+4. 调用 TapTap 接口获取上传参数（含签算）并上传 `qingbrother-{versionName}-{versionCode}.apk`
 
 上传成功后，约 3–5 分钟可在 **商店 >> 游戏资料 >> 商店资料** 中看到该包，并作为版本资料提交审核。
 

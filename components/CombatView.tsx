@@ -167,6 +167,78 @@ const isCrossbowLoaded = (unit: CombatUnit | null | undefined): boolean => {
 const AIMED_SHOT_DAMAGE_MULT = 1.2;
 const TURN_START_FATIGUE_RECOVERY = 15;
 
+interface DisplayStatus {
+  id: string;
+  icon: string;
+  label: string;
+  tone: 'buff' | 'debuff' | 'utility';
+  badge?: string;
+}
+
+const getUnitDisplayStatuses = (unit: CombatUnit): DisplayStatus[] => {
+  const statuses: DisplayStatus[] = [];
+
+  if (unit.isShieldWall) {
+    statuses.push({ id: 'shieldwall', icon: '🛡️', label: '盾墙', tone: 'buff' });
+  }
+  if (unit.isHalberdWall) {
+    statuses.push({ id: 'spearwall', icon: '🚧', label: '矛墙', tone: 'buff' });
+  }
+  if (unit.isRiposte) {
+    statuses.push({ id: 'riposte', icon: '🔄', label: '反击姿态', tone: 'buff' });
+  }
+  if (unit.isIndomitable) {
+    statuses.push({ id: 'indomitable', icon: '🗿', label: '不屈', tone: 'buff' });
+  }
+  if (unit.adrenalineActive) {
+    statuses.push({ id: 'adrenaline', icon: '💉', label: '血勇（下回合先手）', tone: 'buff' });
+  }
+  if (unit.taunting) {
+    statuses.push({ id: 'taunt', icon: '🤬', label: '挑衅（敌方优先攻击）', tone: 'buff' });
+  }
+  if ((unit.killingFrenzyTurns || 0) > 0) {
+    statuses.push({
+      id: 'killing_frenzy',
+      icon: '🔥',
+      label: '杀意（伤害提升）',
+      tone: 'buff',
+      badge: `${unit.killingFrenzyTurns}T`,
+    });
+  }
+  if ((unit.overwhelmStacks || 0) > 0) {
+    statuses.push({
+      id: 'overwhelm',
+      icon: '🕸️',
+      label: '压制（攻击力下降）',
+      tone: 'debuff',
+      badge: `${unit.overwhelmStacks}`,
+    });
+  }
+  if (unit.headHunterActive) {
+    statuses.push({ id: 'head_hunter', icon: '🎯', label: '索首（下次必中头部）', tone: 'buff' });
+  }
+  if ((unit.fastAdaptationStacks || 0) > 0) {
+    statuses.push({
+      id: 'fast_adaptation',
+      icon: '📈',
+      label: '临机应变（命中率提升）',
+      tone: 'buff',
+      badge: `${unit.fastAdaptationStacks}`,
+    });
+  }
+  if ((unit.reachAdvantageBonus || 0) > 0) {
+    statuses.push({
+      id: 'reach_advantage',
+      icon: '🧱',
+      label: '兵势（近战防御加成）',
+      tone: 'buff',
+      badge: `+${unit.reachAdvantageBonus}`,
+    });
+  }
+
+  return statuses;
+};
+
 const UnitCard: React.FC<{
   unit: CombatUnit;
   isActive: boolean;
@@ -221,6 +293,7 @@ const UnitCard: React.FC<{
     : (BACKGROUNDS[unit.background]?.name || unit.background);
 
   const isEnemy = unit.team === 'ENEMY';
+  const displayStatuses = getUnitDisplayStatuses(unit);
   
   // 士气状态
   const moraleIcon = MORALE_ICONS[unit.morale];
@@ -303,6 +376,32 @@ const UnitCard: React.FC<{
         >
           {unit.name.slice(0, showDetail ? 4 : 3)}{showDetail && typeName ? ` · ${typeName}` : ''}
         </div>
+
+        {displayStatuses.length > 0 && (
+          <div className={`flex flex-wrap justify-center gap-0.5 mb-0.5 ${showDetail ? 'min-h-[12px]' : 'min-h-[10px]'}`}>
+            {displayStatuses.map(status => {
+              const toneClass = status.tone === 'debuff'
+                ? 'border-rose-600/70 bg-rose-950/60'
+                : status.tone === 'utility'
+                  ? 'border-slate-500/70 bg-slate-900/60'
+                  : 'border-emerald-600/70 bg-emerald-950/60';
+              return (
+                <div
+                  key={status.id}
+                  className={`relative px-0.5 rounded border ${toneClass}`}
+                  title={status.label}
+                >
+                  <span className={showDetail ? 'text-[9px] leading-none' : 'text-[8px] leading-none'}>{status.icon}</span>
+                  {status.badge && (
+                    <span className="absolute -top-1 -right-1 min-w-[10px] h-[10px] px-[1px] rounded-full bg-black/90 border border-amber-500/70 text-[6px] leading-[8px] text-amber-300 text-center font-bold">
+                      {status.badge}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {showDetail && (
           <>

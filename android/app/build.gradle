@@ -48,7 +48,8 @@ android {
         variant.outputs.all { output ->
             if (variant.buildType.name == 'release') {
                 def versionName = variant.versionName
-                output.outputFileName = "qingbrother-${versionName}.apk"
+                def versionCode = variant.versionCode
+                output.outputFileName = "qingbrother-${versionName}-${versionCode}.apk"
             }
         }
     }
