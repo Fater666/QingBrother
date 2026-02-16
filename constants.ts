@@ -27,6 +27,15 @@ import MORALE_EFFECTS_CSV from './csv/morale_effects.csv?raw';
 import AMBITIONS_CSV from './csv/ambitions.csv?raw';
 import LEVEL_CONFIG_CSV from './csv/level_config.csv?raw';
 import PERK_EFFECTS_CSV from './csv/perk_effects.csv?raw';
+import BEAST_QUEST_TARGETS_CSV from './csv/beast_quest_targets.csv?raw';
+import QUEST_NPC_NAMES_CSV from './csv/quest_npc_names.csv?raw';
+import QUEST_PLACE_NAMES_CSV from './csv/quest_place_names.csv?raw';
+import QUEST_TEMPLATES_CSV from './csv/quest_templates.csv?raw';
+import ELITE_QUEST_TEMPLATES_CSV from './csv/elite_quest_templates.csv?raw';
+import QUEST_CITY_COUNT_CSV from './csv/quest_city_count.csv?raw';
+import QUEST_DIFFICULTY_POOLS_CSV from './csv/quest_difficulty_pools.csv?raw';
+import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
+import QUEST_GENERATION_RULES_CSV from './csv/quest_generation_rules.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -605,386 +614,128 @@ export const getPerkEffect = (perkId: string, effectKey: string, defaultVal: num
   return PERK_EFFECTS[perkId]?.[effectKey] ?? defaultVal;
 };
 
-// ==================== 任务描述模板池 ====================
-// NPC 姓名池
-export const QUEST_NPC_NAMES = {
-  OFFICIALS: ['赵县令', '孙郡守', '钱主簿', '李亭长', '周太守', '吴司马', '王校尉', '张功曹', '陈廷尉'],
-  MERCHANTS: ['陈掌柜', '王老板', '刘行商', '张盐商', '孙丝绸商', '马粮商', '高铁匠', '赵药商', '黄酒坊主'],
-  VILLAGERS: ['老李头', '张大娘', '王猎户', '赵寡妇', '刘樵夫', '孙牧人', '陈庄主', '林里正', '何老丈'],
-  MILITARY: ['校尉赵刚', '都尉陈武', '百夫长王勇', '守备李昭', '边将韩信', '卫尉张猛'],
-  TRIBAL: ['阏氏', '单于使者', '左贤王', '右骨都侯', '当户'],
+/** 任务目标中按野兽单位生成的名称列表（CSV驱动） */
+export const BEAST_QUEST_TARGET_NAMES = new Set(
+  parseCSV(BEAST_QUEST_TARGETS_CSV)
+    .map((row: any) => String(row.name ?? '').trim())
+    .filter((name: string) => !!name)
+);
+
+// ==================== 任务描述模板池（CSV驱动） ====================
+type QuestBiome = 'NORTHERN_TUNDRA' | 'CENTRAL_PLAINS' | 'SOUTHERN_WETLANDS' | 'FAR_SOUTH_DESERT';
+type QuestNpcGroup = 'OFFICIALS' | 'MERCHANTS' | 'VILLAGERS' | 'MILITARY' | 'TRIBAL';
+type QuestTypeConfig = 'HUNT' | 'ESCORT' | 'PATROL' | 'DELIVERY';
+
+const _questNpcRows = parseCSV(QUEST_NPC_NAMES_CSV) as { group: QuestNpcGroup; name: string }[];
+const _questPlaceRows = parseCSV(QUEST_PLACE_NAMES_CSV) as { biome: QuestBiome; place: string }[];
+
+export interface QuestTemplateRow {
+  biome: QuestBiome;
+  questType: QuestTypeConfig;
+  target: string;
+  title1: string;
+  title2: string;
+  title3: string;
+  description: string;
+}
+
+export interface EliteQuestTemplateRow extends QuestTemplateRow {
+  minDifficulty: 1 | 2 | 3;
+  requiredReputation: number;
+}
+
+export const QUEST_NPC_NAMES: Record<QuestNpcGroup, string[]> = {
+  OFFICIALS: _questNpcRows.filter(r => r.group === 'OFFICIALS').map(r => r.name),
+  MERCHANTS: _questNpcRows.filter(r => r.group === 'MERCHANTS').map(r => r.name),
+  VILLAGERS: _questNpcRows.filter(r => r.group === 'VILLAGERS').map(r => r.name),
+  MILITARY: _questNpcRows.filter(r => r.group === 'MILITARY').map(r => r.name),
+  TRIBAL: _questNpcRows.filter(r => r.group === 'TRIBAL').map(r => r.name),
 };
 
-// 地名池
-export const QUEST_PLACE_NAMES = {
-  NORTHERN_TUNDRA: ['白狼岭', '冰河渡', '风雪关', '苍狼谷', '北望台', '寒铁矿', '朔风隘', '冻土坡', '雪灵山', '霜刃峰'],
-  CENTRAL_PLAINS: ['落霞坡', '青牛岗', '柳叶渡', '官道口', '枫林铺', '金鸡岭', '望乡台', '桃花镇', '卧虎岗', '龙门驿'],
-  SOUTHERN_WETLANDS: ['雾隐泽', '毒蛇溪', '瘴气林', '百越寨', '蛮荒岭', '幽篁谷', '密林深处', '苍梧山', '象牙潭', '蛟龙湾'],
-  FAR_SOUTH_DESERT: ['黄沙渡', '驼铃泉', '流沙城', '烈日谷', '绿洲镇', '沙丘关', '胡杨林', '月牙泉', '戈壁滩', '天山口'],
+export const QUEST_PLACE_NAMES: Record<QuestBiome, string[]> = {
+  NORTHERN_TUNDRA: _questPlaceRows.filter(r => r.biome === 'NORTHERN_TUNDRA').map(r => r.place),
+  CENTRAL_PLAINS: _questPlaceRows.filter(r => r.biome === 'CENTRAL_PLAINS').map(r => r.place),
+  SOUTHERN_WETLANDS: _questPlaceRows.filter(r => r.biome === 'SOUTHERN_WETLANDS').map(r => r.place),
+  FAR_SOUTH_DESERT: _questPlaceRows.filter(r => r.biome === 'FAR_SOUTH_DESERT').map(r => r.place),
 };
 
-// 各区域各类型的任务描述模板
-export const QUEST_TEMPLATES = {
-  NORTHERN_TUNDRA: {
-    HUNT: [
-      {
-        targets: ['北疆狼群', '雪狼', '冻土野狼', '白毛狼王', '冰原巨狼'],
-        titles: (diff: 1|2|3) => diff === 1 ? '驱逐狼群' : diff === 2 ? '猎杀狼王' : '荡平狼穴',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}面色焦虑地说道：「近日${place}一带，有一群${target}频繁出没，已经有三个牧民被咬死了。我已无力再等官府调兵——你们若能去处理此事，报酬绝不会少。」`,
-          (target: string, place: string, npc: string) => `${npc}压低声音道：「你可听说了？${place}那边的${target}越来越猖獗了。上个月有个送信的军卒在那里被围攻，尸骨无存。谁能替我除了这祸害，我出双倍赏金。」`,
-          (target: string, place: string, npc: string) => `酒肆角落，${npc}拍着桌子道：「我的羊群又被${target}叼走了十几只！${place}都快成狼窝了。要是有好汉肯替我出头，这笔银子我认了。」`,
-          (target: string, place: string, _npc: string) => `告示上写道：「${place}近来${target}为患，袭击边民牲畜，甚至有哨兵夜间失踪。凡能清剿此害者，赏黄金若干。」——墨迹尚新，似乎是今早才贴上的。`,
-        ],
-      },
-      {
-        targets: ['逃兵', '北疆匪帮', '马贼', '流亡兵卒'],
-        titles: (diff: 1|2|3) => diff === 1 ? '缉拿逃兵' : diff === 2 ? '清剿北疆匪帮' : '扫灭马贼头子',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}叹了口气：「一群${target}从前线逃回来，在${place}附近烧杀抢掠。朝廷的兵力都被调去了前方，这里只剩我们自己了。能帮帮忙吗？」`,
-          (target: string, place: string, npc: string) => `${npc}神色凝重：「${place}那伙${target}已经杀了两个驿卒，朝廷公文都送不出去了。我以个人名义悬赏——不能再等了。」`,
-          (target: string, place: string, npc: string) => `${npc}搓着手道：「听说${place}来了一股${target}，个个穷凶极恶。边关的驻军人手不够，你们能不能帮忙剿了他们？钱不是问题。」`,
-        ],
-      },
-      {
-        targets: ['匈奴斥候', '游牧骑手', '胡骑前哨', '北狄游骑'],
-        titles: (diff: 1|2|3) => diff === 1 ? '驱逐胡骑' : diff === 2 ? '截杀斥候' : '歼灭游骑精锐',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}面色严峻：「${place}方向发现了${target}的踪迹，看马蹄印不下十骑。如果是大军前哨，事情就严重了——先去把他们解决掉，别让消息传回去。」`,
-          (target: string, place: string, npc: string) => `${npc}压低嗓门：「有牧民在${place}附近撞见了${target}，吓得连羊群都不要就跑了。去看看是什么情况——能杀就杀，杀不了就回来报信。」`,
-          (target: string, place: string, _npc: string) => `烽火台传来急报：「${place}方向发现${target}活动迹象，疑为敌军前锋探路。请速派人前往查探歼灭，不可令其回报敌营。」`,
-        ],
-      },
-    ],
-    PATROL: [
-      {
-        titles: (_diff: 1|2|3) => '边境巡逻',
-        descs: [
-          (place: string, npc: string) => `${npc}递来一卷边报：「${place}一带近来不太平，北方游牧部落的斥候频繁出没。需要一队人沿着边墙巡查一趟，确认没有大队人马南下的迹象。」`,
-          (place: string, npc: string) => `${npc}说道：「${place}的哨塔三天前就没了回信。去查看一下情况——如果只是大雪封路还好，怕的是……唉，别想太多，去看看就行。」`,
-          (place: string, npc: string) => `${npc}递过一壶热酒：「${place}的守军换防还要三天，但最近那边总有不明骑队出没。去帮他们看看，回来我请你们喝酒。」`,
-        ],
-      },
-    ],
-    ESCORT: [
-      {
-        titles: (_diff: 1|2|3) => '护送辎重',
-        descs: [
-          (place: string, npc: string) => `${npc}指着几辆大车：「这批皮裘和药材要送到${place}的守军那里，路上风雪大不说，还有马贼出没。你们帮忙护送一趟，赏钱少不了。」`,
-          (place: string, npc: string) => `${npc}搓着冻红的手：「${place}的弟兄们快断粮了，这批粮草必须送到。路不好走，还可能碰上狼群或者逃兵——需要你们这样的好手护驾。」`,
-        ],
-      },
-    ],
-  },
-  CENTRAL_PLAINS: {
-    HUNT: [
-      {
-        targets: ['流寇', '山贼', '劫匪', '盗贼', '响马'],
-        titles: (diff: 1|2|3) => diff === 1 ? '剿灭流寇' : diff === 2 ? '清缴山寨' : '讨伐悍匪头目',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}一拍桌案：「${place}那帮${target}简直无法无天！前天劫了我三车丝绸，打伤了五个伙计。谁能把他们连窝端了，我不但出赏银，还额外送一车好酒！」`,
-          (target: string, place: string, npc: string) => `${npc}苦笑道：「不瞒各位，官道上那伙${target}已经猖狂到光天化日之下拦路收'过路钱'了。${place}附近的商贾苦不堪言。诸位若是有本事，烦请出手相助。」`,
-          (target: string, place: string, npc: string) => `告示栏上，${npc}的悬赏令赫然在列：「缉拿${place}一带${target}，此贼屡犯官道，袭杀行商旅客。官府捕快力有不逮，特悬赏民间义士缉拿之。」`,
-          (target: string, place: string, _npc: string) => `一个浑身是血的行商跌跌撞撞跑进酒肆：「${place}那边……有一帮${target}……杀了我所有伙计……求求你们……」——酒肆掌柜转头看向你：「诸位好汉，这生意你们接不接？」`,
-          (target: string, place: string, npc: string) => `${npc}叹道：「自从那伙${target}盘踞在${place}，周围十里没人敢走夜路。再这样下去，集市都要散了。列位壮士，可否替百姓除此大害？」`,
-        ],
-      },
-      {
-        targets: ['叛军残部', '逃犯', '哗变兵卒', '黄巾余党'],
-        titles: (diff: 1|2|3) => diff === 1 ? '追缉逃犯' : diff === 2 ? '围剿叛军残部' : '讨伐叛将',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}取出一份通缉文书：「${place}附近发现了一伙${target}的踪迹，人数不明，但据报有甲胄兵刃。此事关乎朝廷颜面，赏金从优。」`,
-          (target: string, place: string, npc: string) => `${npc}低声道：「此事不宜声张——${place}那伙${target}身上可能还带着重要军情。活捉最好，不行就杀了，但一定要搜回文书。」`,
-          (target: string, place: string, npc: string) => `${npc}拍了拍桌上的文书：「${place}那帮${target}又闹事了，这回还绑了个里正的儿子。朝廷催得紧，你们要是能办了这事，赏银加倍。」`,
-        ],
-      },
-      {
-        targets: ['邪教徒', '方士余党', '妖言惑众者', '异端教众'],
-        titles: (diff: 1|2|3) => diff === 1 ? '清查邪教' : diff === 2 ? '捣毁邪祠' : '铲除邪教首领',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}愁眉不展：「${place}那边出了一帮${target}，蛊惑百姓献粮献钱，还扬言要'替天行道'。再不管管，怕是要出大乱子。」`,
-          (target: string, place: string, npc: string) => `${npc}正色道：「有密报称${place}附近聚集了一群${target}，私铸兵器，行迹诡秘。此事关系重大——去把他们的老巢端了，务必搜出幕后之人。」`,
-          (target: string, place: string, _npc: string) => `酒肆中有人低声议论：「听说${place}那边的${target}又在闹了，半夜里火光冲天，把附近的村民都吓跑了。」——这种事，正需要你们这样的人来解决。`,
-        ],
-      },
-    ],
-    PATROL: [
-      {
-        titles: (_diff: 1|2|3) => '官道巡检',
-        descs: [
-          (place: string, npc: string) => `${npc}展开地图：「最近${place}一带盗匪活动频繁，官道商旅多有损失。需要一队人沿着主干道巡逻一趟，让那些宵小知道有人在盯着。」`,
-          (place: string, npc: string) => `${npc}正色道：「${place}的驿站已经连续两天没有收到邸报了。你们去巡查一下沿途情况，若遇到什么可疑之人，直接拿下。」`,
-          (place: string, npc: string) => `${npc}揉着太阳穴：「${place}沿线最近盗案频发，有商人联名上书要求加派巡逻。你们替我跑一趟，顺便震慑一下那些宵小。」`,
-        ],
-      },
-    ],
-    ESCORT: [
-      {
-        titles: (_diff: 1|2|3) => '护送商队',
-        descs: [
-          (place: string, npc: string) => `${npc}愁眉不展：「我有一批盐铁要运往${place}，但最近路上不太平，上一支商队都被劫了。需要几个靠得住的好手押镖，价钱好商量。」`,
-          (place: string, npc: string) => `${npc}说道：「朝廷有批军粮要送到${place}。虽然有文书在手，但这年头匪贼可不认公文。能者多劳——你们来护送，路上安全就好。」`,
-          (place: string, npc: string) => `${npc}端着茶杯叹气：「这已经是第三支被劫的商队了……我还有最后一批货要送到${place}，这次说什么也得找几个靠谱的护卫。诸位意下如何？」`,
-        ],
-      },
-    ],
-    DELIVERY: [
-      {
-        titles: (_diff: 1|2|3) => '送信传令',
-        descs: [
-          (place: string, npc: string) => `${npc}递来一封密信：「这封急报必须在五日内送到${place}。沿途可能有人截杀信使——之前已经折了两个了。你们人多，应该能行。」`,
-          (place: string, npc: string) => `${npc}从袖中取出竹简：「这份军令要送到${place}的守将手中，时间紧迫。路上小心——有人不想让这封信送到。」`,
-        ],
-      },
-    ],
-  },
-  SOUTHERN_WETLANDS: {
-    HUNT: [
-      {
-        targets: ['沼泽蛮人', '密林蛮族', '越人战士', '蛮族猎头', '百越蛮兵'],
-        titles: (diff: 1|2|3) => diff === 1 ? '清剿蛮族' : diff === 2 ? '击破蛮寨' : '斩杀蛮王',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}面带忧色：「${place}深处的那些${target}越来越大胆了。上个月他们竟然摸到了镇子边上，抢走了十几个年轻人。再不出兵，怕是整个镇子都要被洗劫了。」`,
-          (target: string, place: string, npc: string) => `${npc}低声说：「那些${target}在${place}盘踞了好些年了。他们熟悉地形，官兵去了几次都铩羽而归。但你们是佣兵，不受那些条条框框约束——去把他们的头领杀了，报酬翻倍。」`,
-          (target: string, place: string, _npc: string) => `瘴气弥漫的告示板上钉着一张布告：「${place}之${target}频繁犯境，劫掠村落无数。现悬赏征募勇士深入密林讨伐，不论生死，凭首级领赏。」`,
-          (target: string, place: string, npc: string) => `${npc}拿出一件沾血的蛮族饰物：「这是在${place}找到的——和那些${target}的图腾一模一样。他们已经在筹备下一次大规模袭击了。必须趁他们还没准备好之前先动手。」`,
-        ],
-      },
-      {
-        targets: ['水贼', '江匪', '水寨盗匪', '沿河劫匪'],
-        titles: (diff: 1|2|3) => diff === 1 ? '清剿水贼' : diff === 2 ? '攻破水寨' : '歼灭江匪头目',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}无奈道：「${place}那帮${target}把水路都封了，渔民不敢出船，商船更是绕道百里。你们若能把他们的水寨端了，沿河百姓都念你们的好。」`,
-          (target: string, place: string, npc: string) => `${npc}一拍大腿：「又来了！${place}的${target}昨晚又劫了一条粮船！朝廷的漕运都受影响了。这帮贼人不除，日子没法过。」`,
-          (target: string, place: string, _npc: string) => `码头上贴着告示：「${place}水域${target}猖獗，凡能剿灭者，赏金从厚。活捉匪首者另有重赏。」`,
-        ],
-      },
-    ],
-    PATROL: [
-      {
-        titles: (_diff: 1|2|3) => '密林侦察',
-        descs: [
-          (place: string, npc: string) => `${npc}指着地图上一片绿色区域：「${place}附近最近发现了可疑的烟火和脚印。需要人深入林中探查，弄清楚是蛮族的前哨还是只是猎人的营地。」`,
-          (place: string, npc: string) => `${npc}蹙眉道：「${place}那片林子里最近常有怪声传出，附近的樵夫都不敢进去了。去看看到底怎么回事——可能是蛮族在集结。」`,
-        ],
-      },
-    ],
-    ESCORT: [
-      {
-        titles: (_diff: 1|2|3) => '护送药商',
-        descs: [
-          (place: string, npc: string) => `${npc}擦着额头的汗：「我要去${place}收一批珍贵药材，但那片林子蛮族出没，上次去的伙计到现在都没回来。需要几位好手随行保护。」`,
-          (place: string, npc: string) => `${npc}拱手道：「有一位大夫要去${place}义诊，但路途凶险。朝廷特拨银两雇人护送——此事功德无量，报酬也不会薄了诸位。」`,
-        ],
-      },
-    ],
-    DELIVERY: [
-      {
-        titles: (_diff: 1|2|3) => '传递军情',
-        descs: [
-          (place: string, npc: string) => `${npc}取出一个密封的竹筒：「这是前方的军情急报，必须送到${place}的守将手中。走水路太慢，陆路又有蛮族出没——只能靠你们了。」`,
-          (place: string, npc: string) => `${npc}低声道：「${place}那边出了急事，需要把这封信尽快送到。林子里不太平，小心蛮族的埋伏。」`,
-        ],
-      },
-    ],
-  },
-  FAR_SOUTH_DESERT: {
-    HUNT: [
-      {
-        targets: ['胡人劫掠者', '沙匪', '戎狄骑兵', '马匪', '流沙盗'],
-        titles: (diff: 1|2|3) => diff === 1 ? '驱逐沙匪' : diff === 2 ? '击退胡骑' : '斩杀沙盗首领',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}抹了把额头上的汗：「${place}那帮${target}又来了！每次商队经过都要被劫——已经没人敢走那条路了。你们要是能把他们赶走，我代表整个绿洲感谢你们。」`,
-          (target: string, place: string, npc: string) => `${npc}咬牙切齿：「那群${target}把${place}当成了自家地盘！上个月连我们的水井都被霸占了。这是生死之仇——赏金我出，你们只管去杀。」`,
-          (target: string, place: string, _npc: string) => `在风沙中摇曳的旗幡上刻着悬赏令：「${place}一带${target}肆虐，劫掠商旅、屠戮无辜。凡能诛灭此贼者，绿洲诸城共出黄金百两。」`,
-          (target: string, place: string, npc: string) => `${npc}从怀里掏出一块碎裂的玉佩：「这是我兄弟的遗物……他的商队在${place}被${target}杀了个干净。我没有本事报仇，但我有钱。你们收下定金，替我了结此事。」`,
-        ],
-      },
-      {
-        targets: ['沙漠独行客', '荒漠游匪', '绿洲劫匪', '沙丘伏击者'],
-        titles: (diff: 1|2|3) => diff === 1 ? '清除路匪' : diff === 2 ? '扫荡沙贼' : '端掉匪巢',
-        descs: [
-          (target: string, place: string, npc: string) => `${npc}指着地图上的标记：「${place}那条路上近来常有${target}出没，专挑落单的旅人下手。已经有好几个人失踪了——去把他们找出来。」`,
-          (target: string, place: string, npc: string) => `${npc}喝了口水润润嗓子：「有商人报告在${place}遭到${target}伏击，虽然侥幸逃脱，但货物全丢了。这些贼人熟悉地形，普通人对付不了——得靠你们。」`,
-          (target: string, place: string, _npc: string) => `集市口，一个衣衫褴褛的旅人在哭诉：「${place}有一帮${target}，把我身上最后一文钱都抢走了……」——周围商贩纷纷附和，看来这帮匪徒已经臭名昭著了。`,
-        ],
-      },
-    ],
-    PATROL: [
-      {
-        titles: (_diff: 1|2|3) => '商路护卫',
-        descs: [
-          (place: string, npc: string) => `${npc}指着远方的沙丘：「${place}那段商路已经好几天没有驼队安全通过了。去巡视一番，顺便确认那些马匪的营地位置——下次我们好一网打尽。」`,
-          (place: string, npc: string) => `${npc}展开一幅粗糙的地图：「${place}周围需要定期巡逻，确保商路畅通。上次巡逻的队伍发现了几处可疑营火——这次多留个心眼。」`,
-        ],
-      },
-    ],
-    ESCORT: [
-      {
-        titles: (_diff: 1|2|3) => '护送驼队',
-        descs: [
-          (place: string, npc: string) => `${npc}一脸恳切：「我有一支驼队要穿过${place}到对面的绿洲去。路上沙匪出没，需要有人护卫。到了地方，报酬照付，一文不少。」`,
-          (place: string, npc: string) => `${npc}递来一袋水囊：「这支驼队载着丝绸和香料，价值连城。经过${place}时最危险——那帮沙匪肯定会来劫。我出高价雇你们护送。」`,
-        ],
-      },
-    ],
-    DELIVERY: [
-      {
-        titles: (_diff: 1|2|3) => '紧急传信',
-        descs: [
-          (place: string, npc: string) => `${npc}递来一个密封的皮袋：「这封信要送到${place}的守将手中，十万火急。沙暴季节路不好走，还有马匪——但这信关系到整个绿洲的安危。」`,
-          (place: string, npc: string) => `${npc}低声道：「${place}那边的水源出了问题，需要尽快把消息送到绿洲长老手中。路上快些——沙漠里拖不得。」`,
-        ],
-      },
-    ],
-  },
-};
+export const QUEST_TEMPLATE_ROWS: QuestTemplateRow[] = parseCSV(QUEST_TEMPLATES_CSV).map((r: any) => ({
+  biome: r.biome,
+  questType: r.questType,
+  target: String(r.target ?? ''),
+  title1: String(r.title1 ?? ''),
+  title2: String(r.title2 ?? ''),
+  title3: String(r.title3 ?? ''),
+  description: String(r.description ?? ''),
+}));
 
-// 高声望专属任务模板
-export const ELITE_QUEST_TEMPLATES = {
-  NORTHERN_TUNDRA: [
-    {
-      type: 'HUNT' as const,
-      targets: ['北疆巨熊', '冰原霸主', '白毛王狼'],
-      titles: (diff: 1|2|3) => diff === 3 ? '猎杀冰原霸主' : '征讨极北巨兽',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}慎重地从袖中取出密令：「${place}出现了一头${target}——不是普通的野兽，连驻军校尉都折了两个什伍在它手上。此事不能公开悬赏，只有你们这种有声望的战团才信得过。报酬丰厚，但生死自负。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 200,
-    },
-    {
-      type: 'HUNT' as const,
-      targets: ['匈奴前锋', '北狄精骑', '单于亲卫'],
-      titles: (_diff: 1|2|3) => '截击敌军先锋',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}面色如铁：「斥候回报，${place}方向发现了一支${target}，人数约五十骑，正往边墙方向移动。驻军不敢轻动——但你们可以。在他们到达之前截住他们，赏格从优。」`,
-        (target: string, place: string, npc: string) => `${npc}将一面令旗拍在桌上：「持此令旗，前往${place}截击${target}。此战关系到整个北疆防线的安危——朝廷不会亏待有功之人。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 300,
-    },
-    {
-      type: 'PATROL' as const,
-      targets: ['匈奴斥候', '北狄游骑'],
-      titles: (_diff: 1|2|3) => '深入敌境侦察',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}展开一幅残破的地图：「我们需要有人越过边墙，深入${place}侦察${target}的兵力部署。这趟差事九死一生——但只有你们这样的精锐才能胜任。」`,
-      ],
-      minDifficulty: 2 as 1|2|3,
-      requiredReputation: 400,
-    },
-  ],
-  CENTRAL_PLAINS: [
-    {
-      type: 'HUNT' as const,
-      targets: ['山寨大头领', '太行群盗', '黑风寨主'],
-      titles: (_diff: 1|2|3) => '围剿巨寇',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}用朱笔在地图上重重画了个圈：「${place}的${target}已经盘踞多年，手下精兵数百，占山为王。朝廷数次围剿皆无功而返。如今只能另辟蹊径——你们的战团声名远扬，能否替朝廷除此大患？赏金——你开价。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 300,
-    },
-    {
-      type: 'ESCORT' as const,
-      targets: [],
-      titles: (_diff: 1|2|3) => '护送朝廷密使',
-      descs: [
-        (_target: string, place: string, npc: string) => `${npc}左右张望了一下，确认无人偷听：「有一位……身份特殊的人物，需要秘密护送到${place}。路上必定有人截杀。这趟活儿只有信得过的人才能做——你们的声望够格。」`,
-      ],
-      minDifficulty: 2 as 1|2|3,
-      requiredReputation: 400,
-    },
-    {
-      type: 'HUNT' as const,
-      targets: ['叛军主力', '反贼大将', '义军首领'],
-      titles: (_diff: 1|2|3) => '平定叛乱',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}拿出一份加盖了朝廷大印的文书：「${place}的${target}已经聚众数千，公然对抗朝廷。正规军正在调集，但远水救不了近火——需要你们先去拖住他们，甚至……直接斩首。赏金，够买下半座城。」`,
-        (target: string, place: string, npc: string) => `${npc}压低声音：「${place}的${target}实力不可小觑，据说手下有不少老兵油子。朝廷的意思是——不惜代价，尽快解决。你们是唯一信得过的战团。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 600,
-    },
-    {
-      type: 'HUNT' as const,
-      targets: ['邪教教主', '方术宗师', '妖僧'],
-      titles: (_diff: 1|2|3) => '诛邪除魔',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}神情严肃：「${place}有一个${target}，蛊惑了数百信众，已经开始公然对抗官府。此人诡计多端，身边还有死士护卫——必须派最精锐的人去。你们的声望够格接这个活。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 300,
-    },
-  ],
-  SOUTHERN_WETLANDS: [
-    {
-      type: 'HUNT' as const,
-      targets: ['蛮王近卫', '越族大祭司', '丛林霸主'],
-      titles: (_diff: 1|2|3) => '深入蛮荒',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}展开一幅手绘地图，上面标满了危险标记：「${place}最深处有一个${target}的据点。普通兵卒进去就是送死——瘴气、毒虫、陷阱，样样要人命。但你们不一样。你们是久经沙场的老手。去把那祸根拔了——报酬，我会让你满意的。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 300,
-    },
-    {
-      type: 'HUNT' as const,
-      targets: ['百越联军', '蛮族大酋长', '越王余部'],
-      titles: (_diff: 1|2|3) => '讨伐蛮王',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}站在沙盘前，指着${place}的位置：「${target}集结了周围数个部落的力量，正在筹备大规模南侵。朝廷的大军至少还要一个月才能到——我们等不了那么久。你们的战团是唯一能在这个时间内解决问题的力量。」`,
-        (target: string, place: string, npc: string) => `${npc}递来一柄蛮族短刀：「这是从${place}阵亡的哨兵身上找到的。${target}的势力已经膨胀到了危险的程度。朝廷需要一支精锐，深入密林将其斩首——非你们莫属。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 400,
-    },
-    {
-      type: 'ESCORT' as const,
-      targets: [],
-      titles: (_diff: 1|2|3) => '护送朝廷特使',
-      descs: [
-        (_target: string, place: string, npc: string) => `${npc}环顾四周后低声道：「朝廷派了一位特使前往${place}与百越首领议和。此行凶险万分——不但蛮族中有人反对和谈，朝中也有人不想让此事成功。需要你们这样声望卓著的战团全程护卫。」`,
-      ],
-      minDifficulty: 2 as 1|2|3,
-      requiredReputation: 400,
-    },
-  ],
-  FAR_SOUTH_DESERT: [
-    {
-      type: 'HUNT' as const,
-      targets: ['沙盗王', '戎狄大汗', '胡骑精锐'],
-      titles: (_diff: 1|2|3) => '斩首行动',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}从锁着的箱子里取出一份文书：「${place}的${target}手握数百精骑，已经严重威胁到了整条丝路的安全。朝廷拨了一笔特别军费——但这钱不是给正规军的，是给你们这样的人的。条件只有一个：把头领的人头带回来。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 400,
-    },
-    {
-      type: 'HUNT' as const,
-      targets: ['沙漠霸主', '大漠枭雄', '西域马王'],
-      titles: (_diff: 1|2|3) => '荡平沙匪王庭',
-      descs: [
-        (target: string, place: string, npc: string) => `${npc}将一块令牌推到你面前：「${place}的${target}——整个南疆最大的祸患。他手下有上千骑兵，控制了三处绿洲的水源。朝廷给了死命令：不惜一切代价除掉此人。持此令牌，你可以调动沿途所有驿站的物资补给。」`,
-        (target: string, place: string, npc: string) => `${npc}叹了口气：「多少人死在了${place}……${target}的势力太大了，朝廷的正规军每次出征都被游击战术拖垮。但你们不一样——小股精锐，快进快出。这可能是唯一的办法。」`,
-      ],
-      minDifficulty: 3 as 1|2|3,
-      requiredReputation: 600,
-    },
-    {
-      type: 'ESCORT' as const,
-      targets: [],
-      titles: (_diff: 1|2|3) => '护送使团出塞',
-      descs: [
-        (_target: string, place: string, npc: string) => `${npc}正了正衣冠：「朝廷要派使团前往${place}与西域诸国通好。路途遥远，沙匪横行——需要一支信得过的精锐护卫。你们战团声名远播，正合此任。」`,
-      ],
-      minDifficulty: 2 as 1|2|3,
-      requiredReputation: 300,
-    },
-  ],
-};
+export const ELITE_QUEST_TEMPLATE_ROWS: EliteQuestTemplateRow[] = parseCSV(ELITE_QUEST_TEMPLATES_CSV).map((r: any) => ({
+  biome: r.biome,
+  questType: r.questType,
+  target: String(r.target ?? ''),
+  title1: String(r.title1 ?? ''),
+  title2: String(r.title2 ?? ''),
+  title3: String(r.title3 ?? ''),
+  description: String(r.description ?? ''),
+  minDifficulty: (Math.max(1, Math.min(3, Number(r.minDifficulty || 1))) as 1 | 2 | 3),
+  requiredReputation: Number(r.requiredReputation || 0),
+}));
+
+export interface QuestCityCountRule {
+  cityType: 'VILLAGE' | 'TOWN' | 'CAPITAL';
+  min: number;
+  max: number;
+}
+
+export interface QuestDifficultyPoolRule {
+  cityType: 'VILLAGE' | 'TOWN' | 'CAPITAL';
+  questCount: number;
+  pool: (1 | 2 | 3)[];
+  weight: number;
+}
+
+export interface QuestRewardRule {
+  questType: 'HUNT' | 'PATROL' | 'ESCORT' | 'DELIVERY' | 'ELITE';
+  difficulty: 1 | 2 | 3;
+  rewardMin: number;
+  rewardMax: number;
+  daysLeft: number;
+  patrolKillsRequired: number;
+}
+
+export interface QuestGenerationRule {
+  cityType: 'VILLAGE' | 'TOWN' | 'CAPITAL';
+  huntWeight: number;
+  eliteChance: number;
+}
+
+export const QUEST_CITY_COUNT_RULES: QuestCityCountRule[] = parseCSV(QUEST_CITY_COUNT_CSV).map((r: any) => ({
+  cityType: r.cityType,
+  min: Number(r.min || 1),
+  max: Number(r.max || 1),
+}));
+
+export const QUEST_DIFFICULTY_POOL_RULES: QuestDifficultyPoolRule[] = parseCSV(QUEST_DIFFICULTY_POOLS_CSV).map((r: any) => ({
+  cityType: r.cityType,
+  questCount: Number(r.questCount || 1),
+  pool: (Array.isArray(r.pool) ? r.pool : [r.pool]).map((n: any) => Math.max(1, Math.min(3, Number(n || 1))) as 1 | 2 | 3),
+  weight: Number(r.weight || 1),
+}));
+
+export const QUEST_REWARD_RULES: QuestRewardRule[] = parseCSV(QUEST_REWARD_RULES_CSV).map((r: any) => ({
+  questType: r.questType,
+  difficulty: Math.max(1, Math.min(3, Number(r.difficulty || 1))) as 1 | 2 | 3,
+  rewardMin: Number(r.rewardMin || 0),
+  rewardMax: Number(r.rewardMax || 0),
+  daysLeft: Number(r.daysLeft || 7),
+  patrolKillsRequired: Number(r.patrolKillsRequired || 0),
+}));
+
+export const QUEST_GENERATION_RULES: QuestGenerationRule[] = parseCSV(QUEST_GENERATION_RULES_CSV).map((r: any) => ({
+  cityType: r.cityType,
+  huntWeight: Number(r.huntWeight ?? 0.45),
+  eliteChance: Number(r.eliteChance ?? 0),
+}));
 
 // 旧版兼容（保留不删，部分逻辑可能引用）
 export const QUEST_FLAVOR_TEXTS = {

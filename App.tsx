@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES } from './constants';
 import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -1755,8 +1755,7 @@ export const App: React.FC = () => {
                   Math.hypot(ent.x - patrolX, ent.y - patrolY) <= patrolRadius + 1.6
                 );
                 if (!hasHostileInPatrolArea) {
-                  const beastNames = new Set(['北疆狼群', '雪狼', '冻土野狼']);
-                  const isBeast = !!activePatrolQuest.targetEntityName && beastNames.has(activePatrolQuest.targetEntityName);
+                  const isBeast = !!activePatrolQuest.targetEntityName && BEAST_QUEST_TARGET_NAMES.has(activePatrolQuest.targetEntityName);
                   const entityType: WorldEntity['type'] = isBeast ? 'BEAST' : 'BANDIT';
                   const worldAIType: WorldAIType = isBeast ? 'BEAST' : 'BANDIT';
                   const spawnAngle = Math.random() * Math.PI * 2;
@@ -2574,8 +2573,7 @@ export const App: React.FC = () => {
                             const questEntId = `quest-target-${q.id}-${Date.now()}`;
                             
                             // 根据目标名称推断实体类型
-                            const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
-                            const isBeast = beastNames.includes(q.targetEntityName);
+                            const isBeast = BEAST_QUEST_TARGET_NAMES.has(q.targetEntityName);
                             const entityType = isBeast ? 'BEAST' : 'BANDIT';
                             const worldAIType = isBeast ? 'BEAST' : 'BANDIT';
                             
@@ -2652,8 +2650,7 @@ export const App: React.FC = () => {
 
                         if (q.targetEntityName) {
                           const patrolPackCount = q.difficulty >= 2 ? 2 : 1;
-                          const beastNames = ['北疆狼群', '雪狼', '冻土野狼'];
-                          const isBeast = beastNames.includes(q.targetEntityName);
+                          const isBeast = BEAST_QUEST_TARGET_NAMES.has(q.targetEntityName);
                           const entityType = isBeast ? 'BEAST' : 'BANDIT';
                           const worldAIType = isBeast ? 'BEAST' : 'BANDIT';
                           const spawned: WorldEntity[] = [];

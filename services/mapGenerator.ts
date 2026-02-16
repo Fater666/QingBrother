@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, ELITE_QUEST_TEMPLATES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG, isBannerWeapon } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, QUEST_TEMPLATE_ROWS, ELITE_QUEST_TEMPLATE_ROWS, QUEST_CITY_COUNT_RULES, QUEST_DIFFICULTY_POOL_RULES, QUEST_REWARD_RULES, QUEST_GENERATION_RULES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG, isBannerWeapon } from '../constants';
 
 // ============================================================================
 // 柏林噪声实现 (Simplex-like Noise)
@@ -580,34 +580,9 @@ const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
  * 根据城市规模确定任务数量
  */
 const getQuestCount = (cityType: City['type']): number => {
-  switch (cityType) {
-    case 'VILLAGE': return 1 + (Math.random() < 0.5 ? 1 : 0); // 1-2
-    case 'TOWN': return 2 + Math.floor(Math.random() * 3);      // 2-4
-    case 'CAPITAL': return 3 + Math.floor(Math.random() * 3);   // 3-5
-  }
-};
-
-/**
- * 难度分布池（仿战场兄弟）
- * 按城市类型和契约数量，定义加权的难度组合池，确保同一城市契约难度多样性。
- * 村庄不出三星；城镇三星最多1个；王都三星最多2个。
- */
-type DiffPool = { pool: (1|2|3)[]; weight: number };
-const DIFFICULTY_POOLS: Record<City['type'], Record<number, DiffPool[]>> = {
-  VILLAGE: {
-    1: [{ pool: [1], weight: 4 }, { pool: [2], weight: 1 }],
-    2: [{ pool: [1, 1], weight: 3 }, { pool: [1, 2], weight: 5 }, { pool: [2, 2], weight: 1 }],
-  },
-  TOWN: {
-    2: [{ pool: [1, 2], weight: 5 }, { pool: [1, 1], weight: 2 }, { pool: [2, 3], weight: 2 }],
-    3: [{ pool: [1, 1, 2], weight: 3 }, { pool: [1, 2, 2], weight: 4 }, { pool: [1, 2, 3], weight: 3 }],
-    4: [{ pool: [1, 1, 2, 2], weight: 2 }, { pool: [1, 1, 2, 3], weight: 4 }, { pool: [1, 2, 2, 3], weight: 4 }],
-  },
-  CAPITAL: {
-    3: [{ pool: [1, 2, 3], weight: 4 }, { pool: [2, 2, 3], weight: 3 }, { pool: [1, 2, 2], weight: 2 }],
-    4: [{ pool: [1, 2, 2, 3], weight: 3 }, { pool: [1, 2, 3, 3], weight: 3 }, { pool: [2, 2, 2, 3], weight: 2 }],
-    5: [{ pool: [1, 2, 2, 3, 3], weight: 3 }, { pool: [1, 1, 2, 3, 3], weight: 2 }, { pool: [2, 2, 2, 3, 3], weight: 2 }, { pool: [1, 2, 3, 3, 3], weight: 1 }],
-  },
+  const rule = QUEST_CITY_COUNT_RULES.find(r => r.cityType === cityType);
+  if (!rule) return 1;
+  return randRange(rule.min, rule.max);
 };
 
 /** Fisher-Yates 洗牌 */
@@ -635,7 +610,9 @@ const generateDifficultyDistribution = (normalQuestCount: number, cityType: City
     return shuffle(adjusted);
   };
 
-  const poolsForCount = DIFFICULTY_POOLS[cityType]?.[normalQuestCount];
+  const poolsForCount = QUEST_DIFFICULTY_POOL_RULES
+    .filter(r => r.cityType === cityType && r.questCount === normalQuestCount)
+    .map(r => ({ pool: r.pool, weight: r.weight }));
   if (!poolsForCount || poolsForCount.length === 0) {
     // 回退：全部为1星
     return ensureAtLeastOneEasyQuest(Array(normalQuestCount).fill(1));
@@ -649,24 +626,51 @@ const generateDifficultyDistribution = (normalQuestCount: number, cityType: City
   return ensureAtLeastOneEasyQuest(shuffle([...poolsForCount[poolsForCount.length - 1].pool]));
 };
 
-// 任务模板类型定义
-interface HuntTemplate {
-  targets: string[];
-  titles: (diff: 1|2|3) => string;
-  descs: ((...args: string[]) => string)[];
+interface QuestTemplateRow {
+  biome: BiomeType;
+  questType: QuestType;
+  target: string;
+  title1: string;
+  title2: string;
+  title3: string;
+  description: string;
 }
-interface NonHuntTemplate {
-  titles: (diff: 1|2|3) => string;
-  descs: ((...args: string[]) => string)[];
-}
-interface EliteTemplate {
-  type: QuestType;
-  targets: string[];
-  titles: (diff: 1|2|3) => string;
-  descs: ((...args: string[]) => string)[];
-  minDifficulty: 1|2|3;
+
+interface EliteQuestTemplateRow extends QuestTemplateRow {
+  minDifficulty: 1 | 2 | 3;
   requiredReputation: number;
 }
+
+const getTitleByDifficulty = (tmpl: QuestTemplateRow, difficulty: 1 | 2 | 3): string => {
+  if (difficulty === 1) return tmpl.title1 || tmpl.title2 || tmpl.title3 || '任务';
+  if (difficulty === 2) return tmpl.title2 || tmpl.title1 || tmpl.title3 || '任务';
+  return tmpl.title3 || tmpl.title2 || tmpl.title1 || '任务';
+};
+
+const fillQuestText = (text: string, values: { target?: string; place?: string; npc?: string }): string => {
+  return text
+    .replaceAll('{target}', values.target || '')
+    .replaceAll('{place}', values.place || '')
+    .replaceAll('{npc}', values.npc || '');
+};
+
+const getQuestRewardRule = (questType: QuestType | 'ELITE', difficulty: 1 | 2 | 3) => {
+  return QUEST_REWARD_RULES.find(r => r.questType === questType && r.difficulty === difficulty);
+};
+
+const rollQuestReward = (questType: QuestType | 'ELITE', difficulty: 1 | 2 | 3): number => {
+  const rule = getQuestRewardRule(questType, difficulty);
+  if (!rule) return 100;
+  return randRange(rule.rewardMin, rule.rewardMax);
+};
+
+const getQuestDaysLeft = (questType: QuestType | 'ELITE', difficulty: 1 | 2 | 3): number => {
+  return getQuestRewardRule(questType, difficulty)?.daysLeft ?? (7 + difficulty * 2);
+};
+
+const getPatrolKillsRequired = (difficulty: 1 | 2 | 3): number => {
+  return getQuestRewardRule('PATROL', difficulty)?.patrolKillsRequired ?? 4;
+};
 
 /**
  * 为城市生成一组任务
@@ -681,13 +685,20 @@ export const generateCityQuests = (
   const quests: Quest[] = [];
   const usedTargets = new Set<string>(); // 避免重复目标
   
-  const biomeTemplates = QUEST_TEMPLATES[biome] as { HUNT: HuntTemplate[]; PATROL?: NonHuntTemplate[]; ESCORT?: NonHuntTemplate[]; DELIVERY?: NonHuntTemplate[] };
-  const places = QUEST_PLACE_NAMES[biome];
+  const biomeTemplates = (QUEST_TEMPLATE_ROWS as QuestTemplateRow[]).filter(t => t.biome === biome);
+  const huntTemplates = biomeTemplates.filter(t => t.questType === 'HUNT' && !!t.target);
+  const patrolTemplates = biomeTemplates.filter(t => t.questType === 'PATROL');
+  const escortTemplates = biomeTemplates.filter(t => t.questType === 'ESCORT');
+  const deliveryTemplates = biomeTemplates.filter(t => t.questType === 'DELIVERY');
+  const places = QUEST_PLACE_NAMES[biome] || [];
   const npcPool = [...QUEST_NPC_NAMES.OFFICIALS, ...QUEST_NPC_NAMES.MERCHANTS, ...QUEST_NPC_NAMES.VILLAGERS];
+  const generationRule = QUEST_GENERATION_RULES.find(r => r.cityType === cityType);
+  if (huntTemplates.length === 0 || places.length === 0 || npcPool.length === 0) {
+    return [];
+  }
   
   // 决定是否生成高声望任务（城镇和王都才有机会）
-  // 王都100%出高声望任务，城镇50%
-  const eliteSlot = cityType !== 'VILLAGE' && Math.random() < (cityType === 'CAPITAL' ? 1.0 : 0.5);
+  const eliteSlot = Math.random() < (generationRule?.eliteChance ?? 0);
   
   // 预生成普通任务的难度分布（仿战场兄弟规则，保证多样性）
   const normalQuestCount = eliteSlot ? questCount - 1 : questCount;
@@ -699,24 +710,22 @@ export const generateCityQuests = (
     
     if (isElite) {
       // 生成高声望任务
-      const eliteTemplates = ELITE_QUEST_TEMPLATES[biome] as EliteTemplate[];
-      const eliteTemplatesNoEscort = (eliteTemplates || []).filter(t => t.type !== 'ESCORT');
+      const eliteTemplates = (ELITE_QUEST_TEMPLATE_ROWS as EliteQuestTemplateRow[]).filter(t => t.biome === biome);
+      const eliteTemplatesNoEscort = eliteTemplates.filter(t => t.questType !== 'ESCORT');
       if (eliteTemplatesNoEscort.length > 0) {
         const tmpl = pick(eliteTemplatesNoEscort);
         const difficulty = tmpl.minDifficulty;
         const place = pick(places);
         const npc = pick([...QUEST_NPC_NAMES.MILITARY, ...QUEST_NPC_NAMES.OFFICIALS]);
-        const target = tmpl.targets.length > 0 ? pick(tmpl.targets) : '';
-        const descFn = pick(tmpl.descs);
-        const desc = descFn(target, place, npc);
-        const title = tmpl.titles(difficulty);
+        const target = tmpl.target || '';
+        const desc = fillQuestText(tmpl.description, { target, place, npc });
+        const title = getTitleByDifficulty(tmpl, difficulty);
         
-        const rewardGold = difficulty === 2 ? 600 + Math.floor(Math.random() * 300)
-                         : 1000 + Math.floor(Math.random() * 500);
+        const rewardGold = rollQuestReward('ELITE', difficulty);
         
         quests.push({
           id: `q-${nameIndex}-${qi + 1}`,
-          type: tmpl.type,
+          type: tmpl.questType,
           title,
           description: desc,
           difficulty,
@@ -724,7 +733,7 @@ export const generateCityQuests = (
           sourceCityId,
           targetEntityName: target || undefined,
           isCompleted: false,
-          daysLeft: 7 + difficulty * 3,
+          daysLeft: getQuestDaysLeft('ELITE', difficulty),
           requiredReputation: tmpl.requiredReputation,
         });
         continue;
@@ -734,43 +743,39 @@ export const generateCityQuests = (
     // 普通任务生成
     // 任务类型分布：HUNT 保持较高占比，但不再固定首槽
     const availableTypes: QuestType[] = ['HUNT'];
-    if (biomeTemplates.PATROL) availableTypes.push('PATROL');
-    if (biomeTemplates.DELIVERY) availableTypes.push('DELIVERY');
+    if (patrolTemplates.length > 0) availableTypes.push('PATROL');
+    if (deliveryTemplates.length > 0) availableTypes.push('DELIVERY');
     
-    // HUNT 权重 45%，其余类型平分剩余
+    // HUNT 权重由 CSV 配置，其余类型平分剩余
     let questType: QuestType;
     const nonHuntTypes = availableTypes.filter(type => type !== 'HUNT');
-    if (nonHuntTypes.length === 0 || Math.random() < 0.45) {
+    if (nonHuntTypes.length === 0 || Math.random() < (generationRule?.huntWeight ?? 0.45)) {
       questType = 'HUNT';
     } else {
       questType = pick(nonHuntTypes);
     }
     
     // 难度：从预生成的分布池中取值（保证同城市难度多样性）
-    const difficulty = difficulties[normalQi++];
+    const difficulty = (difficulties[normalQi++] ?? 1) as 1 | 2 | 3;
     
     const place = pick(places);
     const npc = pick(npcPool);
     
     if (questType === 'HUNT') {
-      const huntTemplates = biomeTemplates.HUNT;
       const tmpl = pick(huntTemplates);
       // 选一个未重复的目标
-      let target = pick(tmpl.targets);
+      let target = tmpl.target;
       let attempts = 0;
       while (usedTargets.has(target) && attempts < 10) {
-        target = pick(tmpl.targets);
+        target = pick(huntTemplates).target;
         attempts++;
       }
       usedTargets.add(target);
       
-      const title = tmpl.titles(difficulty);
-      const descFn = pick(tmpl.descs);
-      const desc = descFn(target, place, npc);
+      const title = getTitleByDifficulty(tmpl, difficulty);
+      const desc = fillQuestText(tmpl.description, { target, place, npc });
       
-      const rewardGold = difficulty === 1 ? 200 + Math.floor(Math.random() * 100)
-                       : difficulty === 2 ? 400 + Math.floor(Math.random() * 200)
-                       : 700 + Math.floor(Math.random() * 300);
+      const rewardGold = rollQuestReward('HUNT', difficulty);
       
       quests.push({
         id: `q-${nameIndex}-${qi + 1}`,
@@ -782,22 +787,17 @@ export const generateCityQuests = (
         sourceCityId,
         targetEntityName: target,
         isCompleted: false,
-        daysLeft: 7 + difficulty * 2,
+        daysLeft: getQuestDaysLeft('HUNT', difficulty),
       });
-    } else if (questType === 'PATROL' && biomeTemplates.PATROL) {
-      const patrolTemplates = biomeTemplates.PATROL;
+    } else if (questType === 'PATROL' && patrolTemplates.length > 0) {
       const tmpl = pick(patrolTemplates);
-      const title = tmpl.titles(difficulty);
-      const descFn = pick(tmpl.descs);
-      const desc = descFn(place, npc);
+      const title = getTitleByDifficulty(tmpl, difficulty);
+      const desc = fillQuestText(tmpl.description, { place, npc });
       
       // PATROL 任务也需要目标敌人（巡逻时遇到的敌人）
-      const huntTmpl = pick(biomeTemplates.HUNT);
-      const target = pick(huntTmpl.targets);
+      const target = pick(huntTemplates).target;
       
-      const rewardGold = difficulty === 1 ? 150 + Math.floor(Math.random() * 80)
-                       : difficulty === 2 ? 300 + Math.floor(Math.random() * 150)
-                       : 550 + Math.floor(Math.random() * 250);
+      const rewardGold = rollQuestReward('PATROL', difficulty);
       
       quests.push({
         id: `q-${nameIndex}-${qi + 1}`,
@@ -809,25 +809,20 @@ export const generateCityQuests = (
         sourceCityId,
         targetEntityName: target,
         isCompleted: false,
-        daysLeft: 5 + difficulty * 2,
-        patrolKillsRequired: difficulty === 1 ? 4 : difficulty === 2 ? 6 : 8,
+        daysLeft: getQuestDaysLeft('PATROL', difficulty),
+        patrolKillsRequired: getPatrolKillsRequired(difficulty),
         patrolKillsDone: 0,
         patrolArrived: false,
       });
-    } else if (questType === 'ESCORT' && biomeTemplates.ESCORT) {
-      const escortTemplates = biomeTemplates.ESCORT;
+    } else if (questType === 'ESCORT' && escortTemplates.length > 0) {
       const tmpl = pick(escortTemplates);
-      const title = tmpl.titles(difficulty);
-      const descFn = pick(tmpl.descs);
-      const desc = descFn(place, npc);
+      const title = getTitleByDifficulty(tmpl, difficulty);
+      const desc = fillQuestText(tmpl.description, { place, npc });
       
       // ESCORT 同样可能遭遇敌人
-      const huntTmpl = pick(biomeTemplates.HUNT);
-      const target = pick(huntTmpl.targets);
+      const target = pick(huntTemplates).target;
       
-      const rewardGold = difficulty === 1 ? 250 + Math.floor(Math.random() * 100)
-                       : difficulty === 2 ? 500 + Math.floor(Math.random() * 200)
-                       : 800 + Math.floor(Math.random() * 300);
+      const rewardGold = rollQuestReward('ESCORT', difficulty);
       
       quests.push({
         id: `q-${nameIndex}-${qi + 1}`,
@@ -839,22 +834,17 @@ export const generateCityQuests = (
         sourceCityId,
         targetEntityName: target,
         isCompleted: false,
-        daysLeft: 8 + difficulty * 2,
+        daysLeft: getQuestDaysLeft('ESCORT', difficulty),
       });
-    } else if (questType === 'DELIVERY' && biomeTemplates.DELIVERY) {
-      const deliveryTemplates = biomeTemplates.DELIVERY;
+    } else if (questType === 'DELIVERY' && deliveryTemplates.length > 0) {
       const tmpl = pick(deliveryTemplates);
-      const title = tmpl.titles(difficulty);
-      const descFn = pick(tmpl.descs);
-      const desc = descFn(place, npc);
+      const title = getTitleByDifficulty(tmpl, difficulty);
+      const desc = fillQuestText(tmpl.description, { place, npc });
       
       // DELIVERY 路上可能遇到截杀
-      const huntTmpl = pick(biomeTemplates.HUNT);
-      const target = pick(huntTmpl.targets);
+      const target = pick(huntTemplates).target;
       
-      const rewardGold = difficulty === 1 ? 180 + Math.floor(Math.random() * 80)
-                       : difficulty === 2 ? 350 + Math.floor(Math.random() * 150)
-                       : 600 + Math.floor(Math.random() * 250);
+      const rewardGold = rollQuestReward('DELIVERY', difficulty);
       
       quests.push({
         id: `q-${nameIndex}-${qi + 1}`,
@@ -866,20 +856,16 @@ export const generateCityQuests = (
         sourceCityId,
         targetEntityName: target,
         isCompleted: false,
-        daysLeft: 6 + difficulty * 2,
+        daysLeft: getQuestDaysLeft('DELIVERY', difficulty),
       });
     } else {
       // 回退到 HUNT
-      const huntTemplates = biomeTemplates.HUNT;
       const tmpl = pick(huntTemplates);
-      const target = pick(tmpl.targets);
-      const title = tmpl.titles(difficulty);
-      const descFn = pick(tmpl.descs);
-      const desc = descFn(target, place, npc);
+      const target = tmpl.target;
+      const title = getTitleByDifficulty(tmpl, difficulty);
+      const desc = fillQuestText(tmpl.description, { target, place, npc });
       
-      const rewardGold = difficulty === 1 ? 200 + Math.floor(Math.random() * 100)
-                       : difficulty === 2 ? 400 + Math.floor(Math.random() * 200)
-                       : 700 + Math.floor(Math.random() * 300);
+      const rewardGold = rollQuestReward('HUNT', difficulty);
       
       quests.push({
         id: `q-${nameIndex}-${qi + 1}`,
@@ -891,7 +877,7 @@ export const generateCityQuests = (
         sourceCityId,
         targetEntityName: target,
         isCompleted: false,
-        daysLeft: 7 + difficulty * 2,
+        daysLeft: getQuestDaysLeft('HUNT', difficulty),
       });
     }
   }

@@ -1,0 +1,14 @@
+biome|questType|target|title1|title2|title3|description|minDifficulty|requiredReputation
+NORTHERN_TUNDRA|HUNT|北疆巨熊|征讨极北巨兽|征讨极北巨兽|猎杀冰原霸主|{npc}慎重取出密令：「{place}出现了一头{target}。此事不能公开悬赏只有你们这种有声望的战团才信得过。」|3|200
+NORTHERN_TUNDRA|HUNT|单于亲卫|截击敌军先锋|截击敌军先锋|截击敌军先锋|{npc}面色如铁：「斥候回报{place}方向发现了一支{target}。在他们到达之前截住他们。」|3|300
+NORTHERN_TUNDRA|PATROL|匈奴斥候|深入敌境侦察|深入敌境侦察|深入敌境侦察|{npc}展开残破地图：「需要有人深入{place}侦察{target}兵力部署。这趟差事九死一生。」|2|400
+CENTRAL_PLAINS|HUNT|山寨大头领|围剿巨寇|围剿巨寇|围剿巨寇|{npc}用朱笔在地图上重重画圈：「{place}的{target}盘踞多年。如今只能请你们出手。」|3|300
+CENTRAL_PLAINS|ESCORT||护送朝廷密使|护送朝廷密使|护送朝廷密使|{npc}左右张望后低声道：「有位身份特殊的人物需要秘密护送到{place}。路上必定有人截杀。」|2|400
+CENTRAL_PLAINS|HUNT|反贼大将|平定叛乱|平定叛乱|平定叛乱|{npc}拿出盖印文书：「{place}的{target}已经聚众数千。需要你们先去拖住他们甚至直接斩首。」|3|600
+CENTRAL_PLAINS|HUNT|邪教教主|诛邪除魔|诛邪除魔|诛邪除魔|{npc}神情严肃：「{place}有一个{target}蛊惑了数百信众。必须派最精锐的人去。」|3|300
+SOUTHERN_WETLANDS|HUNT|越族大祭司|深入蛮荒|深入蛮荒|深入蛮荒|{npc}展开手绘地图：「{place}最深处有一个{target}据点。普通兵卒进去就是送死。」|3|300
+SOUTHERN_WETLANDS|HUNT|百越联军|讨伐蛮王|讨伐蛮王|讨伐蛮王|{npc}站在沙盘前：「{target}正在{place}集结。朝廷大军还要一个月才能到。」|3|400
+SOUTHERN_WETLANDS|ESCORT||护送朝廷特使|护送朝廷特使|护送朝廷特使|{npc}环顾四周后低声道：「朝廷派特使前往{place}议和。此行凶险万分。」|2|400
+FAR_SOUTH_DESERT|HUNT|沙盗王|斩首行动|斩首行动|斩首行动|{npc}从锁箱取出文书：「{place}的{target}已经威胁整条丝路。条件只有一个把头领人头带回来。」|3|400
+FAR_SOUTH_DESERT|HUNT|西域马王|荡平沙匪王庭|荡平沙匪王庭|荡平沙匪王庭|{npc}将令牌推到你面前：「{place}的{target}是整个南疆最大的祸患。朝廷给了死命令必须除掉。」|3|600
+FAR_SOUTH_DESERT|ESCORT||护送使团出塞|护送使团出塞|护送使团出塞|{npc}正了正衣冠：「朝廷要派使团前往{place}与西域诸国通好。需要一支信得过的精锐护卫。」|2|300
