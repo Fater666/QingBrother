@@ -1181,9 +1181,21 @@ export const App: React.FC = () => {
     // 获取当前实体类型对应的阶段编制
     let compositions: { name: string; bg: string; aiType: AIType }[];
     if (isBoss && bossCamp?.bossCompositionKey) {
-      // Boss使用专属编制（始终使用tier 0，因为boss compositions只有一个tier）
+      // Boss使用专属分层编制：优先当前tier，缺失时回退到可用最高tier，再回退到bandit保底
       const bossComps = TIERED_ENEMY_COMPOSITIONS[bossCamp.bossCompositionKey];
-      compositions = bossComps ? bossComps[0] : (TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[3] || TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[0] || []);
+      const banditFallback = TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[3] || TIERED_ENEMY_COMPOSITIONS['BANDIT']?.[0] || [];
+      if (bossComps && bossComps.length > 0) {
+        const targetTier = Math.max(0, Math.min(3, tier));
+        const highestAvailableTier = [...bossComps.keys()]
+          .reverse()
+          .find(t => (bossComps[t]?.length || 0) > 0);
+        const resolvedTier = (bossComps[targetTier]?.length || 0) > 0
+          ? targetTier
+          : (highestAvailableTier ?? 0);
+        compositions = bossComps[resolvedTier] || banditFallback;
+      } else {
+        compositions = banditFallback;
+      }
     } else {
       const tierComps = TIERED_ENEMY_COMPOSITIONS[entity.type] || TIERED_ENEMY_COMPOSITIONS['BANDIT'];
       compositions = tierComps[Math.min(tier, tierComps.length - 1)];
@@ -1256,7 +1268,10 @@ export const App: React.FC = () => {
         };
       } else {
         // 非野兽敌人：根据AI类型、天数和难度阶段分配合适装备
-        const equip = getEquipmentForAIType(comp.aiType, valueLimit, tier);
+        const bossEquipValueMultiplier = 1.3;
+        const effectiveValueLimit = isBoss ? Math.floor(valueLimit * bossEquipValueMultiplier) : valueLimit;
+        const effectiveEquipTier = isBoss ? Math.min(3, tier + 1) : tier;
+        const equip = getEquipmentForAIType(comp.aiType, effectiveValueLimit, effectiveEquipTier);
         baseChar.equipment = {
           mainHand: equip.mainHand,
           offHand: equip.offHand,
@@ -1268,9 +1283,9 @@ export const App: React.FC = () => {
       }
       
       // --- 属性缩放：天数越高敌人基础属性越强 ---
-      // Boss实体保底1.2倍属性
+      // Boss实体给予适度属性增益，主要难度仍来自编制规模与装备质量
       const nerfedStatMult = statMult * ENEMY_STAT_NERF;
-      const effectiveMult = isBoss ? Math.max(1.2, nerfedStatMult) : nerfedStatMult;
+      const effectiveMult = isBoss ? Math.max(1.3, nerfedStatMult * 1.08) : nerfedStatMult;
       if (effectiveMult > 1.0) {
         baseChar.maxHp = Math.floor(baseChar.maxHp * effectiveMult);
         baseChar.hp = baseChar.maxHp;
@@ -1285,9 +1300,11 @@ export const App: React.FC = () => {
       let enemyStartMorale = MoraleStatus.STEADY;
       const confidentBaseChance = [0, 0.15, 0.30, 0.50][tier] || 0;
       const confidentBonus = (comp.aiType === 'ARMY' || comp.aiType === 'TANK') ? 0.20 : 0;
+      const bossMoraleBonus = isBoss ? 0.25 : 0;
+      const confidentChance = Math.min(0.9, confidentBaseChance + confidentBonus + bossMoraleBonus);
       if (comp.aiType === 'BERSERKER') {
         enemyStartMorale = MoraleStatus.CONFIDENT;
-      } else if (Math.random() < confidentBaseChance + confidentBonus) {
+      } else if (Math.random() < confidentChance) {
         enemyStartMorale = MoraleStatus.CONFIDENT;
       }
 
