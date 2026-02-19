@@ -6,6 +6,7 @@ import { App } from './App.tsx';
 
 (() => {
   const minRecommendedMajor = 111;
+  const acknowledgeKey = '__QB_WEBVIEW_LOW_VERSION_ACK__';
 
   const getChromeMajor = (ua: string): number | null => {
     const match = ua.match(/Chrome\/(\d+)(?:\.\d+)?/i);
@@ -18,8 +19,9 @@ import { App } from './App.tsx';
     const ua = navigator.userAgent || '';
     const major = getChromeMajor(ua);
     if (major == null || major >= minRecommendedMajor) return;
+    if (window.localStorage.getItem(acknowledgeKey) === '1') return;
 
-    alert(
+    const acknowledged = window.confirm(
       `检测到当前 WebView 内核版本过低（Chrome/WebView ${major}）。\n` +
       `这会导致界面异常，请先升级后再进入游戏。\n\n` +
       `升级指引：\n` +
@@ -30,8 +32,14 @@ import { App } from './App.tsx';
       `若商店搜不到 WebView：\n` +
       `- 进入 设置 > 应用管理 > Android System WebView\n` +
       `- 在应用详情页检查更新或启用该组件\n` +
-      `- 或执行一次系统更新后重试`
+      `- 或执行一次系统更新后重试\n\n` +
+      `点击“确定”= 我已知晓，不再提示\n` +
+      `点击“取消”= 下次继续提醒`
     );
+
+    if (acknowledged) {
+      window.localStorage.setItem(acknowledgeKey, '1');
+    }
   } catch {
     // Ignore reminder failures; game should still continue.
   }

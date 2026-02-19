@@ -5,29 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>战国·与伍同行</title>
-    <script>
-        (function () {
-            var ua = navigator.userAgent || '';
-            var isAndroid = /Android/i.test(ua);
-            if (isAndroid) {
-                var viewportMeta = document.querySelector('meta[name="viewport"]');
-                if (viewportMeta) {
-                    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=0.85, maximum-scale=0.85, user-scalable=no, viewport-fit=cover');
-                }
-                document.documentElement.classList.add('android-safe-mode');
-                window.__QB_ANDROID_SAFE_MODE__ = true;
-                return;
-            }
-
-            var fontLink = document.createElement('link');
-            fontLink.rel = 'stylesheet';
-            fontLink.href = '/fonts/NotoSerifSC.css';
-            document.head.appendChild(fontLink);
-        })();
-    </script>
+    <link href="/fonts/NotoSerifSC.css" rel="stylesheet">
     <style>
         html, body {
-            font-family: 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            font-family: 'Noto Serif SC', serif;
             background-color: #000;
             color: #e2e8f0;
             margin: 0;
@@ -36,8 +17,8 @@
             height: 100%;
         }
         #root {
-            width: 100%;
-            height: 100%;
+            width: 100vw;
+            height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -252,24 +233,6 @@
             word-break: break-word;
         }
 
-        /* Android 低内存保活模式：优先避免 WebView 贴图内存爆炸 */
-        .android-safe-mode,
-        .android-safe-mode body {
-            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
-        }
-        .android-safe-mode * {
-            animation: none !important;
-            transition: none !important;
-            box-shadow: none !important;
-            text-shadow: none !important;
-            filter: none !important;
-            backdrop-filter: none !important;
-            will-change: auto !important;
-        }
-        .android-safe-mode video,
-        .android-safe-mode canvas {
-            image-rendering: auto;
-        }
     </style>
 </head>
 <body>
