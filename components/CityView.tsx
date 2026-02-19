@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Party, City, Item, Character, CityFacility, Quest } from '../types.ts';
-import { BACKGROUNDS, TRAIT_TEMPLATES } from '../constants';
+import { BACKGROUNDS, TRAIT_TEMPLATES, getIncomeMultiplierByDifficulty } from '../constants';
 import { getReputationRewardMultiplier } from '../services/ambitionService.ts';
 
 interface CityViewProps {
@@ -240,6 +240,18 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       setTimeout(() => setNotification(null), 2000);
   };
 
+  const getScaledQuestReward = (baseRewardGold: number): number => {
+      const reputationMult = getReputationRewardMultiplier(party.reputation);
+      const difficultyMult = getIncomeMultiplierByDifficulty(party.difficulty);
+      return Math.floor(baseRewardGold * reputationMult * difficultyMult);
+  };
+  const getBuyPrice = (item: Item): number =>
+      Math.floor(item.value * 1.5 * (city.priceModifier || 1) * (party.marketBuyPriceMultiplier ?? 1));
+  const getSellPrice = (item: Item): number =>
+      Math.floor(item.value * 0.5 * (city.priceModifier || 1));
+  const getRecruitCost = (merc: Character): number =>
+      Math.max(1, Math.floor(merc.hireCost * (party.recruitCostMultiplier ?? 1)));
+
   // 自动跳转：进入可交付城市且任务已完成时，自动切换到酒肆
   useEffect(() => {
       if (canTurnInActiveQuestHere) {
@@ -297,7 +309,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   }, []);
 
   const handleBuy = (item: Item, index: number) => {
-      const price = Math.floor(item.value * 1.5 * (city.priceModifier || 1));
+      const price = getBuyPrice(item);
       if (party.gold >= price) {
           // 消耗品直接转化为资源池数值（与粮食逻辑一致）
           if (item.type === 'CONSUMABLE' && item.subType === 'FOOD' && item.effectValue) {
@@ -351,16 +363,17 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   const handleSell = (item: Item, index: number) => {
-      const price = Math.floor(item.value * 0.5 * (city.priceModifier || 1));
+      const price = getSellPrice(item);
+      const scaledIncome = Math.floor(price * getIncomeMultiplierByDifficulty(party.difficulty));
       const newInv = [...party.inventory];
       newInv.splice(index, 1);
-      onUpdateParty({ ...party, gold: party.gold + price, inventory: newInv });
+      onUpdateParty({ ...party, gold: party.gold + scaledIncome, inventory: newInv });
       setSelectedItem(null);
-      showNotification(`出售了 ${item.name} (+${price})`);
+      showNotification(`出售了 ${item.name} (+${scaledIncome})`);
   };
 
   const handleRecruit = (merc: Character, index: number) => {
-      const hireCost = merc.hireCost;
+      const hireCost = getRecruitCost(merc);
       if (party.mercenaries.length >= 20) { showNotification("战团人数已达上限！"); return; }
       if (party.gold >= hireCost) {
           // 检查当前已上阵人数是否未满 12 人 (正式满员为 12 人)
@@ -400,9 +413,8 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
 
   const handleQuestTake = (quest: Quest) => {
       if (party.activeQuest) { showNotification("已有在身契约！需先完成。"); return; }
-      // 根据声望调整报酬
-      const mult = getReputationRewardMultiplier(party.reputation);
-      const boostedQuest = { ...quest, rewardGold: Math.floor(quest.rewardGold * mult) };
+      // 根据声望与全局难度调整报酬（难度仅影响收入曲线）
+      const boostedQuest = { ...quest, rewardGold: getScaledQuestReward(quest.rewardGold) };
       onAcceptQuest(boostedQuest);
       const newQuests = city.quests.filter(q => q.id !== quest.id);
       onUpdateCity({ ...city, quests: newQuests });
@@ -608,8 +620,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                     {subView === 'MARKET' && (() => {
                         const sourceItems = marketTab === 'BUY' ? city.market : party.inventory;
                         const filteredItems = itemFilter === 'ALL' ? sourceItems : sourceItems.filter(it => it.type === itemFilter);
-                        const pm = city.priceModifier || 1;
-                        const getPrice = (item: Item) => marketTab === 'BUY' ? Math.floor(item.value * 1.5 * pm) : Math.floor(item.value * 0.5 * pm);
+                        const getPrice = (item: Item) => marketTab === 'BUY' ? getBuyPrice(item) : getSellPrice(item);
                         const fromTag = marketTab === 'BUY' ? 'MARKET' as const : 'INVENTORY' as const;
 
                         const total = filteredItems.length;
@@ -729,8 +740,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 {selectedItem ? (() => {
                                     const item = selectedItem.item;
                                     const tier = getItemTier(item.value, item.rarity);
-                                    const pmDetail = city.priceModifier || 1;
-                                    const price = selectedItem.from === 'MARKET' ? Math.floor(item.value * 1.5 * pmDetail) : Math.floor(item.value * 0.5 * pmDetail);
+                                    const price = selectedItem.from === 'MARKET' ? getBuyPrice(item) : getSellPrice(item);
                                     const canAfford = selectedItem.from === 'MARKET' ? party.gold >= price : true;
                                     return (
                                         <>
@@ -880,7 +890,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                     {city.recruits.length > 0 ? (
                                         <div className={`${isCompactLandscape ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2'}`}>
                                 {city.recruits.map((merc, i) => {
-                                                const hireCost = merc.hireCost;
+                                                const hireCost = getRecruitCost(merc);
                                                 const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
                                                 const bgIcon = bgEntry?.icon || '?';
                                                 const isSelected = selectedRecruit === i;
@@ -928,7 +938,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 </div>
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] && (() => {
                                     const merc = city.recruits[selectedRecruit];
-                                    const hireCost = merc.hireCost;
+                                    const hireCost = getRecruitCost(merc);
                                     const canAfford = party.gold >= hireCost;
                                     const canHire = canAfford && party.mercenaries.length < 20;
                                     return (
@@ -1084,8 +1094,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 sortedTavernQuests.map(quest => {
                                                     const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
                                                     const isSelected = selectedTavernQuestId === quest.id;
-                                                    const mult = getReputationRewardMultiplier(party.reputation);
-                                                    const boosted = Math.floor(quest.rewardGold * mult);
+                                                    const boosted = getScaledQuestReward(quest.rewardGold);
                                                     return (
                                                         <button
                                                             key={quest.id}
@@ -1149,7 +1158,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                 const reputationLocked = !!quest.requiredReputation && party.reputation < quest.requiredReputation;
                                                 const isDisabled = !!party.activeQuest || reputationLocked;
                                                 const mult = getReputationRewardMultiplier(party.reputation);
-                                                const boosted = Math.floor(quest.rewardGold * mult);
+                                                const boosted = getScaledQuestReward(quest.rewardGold);
                                                 const hasBonus = mult > 1;
                                                 return (
                                                     <div className={`border p-2.5 relative ${reputationLocked ? 'bg-slate-950/60 border-slate-800/40 opacity-70' : 'bg-black/40 border-amber-900/30'}`}>
@@ -1314,7 +1323,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                                 </>;
                                                               }
                                                               const mult = getReputationRewardMultiplier(party.reputation);
-                                                              const boosted = Math.floor(quest.rewardGold * mult);
+                                                              const boosted = getScaledQuestReward(quest.rewardGold);
                                                               const hasBonus = mult > 1;
                                                               return <>
                                                                 <div className="text-xl font-mono text-amber-500 font-bold">{boosted}</div>

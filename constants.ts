@@ -1,5 +1,5 @@
 
-import { Item, Ability, Character, Perk, BackgroundTemplate, Trait, AIType, EnemyUnitType, EnemyAIConfigFlag } from './types.ts';
+import { Item, Ability, Character, Perk, BackgroundTemplate, Trait, AIType, EnemyUnitType, EnemyAIConfigFlag, GameDifficulty } from './types.ts';
 export type { BackgroundTemplate };
 
 // --- CSV DATA (loaded from csv/ folder) ---
@@ -442,6 +442,26 @@ export const getDifficultyTier = (day: number) => {
     const last = _difficultyTiers[_difficultyTiers.length - 1];
     return { tier: last.tier, valueLimit: last.valueLimit, statMult: last.statMult };
 };
+
+export const GAME_DIFFICULTY_CONFIG: Record<GameDifficulty, {
+  incomeMultiplier: number;
+  enemyCountMultiplier: number;
+  enemyStatMultiplier: number;
+}> = {
+  EASY: { incomeMultiplier: 1.2, enemyCountMultiplier: 0.85, enemyStatMultiplier: 0.95 },
+  NORMAL: { incomeMultiplier: 1.0, enemyCountMultiplier: 1.0, enemyStatMultiplier: 1.0 },
+  HARD: { incomeMultiplier: 0.85, enemyCountMultiplier: 1.2, enemyStatMultiplier: 1.08 },
+  EXPERT: { incomeMultiplier: 0.7, enemyCountMultiplier: 1.35, enemyStatMultiplier: 1.15 },
+};
+
+export const getIncomeMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
+  GAME_DIFFICULTY_CONFIG[difficulty]?.incomeMultiplier ?? 1.0;
+
+export const getEnemyCountMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
+  GAME_DIFFICULTY_CONFIG[difficulty]?.enemyCountMultiplier ?? 1.0;
+
+export const getEnemyStatMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
+  GAME_DIFFICULTY_CONFIG[difficulty]?.enemyStatMultiplier ?? 1.0;
 
 // --- ENEMY COMPOSITIONS (from enemy_compositions.csv) ---
 export const TIERED_ENEMY_COMPOSITIONS: Record<string, {

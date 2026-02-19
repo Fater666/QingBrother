@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, EnemyUnitType, EnemyAIConfigFlag, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES } from './constants';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, EnemyUnitType, EnemyAIConfigFlag, AmbitionState, EnemyCamp, CampRegion, GameDifficulty } from './types.ts';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES, getIncomeMultiplierByDifficulty, getEnemyCountMultiplierByDifficulty, getEnemyStatMultiplierByDifficulty } from './constants';
 import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -23,6 +23,12 @@ import { GameTipData, GAME_TIPS, markTipShown } from './services/tipService.ts';
 import { GMPanel } from './components/GMPanel.tsx';
 
 const BGM_VOLUME_STORAGE_KEY = 'zhanguo_bgm_volume';
+const DIFFICULTY_OPTIONS: { value: GameDifficulty; label: string }[] = [
+  { value: 'EASY', label: '简单' },
+  { value: 'NORMAL', label: '普通' },
+  { value: 'HARD', label: '困难' },
+  { value: 'EXPERT', label: '专家' },
+];
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -438,7 +444,8 @@ const generateBattleResult = (
   enemyName: string,
   playerUnitsBeforeCombat: Character[],
   bossLootIds: string[] = [],  // Boss巢穴掉落池（红装ID列表）
-  isRetreat: boolean = false
+  isRetreat: boolean = false,
+  xpMultiplier: number = 1
 ): BattleResult => {
   const enemiesKilled = enemyUnits.filter(u => u.isDead).length;
   // 逃离战场按“已脱离(hasEscaped)”统计，并兼容旧状态字段，避免巡逻进度漏算
@@ -461,7 +468,8 @@ const generateBattleResult = (
     }));
 
   // XP 计算: 基础25 + 击杀 * 15 + 回合 * 2
-  const xpPerSurvivor = victory ? 25 + enemiesKilled * 15 + rounds * 2 : 0;
+  const baseXpPerSurvivor = victory ? 25 + enemiesKilled * 15 + rounds * 2 : 0;
+  const xpPerSurvivor = Math.floor(baseXpPerSurvivor * Math.max(0, xpMultiplier));
 
   const survivorData = survivors.map(s => {
     const beforeMerc = playerUnitsBeforeCombat.find(m => m.id === s.id);
@@ -790,6 +798,13 @@ export const App: React.FC = () => {
     medicine: 0, repairSupplies: 0,
     mercenaries: [], inventory: [], day: 1.0, activeQuest: null,
     reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0,
+    difficulty: 'NORMAL',
+    battleXpMultiplier: 1,
+    recruitCostMultiplier: 1,
+    marketBuyPriceMultiplier: 1,
+    worldMoveSpeedMultiplier: 1,
+    dailyFoodConsumptionMultiplier: 1,
+    moraleGainMultiplier: 1,
     shownTips: []
   });
 
@@ -902,8 +917,23 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  const pickOriginStartCity = useCallback((origin: OriginConfig, mapCities: City[]): City => {
+    const pool = origin.startBiomePool || [];
+    const filtered = mapCities.filter(c => pool.includes(c.biome));
+    if (filtered.length > 0) {
+      return filtered[Math.floor(Math.random() * filtered.length)];
+    }
+    return mapCities[Math.floor(Math.random() * mapCities.length)] || mapCities[0];
+  }, []);
+
   // --- 新战役：根据起源生成初始队伍 ---
-  const initGameWithOrigin = useCallback((origin: OriginConfig, name: string, mapData: { tiles: WorldTile[], cities: City[] }) => {
+  const initGameWithOrigin = useCallback((
+    origin: OriginConfig,
+    name: string,
+    mapData: { tiles: WorldTile[], cities: City[] },
+    difficulty: GameDifficulty,
+    startCityOverride?: City
+  ) => {
     setTiles(mapData.tiles);
     setCities(mapData.cities);
     const newCamps = generateCamps(mapData.tiles);
@@ -930,21 +960,33 @@ export const App: React.FC = () => {
       { ...CONSUMABLE_TEMPLATES.find(c => c.id === 'c_rep1')!, id: 'start_rep_1' },
     ];
 
+    const startCity = startCityOverride || pickOriginStartCity(origin, mapData.cities);
+    const modifiers = origin.modifiers || {};
     setParty({
-      x: mapData.cities[0].x, y: mapData.cities[0].y,
+      x: startCity.x, y: startCity.y,
       targetX: null, targetY: null,
       gold: origin.gold, food: origin.food,
       medicine: 40,          // 2个金创药 × 20 = 40
       repairSupplies: 50,    // 1个修甲工具 × 50 = 50
       mercenaries: mercs,
       inventory: [], day: 1.0, activeQuest: null,
-      reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE }, moraleModifier: 0,
+      reputation: 0, ambitionState: { ...DEFAULT_AMBITION_STATE },
+      moraleModifier: modifiers.initialMoraleModifier ?? 0,
+      difficulty,
+      originId: origin.id,
+      originName: origin.name,
+      battleXpMultiplier: modifiers.battleXpMultiplier ?? 1,
+      recruitCostMultiplier: modifiers.recruitCostMultiplier ?? 1,
+      marketBuyPriceMultiplier: modifiers.marketBuyPriceMultiplier ?? 1,
+      worldMoveSpeedMultiplier: modifiers.worldMoveSpeedMultiplier ?? 1,
+      dailyFoodConsumptionMultiplier: modifiers.dailyFoodConsumptionMultiplier ?? 1,
+      moraleGainMultiplier: modifiers.moraleGainMultiplier ?? 1,
       shownTips: []
     });
     lastProcessedDayRef.current = 1; // 新游戏从第1天开始
     setGameInitialized(true);
     setTimeScale(0);
-  }, []);
+  }, [pickOriginStartCity]);
 
   // --- 玩法提示系统 ---
   const triggerTip = useCallback((tipId: string) => {
@@ -971,6 +1013,12 @@ export const App: React.FC = () => {
   const handleTipDismiss = useCallback(() => {
     const next = tipQueueRef.current.shift();
     setActiveTip(next || null);
+  }, []);
+
+  const canApplyPositiveMoraleGain = useCallback((multiplier?: number): boolean => {
+    const rate = Math.max(0, multiplier ?? 1);
+    if (rate >= 1) return true;
+    return Math.random() < rate;
   }, []);
 
   // --- SAVE & LOAD SYSTEM (多栏位 + 自动存档) ---
@@ -1122,6 +1170,15 @@ export const App: React.FC = () => {
       reputation: data.party.reputation ?? 0,
       ambitionState: data.party.ambitionState ?? { ...DEFAULT_AMBITION_STATE },
       moraleModifier: data.party.moraleModifier ?? 0,
+      difficulty: data.party.difficulty ?? 'EASY',
+      originId: data.party.originId,
+      originName: data.party.originName,
+      battleXpMultiplier: data.party.battleXpMultiplier ?? 1,
+      recruitCostMultiplier: data.party.recruitCostMultiplier ?? 1,
+      marketBuyPriceMultiplier: data.party.marketBuyPriceMultiplier ?? 1,
+      worldMoveSpeedMultiplier: data.party.worldMoveSpeedMultiplier ?? 1,
+      dailyFoodConsumptionMultiplier: data.party.dailyFoodConsumptionMultiplier ?? 1,
+      moraleGainMultiplier: data.party.moraleGainMultiplier ?? 1,
       shownTips: data.party.shownTips ?? [],
     };
     setParty(loadedParty);
@@ -1217,6 +1274,8 @@ export const App: React.FC = () => {
     // --- 难度曲线：根据天数决定敌人强度 ---
     const day = party.day;
     const { tier, valueLimit, statMult } = getDifficultyTier(day);
+    const enemyCountMult = getEnemyCountMultiplierByDifficulty(party.difficulty);
+    const enemyStatMult = getEnemyStatMultiplierByDifficulty(party.difficulty);
     
     // Boss实体检测：如果是Boss实体，使用Boss专属编制和掉落
     const isBoss = !!entity.isBossEntity;
@@ -1253,14 +1312,28 @@ export const App: React.FC = () => {
     }
     
     const ENEMY_STAT_NERF = 0.95;
-    const enemies: CombatUnit[] = compositions.map((comp, i) => {
+    const targetEnemyCount = Math.max(1, Math.round(compositions.length * enemyCountMult));
+    let scaledCompositions = [...compositions];
+    if (targetEnemyCount < scaledCompositions.length) {
+      while (scaledCompositions.length > targetEnemyCount) {
+        const removeIndex = Math.floor(Math.random() * scaledCompositions.length);
+        scaledCompositions.splice(removeIndex, 1);
+      }
+    } else if (targetEnemyCount > scaledCompositions.length && scaledCompositions.length > 0) {
+      while (scaledCompositions.length < targetEnemyCount) {
+        const extra = scaledCompositions[Math.floor(Math.random() * scaledCompositions.length)];
+        scaledCompositions.push(extra);
+      }
+    }
+
+    const enemies: CombatUnit[] = scaledCompositions.map((comp, i) => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
       // BEAST类型敌人及猛虎/野猪：使用天然武器，不穿装备
       const aiConfigSet = new Set(comp.aiConfig || []);
       const isBeastCreature = comp.unitType === 'BEAST' || comp.aiType === 'BEAST';
       if (isBeastCreature) {
-        const beastStatMult = statMult * ENEMY_STAT_NERF;
+        const beastStatMult = statMult * ENEMY_STAT_NERF * enemyStatMult;
         // 根据不同野兽类型设置不同天然武器
         let weaponName = '利爪';
         let weaponDesc = '野兽锋利的爪子。';
@@ -1336,7 +1409,7 @@ export const App: React.FC = () => {
       
       // --- 属性缩放：天数越高敌人基础属性越强 ---
       // Boss实体给予适度属性增益，主要难度仍来自编制规模与装备质量
-      const nerfedStatMult = statMult * ENEMY_STAT_NERF;
+      const nerfedStatMult = statMult * ENEMY_STAT_NERF * enemyStatMult;
       const effectiveMult = isBoss ? Math.max(1.3, nerfedStatMult * 1.08) : nerfedStatMult;
       if (effectiveMult > 1.0) {
         baseChar.maxHp = Math.floor(baseChar.maxHp * effectiveMult);
@@ -1360,7 +1433,7 @@ export const App: React.FC = () => {
         enemyStartMorale = MoraleStatus.CONFIDENT;
       }
 
-      const enemyR = i - Math.floor(compositions.length / 2);
+      const enemyR = i - Math.floor(scaledCompositions.length / 2);
       // 轴坐标里 r 变化会带来 x 偏移，这里对 q 做补偿，让开局队列在屏幕上更接近竖直
       const enemyQ = 5 - Math.trunc(enemyR / 2);
       return {
@@ -1437,7 +1510,7 @@ export const App: React.FC = () => {
       setParty(p => ({ ...p, moraleModifier: 0 }));
     }
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, tiles, camps, autoSaveGame]);
+  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, party.difficulty, tiles, camps, autoSaveGame]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -1503,7 +1576,7 @@ export const App: React.FC = () => {
         if (party.targetX !== null && party.targetY !== null) {
             const dx = party.targetX - party.x, dy = party.targetY - party.y, dist = Math.hypot(dx, dy);
             if (dist > 0.1) {
-                const step = 1.8 * timeScale * dt;
+                const step = 1.8 * (party.worldMoveSpeedMultiplier ?? 1) * timeScale * dt;
                 const ratio = Math.min(1, step / dist);
                 setParty(p => ({
                   ...p,
@@ -1557,12 +1630,13 @@ export const App: React.FC = () => {
           let wagePenaltyTriggered = false;
           setParty(p => {
             const headcount = p.mercenaries.length;
-            const foodCost = headcount; // 每人每天消耗1份粮食
+            const foodCost = Math.ceil(headcount * 1.5 * (p.dailyFoodConsumptionMultiplier ?? 1));
             const newFood = Math.max(0, p.food - foodCost);
             const isStarving = newFood <= 0;
 
             // === 每日工资扣除 ===
-            const totalWages = p.mercenaries.reduce((sum, m) => sum + m.salary, 0);
+            const totalWagesBase = p.mercenaries.reduce((sum, m) => sum + m.salary, 0);
+            const totalWages = Math.ceil(totalWagesBase * 1.3); // 每日工资消耗提高30%
             const newGold = Math.max(0, p.gold - totalWages);
             const isUnderpaid = p.gold < totalWages; // 工资支付不足：触发下次战斗士气低落
             if (isUnderpaid && headcount > 0) wagePenaltyTriggered = true;
@@ -2132,14 +2206,16 @@ export const App: React.FC = () => {
       const completedName = party.ambitionState.currentAmbition.name;
       const completedId = party.ambitionState.currentAmbition.id;
       const rep = party.ambitionState.currentAmbition.reputationReward;
-      const gold = party.ambitionState.currentAmbition.goldReward ?? 0;
+      const baseGold = party.ambitionState.currentAmbition.goldReward ?? 0;
+      const gold = Math.floor(baseGold * getIncomeMultiplierByDifficulty(party.difficulty));
       setParty(p => {
+        const moraleGainSuccess = canApplyPositiveMoraleGain(p.moraleGainMultiplier);
         const base: Party = {
           ...p,
           reputation: p.reputation + rep,
           gold: p.gold + gold,
           ambitionState: completeAmbition(p),
-          moraleModifier: 1, // 下次战斗全员自信开场
+          moraleModifier: moraleGainSuccess ? 1 : p.moraleModifier, // 受起源士气增益倍率影响
         };
         if (completedId !== BANNER_AMBITION_ID) return base;
         const alreadyHasBanner =
@@ -2156,7 +2232,7 @@ export const App: React.FC = () => {
       if (ambitionNotifTimerRef.current) clearTimeout(ambitionNotifTimerRef.current);
       ambitionNotifTimerRef.current = window.setTimeout(() => setAmbitionNotification(null), 4000);
     }
-  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, party.reputation, party.ambitionState.contractsCompleted, party.ambitionState.campsDestroyed, party.ambitionState.totalCompleted, gameInitialized, buildBannerRewardItem]);
+  }, [party.gold, party.mercenaries.length, party.ambitionState.battlesWon, party.ambitionState.citiesVisited.length, party.day, party.inventory.length, party.reputation, party.difficulty, party.ambitionState.contractsCompleted, party.ambitionState.campsDestroyed, party.ambitionState.totalCompleted, gameInitialized, buildBannerRewardItem, canApplyPositiveMoraleGain]);
 
   // --- 野心目标：弹出选择界面 ---
   useEffect(() => {
@@ -2276,8 +2352,9 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const dailyWages = party.mercenaries.reduce((sum, m) => sum + m.salary, 0);
-  const dailyFood = party.mercenaries.length;
+  const dailyWages = Math.ceil(party.mercenaries.reduce((sum, m) => sum + m.salary, 0) * 1.3);
+  const dailyFood = Math.ceil(party.mercenaries.length * 1.5 * (party.dailyFoodConsumptionMultiplier ?? 1));
+  const difficultyLabel = DIFFICULTY_OPTIONS.find(opt => opt.value === party.difficulty)?.label || '普通';
 
   return (
     <div className="game-canvas flex flex-col bg-black text-slate-200 overflow-hidden font-serif">
@@ -2302,29 +2379,36 @@ export const App: React.FC = () => {
 
         {/* ===== 起源选择 ===== */}
         {view === 'ORIGIN_SELECT' && (
-          <OriginSelect onSelect={(origin, name) => {
-            setSelectedOrigin(origin);
-            setLeaderName(name);
-            // 准备过场叙事
-            const cityName = pendingMapRef.current?.cities[0]?.name || '城邑';
-            const storyLines = [
-              ...origin.introStory,
-              '',
-              `你们来到了${cityName}，决定在此暂歇整顿。`,
-              '新的征途，即将开始……',
-            ];
-            setIntroStoryLines(storyLines);
-            setIntroDisplayed([]);
-            setIntroLineIndex(0);
-            setIntroCharIndex(0);
-            setIntroComplete(false);
-            setIntroFade('in');
-            // 同时初始化游戏数据
-            if (pendingMapRef.current) {
-              initGameWithOrigin(origin, name, pendingMapRef.current);
-            }
-            setView('INTRO_STORY');
-          }} />
+          <OriginSelect
+            selectedDifficulty={party.difficulty}
+            onDifficultyChange={(difficulty) => setParty(p => ({ ...p, difficulty }))}
+            onSelect={(origin, name) => {
+              setSelectedOrigin(origin);
+              setLeaderName(name);
+              // 准备过场叙事
+              const startCity = pendingMapRef.current
+                ? pickOriginStartCity(origin, pendingMapRef.current.cities)
+                : null;
+              const cityName = startCity?.name || pendingMapRef.current?.cities[0]?.name || '城邑';
+              const storyLines = [
+                ...origin.introStory,
+                '',
+                `你们来到了${cityName}，决定在此暂歇整顿。`,
+                '新的征途，即将开始……',
+              ];
+              setIntroStoryLines(storyLines);
+              setIntroDisplayed([]);
+              setIntroLineIndex(0);
+              setIntroCharIndex(0);
+              setIntroComplete(false);
+              setIntroFade('in');
+              // 同时初始化游戏数据
+              if (pendingMapRef.current) {
+                initGameWithOrigin(origin, name, pendingMapRef.current, party.difficulty, startCity || undefined);
+              }
+              setView('INTRO_STORY');
+            }}
+          />
         )}
 
         {/* ===== 过场叙事 ===== */}
@@ -2517,6 +2601,26 @@ export const App: React.FC = () => {
                             </span>
                           </div>
                         </div>
+                        <div className="px-3 py-1.5 border border-transparent">
+                          <div className="text-[10px] text-amber-300/80 mb-1 tracking-[0.12em]">
+                            游戏难度（当前：{difficultyLabel}）
+                          </div>
+                          <div className="grid grid-cols-4 gap-1">
+                            {DIFFICULTY_OPTIONS.map(opt => (
+                              <button
+                                key={opt.value}
+                                onClick={() => setParty(p => ({ ...p, difficulty: opt.value }))}
+                                className={`px-1 py-1 text-[10px] border transition-all ${
+                                  party.difficulty === opt.value
+                                    ? 'bg-amber-600 text-white border-amber-500'
+                                    : 'text-amber-400 border-amber-900/40 hover:border-amber-600 hover:bg-amber-900/20'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         <div className="my-1 border-t border-amber-900/40" />
                         <button
                           onClick={() => {
@@ -2568,9 +2672,11 @@ export const App: React.FC = () => {
                       combatEnemyNameRef.current || '未知敌人',
                       party.mercenaries,
                       combatBossLootIdsRef.current, // 传入Boss掉落池
-                      isRetreat
+                      isRetreat,
+                      party.battleXpMultiplier ?? 1
                     );
-                    setBattleResult(result);
+                    const scaledGoldReward = Math.floor(result.goldReward * getIncomeMultiplierByDifficulty(party.difficulty));
+                    setBattleResult({ ...result, goldReward: scaledGoldReward });
                     if (isRetreat) {
                       setParty(p => ({
                         ...p,

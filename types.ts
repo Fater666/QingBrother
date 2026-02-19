@@ -7,8 +7,20 @@ export interface OriginConfig {
   name: string;
   subtitle: string;
   description: string;
+  startBiomePool: string[]; // 开局城市的区域池（按 mapGenerator 的 biome 值）
   gold: number;
   food: number;
+  bonusSummary: string;      // 起源加成文案（用于 UI 展示）
+  restrictionSummary: string; // 起源限制文案（用于 UI 展示）
+  modifiers: {
+    battleXpMultiplier?: number;            // 战斗经验倍率（默认 1）
+    recruitCostMultiplier?: number;         // 招募花费倍率（默认 1）
+    marketBuyPriceMultiplier?: number;      // 市集购买价格倍率（默认 1）
+    worldMoveSpeedMultiplier?: number;      // 世界地图移动速度倍率（默认 1）
+    dailyFoodConsumptionMultiplier?: number; // 每日粮食消耗倍率（默认 1）
+    moraleGainMultiplier?: number;          // 正向士气获取倍率（默认 1）
+    initialMoraleModifier?: number;         // 开局战斗士气修正（+1/-1）
+  };
   mercenaries: {
     name?: string;
     bg: string;
@@ -302,6 +314,8 @@ export interface AmbitionState {
   campsDestroyed?: number;                // 累计摧毁的敌方营地数
 }
 
+export type GameDifficulty = 'EASY' | 'NORMAL' | 'HARD' | 'EXPERT';
+
 export interface Party {
   x: number; 
   y: number; 
@@ -318,6 +332,15 @@ export interface Party {
   reputation: number;                     // 声望值（影响合同出价）
   ambitionState: AmbitionState;           // 野心目标状态
   moraleModifier: number;                 // 全员士气修正（+1=自信开场, -1=动摇开场, 0=正常）
+  difficulty: GameDifficulty;             // 当前全局难度（可在系统菜单随时调整）
+  originId?: string;                      // 选择的起源 ID（读档兼容为可选）
+  originName?: string;                    // 选择的起源名（用于展示/调试）
+  battleXpMultiplier?: number;            // 战斗经验倍率
+  recruitCostMultiplier?: number;         // 招募花费倍率
+  marketBuyPriceMultiplier?: number;      // 市集购买花费倍率
+  worldMoveSpeedMultiplier?: number;      // 世界地图移动速度倍率
+  dailyFoodConsumptionMultiplier?: number; // 每日粮食消耗倍率
+  moraleGainMultiplier?: number;          // 正向士气获取倍率
   shownTips: string[];                    // 已显示的玩法提示ID列表
 }
 
