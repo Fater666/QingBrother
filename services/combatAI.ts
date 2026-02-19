@@ -20,6 +20,103 @@ export interface AIAction {
   damage?: number;
 }
 
+interface AIRiskProfile {
+  zocBasePenalty: number;
+  zocThreatPenalty: number;
+  lowHpPenalty: number;
+  lowMoralePenalty: number;
+  allySupportReduction: number;
+  engageBonus: number;
+  fallbackAdvanceTolerance: number;
+  emergencyHpThreshold: number;
+  emergencyMoraleIndex: number;
+}
+
+const AI_RISK_PROFILES: Record<AIType, AIRiskProfile> = {
+  BANDIT: {
+    zocBasePenalty: 16,
+    zocThreatPenalty: 24,
+    lowHpPenalty: 24,
+    lowMoralePenalty: 12,
+    allySupportReduction: 5,
+    engageBonus: 30,
+    fallbackAdvanceTolerance: 10,
+    emergencyHpThreshold: 0.35,
+    emergencyMoraleIndex: 3,
+  },
+  BEAST: {
+    zocBasePenalty: 10,
+    zocThreatPenalty: 18,
+    lowHpPenalty: 14,
+    lowMoralePenalty: 6,
+    allySupportReduction: 4,
+    engageBonus: 36,
+    fallbackAdvanceTolerance: 16,
+    emergencyHpThreshold: 0.25,
+    emergencyMoraleIndex: 4,
+  },
+  ARMY: {
+    zocBasePenalty: 14,
+    zocThreatPenalty: 20,
+    lowHpPenalty: 18,
+    lowMoralePenalty: 8,
+    allySupportReduction: 6,
+    engageBonus: 34,
+    fallbackAdvanceTolerance: 14,
+    emergencyHpThreshold: 0.3,
+    emergencyMoraleIndex: 4,
+  },
+  ARCHER: {
+    zocBasePenalty: 20,
+    zocThreatPenalty: 28,
+    lowHpPenalty: 28,
+    lowMoralePenalty: 14,
+    allySupportReduction: 4,
+    engageBonus: 10,
+    fallbackAdvanceTolerance: 4,
+    emergencyHpThreshold: 0.4,
+    emergencyMoraleIndex: 2,
+  },
+  BERSERKER: {
+    zocBasePenalty: 8,
+    zocThreatPenalty: 16,
+    lowHpPenalty: 8,
+    lowMoralePenalty: 2,
+    allySupportReduction: 3,
+    engageBonus: 40,
+    fallbackAdvanceTolerance: 18,
+    emergencyHpThreshold: 0.18,
+    emergencyMoraleIndex: 4,
+  },
+  TANK: {
+    zocBasePenalty: 8,
+    zocThreatPenalty: 14,
+    lowHpPenalty: 12,
+    lowMoralePenalty: 4,
+    allySupportReduction: 8,
+    engageBonus: 42,
+    fallbackAdvanceTolerance: 20,
+    emergencyHpThreshold: 0.2,
+    emergencyMoraleIndex: 4,
+  },
+  SKIRMISHER: {
+    zocBasePenalty: 22,
+    zocThreatPenalty: 30,
+    lowHpPenalty: 26,
+    lowMoralePenalty: 14,
+    allySupportReduction: 4,
+    engageBonus: 8,
+    fallbackAdvanceTolerance: 4,
+    emergencyHpThreshold: 0.38,
+    emergencyMoraleIndex: 3,
+  },
+};
+
+const getAIRiskProfile = (unit: CombatUnit): AIRiskProfile => {
+  const aiType = unit.aiType || 'BANDIT';
+  return AI_RISK_PROFILES[aiType] || AI_RISK_PROFILES.BANDIT;
+};
+
 // ==================== 工具函数 ====================
 
 /**
@@ -121,6 +218,7 @@ const calculatePositionScore = (
 ): number => {
   const distToTarget = getHexDistance(pos, targetPos);
   let score = 0;
+  const riskProfile = getAIRiskProfile(unit);
 
   // 1. 距离评分
   if (preferredRange > 1) {
@@ -147,28 +245,41 @@ const calculatePositionScore = (
   // 2. ZoC (控制区) 威胁评估
   const inZoC = isInEnemyZoC(pos, unit, state);
   if (inZoC) {
-    let zocPenalty = 0;
+    let zocPenalty = riskProfile.zocBasePenalty;
     
     // 检查具体的威胁（有多少人能截击）
     const threats = getThreateningEnemies(pos, unit, state);
     if (threats.length > 0) {
-       // 每个威胁来源造成显著惩罚
-       zocPenalty = threats.length * 40;
-       
-       // 血量不健康时更怕死
-       const hpPercent = unit.hp / unit.maxHp;
-       if (hpPercent < 0.5) zocPenalty += 30;
+       zocPenalty += threats.length * riskProfile.zocThreatPenalty;
     } else {
-       // 在ZoC内但暂无直接威胁（如敌人已行动过），轻微不利
-       zocPenalty = 10; 
+       // 在ZoC内但暂无直接威胁（如敌人已行动过），仍有轻微风险
+       zocPenalty += 8;
     }
 
-    // 豁免条件：如果该位置能有效攻击到目标（且是近战）
-    // 近战单位必须进入ZoC才能攻击，因此需要豁免部分惩罚
-    if (preferredRange === 1 && distToTarget <= 1) {
-        // 豁免相当于 1 个敌人的惩罚（即 1v1 不怕，1vN 怕）
-        zocPenalty = Math.max(0, zocPenalty - 40); 
+    // 状态修正：低血/低士气时更趋向保守
+    const hpPercent = unit.hp / unit.maxHp;
+    if (hpPercent < 0.5) {
+      zocPenalty += hpPercent < 0.25 ? Math.round(riskProfile.lowHpPenalty * 1.4) : riskProfile.lowHpPenalty;
     }
+    const moraleIndex = getMoraleIndex(unit.morale);
+    if (moraleIndex >= 2) {
+      zocPenalty += (moraleIndex - 1) * riskProfile.lowMoralePenalty;
+    }
+
+    // 友军支援减免：身边友军越多，越敢进入接战
+    const adjacentAllies = getAllies(unit, state).filter(a => getHexDistance(a.combatPos, pos) === 1).length;
+    zocPenalty -= adjacentAllies * riskProfile.allySupportReduction;
+
+    // 接战奖励：近战若能贴身/一步接战，降低ZoC惩罚，防止被无限放风筝
+    if (preferredRange === 1) {
+      if (distToTarget <= 1) {
+        zocPenalty -= riskProfile.engageBonus;
+      } else if (distToTarget === 2) {
+        zocPenalty -= Math.floor(riskProfile.engageBonus * 0.5);
+      }
+    }
+
+    zocPenalty = Math.max(0, zocPenalty);
     
     score -= zocPenalty;
   }
@@ -184,7 +295,8 @@ const findBestMovePosition = (
   unit: CombatUnit,
   targetPos: { q: number; r: number },
   state: CombatState,
-  preferredRange: number = 1
+  preferredRange: number = 1,
+  allowFallbackAdvance: boolean = false
 ): { q: number; r: number } | null => {
   const maxMoveDistance = Math.floor(unit.currentAP / 2);
   if (maxMoveDistance < 1) return null;
@@ -193,6 +305,11 @@ const findBestMovePosition = (
   // 只有找到比当前位置得分更高的位置，才会移动
   let bestScore = calculatePositionScore(unit, unit.combatPos, targetPos, state, preferredRange);
   let bestPos: { q: number; r: number } | null = null;
+  const currentDistToTarget = getHexDistance(unit.combatPos, targetPos);
+  let fallbackPos: { q: number; r: number } | null = null;
+  let fallbackScore = -Infinity;
+  let fallbackDistToTarget = currentDistToTarget;
+  const riskProfile = getAIRiskProfile(unit);
 
   // 2. 搜索可移动范围
   const searchRadius = Math.min(maxMoveDistance, 6); // 限制搜索范围避免性能问题
@@ -215,16 +332,45 @@ const findBestMovePosition = (
       
       // 减去移动消耗（避免无意义的反复横跳）
       score -= moveDistance * 2;
+      const newDistToTarget = getHexDistance(newPos, targetPos);
       
       // 只有得分显著高于当前位置才移动（设置阈值+1，避免微小差异导致的抖动）
       if (score > bestScore + 1) {
         bestScore = score;
         bestPos = newPos;
       }
+
+      // 反风筝兜底：记录“能缩短距离”的最优推进格
+      if (
+        newDistToTarget < fallbackDistToTarget ||
+        (newDistToTarget === fallbackDistToTarget && score > fallbackScore)
+      ) {
+        fallbackDistToTarget = newDistToTarget;
+        fallbackScore = score;
+        fallbackPos = newPos;
+      }
     }
   }
-  
-  return bestPos;
+
+  if (bestPos) return bestPos;
+
+  // 无显著更优格时，近战可在可控风险下强制推进，降低原地WAIT概率
+  if (allowFallbackAdvance && preferredRange === 1 && fallbackPos) {
+    const hpPercent = unit.hp / unit.maxHp;
+    const moraleIndex = getMoraleIndex(unit.morale);
+    const emergencyState =
+      hpPercent < riskProfile.emergencyHpThreshold ||
+      moraleIndex >= riskProfile.emergencyMoraleIndex;
+    const canPushAdvance =
+      fallbackDistToTarget < currentDistToTarget &&
+      fallbackScore >= bestScore - riskProfile.fallbackAdvanceTolerance;
+
+    if (!emergencyState && canPushAdvance) {
+      return fallbackPos;
+    }
+  }
+
+  return null;
 };
 
 /**
@@ -352,7 +498,7 @@ const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction =
   }
   
   // 不在ZoC中，安全地移动靠近
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
   }
@@ -431,7 +577,7 @@ const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction =>
   }
   
   // 不在ZoC中，全力冲向目标
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
   }
@@ -521,7 +667,7 @@ const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
   }
   
   // 不在ZoC中，有序推进
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
   }
@@ -693,7 +839,7 @@ const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIActio
   }
   
   // 不在ZoC中，冲向目标
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
   }
@@ -803,14 +949,14 @@ const executeTankBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
       const distB = Math.min(...allyArchers.map(ar => getHexDistance(ar.combatPos, b.combatPos)));
       return distA < distB ? a : b;
     });
-    const movePos = findBestMovePosition(unit, closestEnemy.combatPos, state, 1);
+    const movePos = findBestMovePosition(unit, closestEnemy.combatPos, state, 1, true);
     if (movePos) {
       return { type: 'MOVE', targetPos: movePos };
     }
   }
   
   // 缓慢推进向最近敌人
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1);
+  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
   if (movePos) {
     return { type: 'MOVE', targetPos: movePos };
   }
