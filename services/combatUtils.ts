@@ -3,6 +3,13 @@ import { hasPerk } from './perkService';
 
 export const POLEARM_ADJACENT_HIT_PENALTY = -15;
 
+const isPolearmWeapon = (unit: CombatUnit): boolean => {
+  const weapon = unit.equipment.mainHand;
+  if (!weapon) return false;
+  const cls = weapon.combatClass || weapon.weaponClass;
+  return cls === 'polearm';
+};
+
 /**
  * 是否是长柄后排攻击能力场景（仅 polearm 的攻击技能）
  */
@@ -11,8 +18,7 @@ export const isPolearmBacklineAttack = (
   ability: Ability | undefined,
   dist: number
 ): boolean => {
-  const wc = attacker.equipment.mainHand?.weaponClass;
-  if (wc !== 'polearm') return false;
+  if (!isPolearmWeapon(attacker)) return false;
   if (!ability || ability.type !== 'ATTACK') return false;
   return dist >= 1 && dist <= 2;
 };

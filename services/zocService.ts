@@ -149,10 +149,11 @@ export const calculateMovementBlockChance = (
   // 攻击者使用重武器增加阻止概率
   const weapon = attacker.equipment.mainHand;
   if (weapon) {
-    if (weapon.name.includes('斧') || weapon.name.includes('殳') || weapon.name.includes('棒')) {
+    const wc = weapon.combatClass || weapon.weaponClass;
+    if (wc === 'axe' || wc === 'hammer' || wc === 'mace' || wc === 'flail') {
       blockChance += 0.15; // 重武器更容易阻止移动
     }
-    if (weapon.name.includes('矛') || weapon.name.includes('枪') || weapon.name.includes('戈') || weapon.name.includes('戟')) {
+    if (wc === 'spear' || wc === 'polearm') {
       blockChance += 0.1; // 长兵器也有一定阻止效果
     }
   }

@@ -108,6 +108,7 @@ export interface Item {
   range?: number;
   twoHanded?: boolean;        // 是否双手武器（装备后副手不可用）
   weaponClass?: string;       // 武器类别：sword/axe/mace/flail/cleaver/spear/polearm/dagger/bow/crossbow/throw/hammer
+  combatClass?: string;       // 战斗判定类别（配置驱动，优先于 weaponClass）
   rarity?: ItemRarity;        // 显式品质等级
 }
 

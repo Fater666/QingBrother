@@ -249,13 +249,28 @@ const WEAPON_MASTERY_MAP: Record<string, string> = {
   'throw': 'throwing_mastery',
 };
 
+const isPolearmWeapon = (weapon: Item | null | undefined): boolean => {
+  if (!weapon) return false;
+  const cls = weapon.combatClass || weapon.weaponClass;
+  return cls === 'polearm';
+};
+
+const getNormalizedWeaponClass = (weapon: Item | null | undefined): string | undefined => {
+  if (!weapon) return undefined;
+  if (weapon.combatClass) return weapon.combatClass;
+  if (weapon.weaponClass) return weapon.weaponClass;
+  if (isPolearmWeapon(weapon)) return 'polearm';
+  return undefined;
+};
+
 /**
  * 检查单位是否拥有当前武器的精通
  */
 export const hasWeaponMastery = (unit: CombatUnit): boolean => {
   const weapon = unit.equipment.mainHand;
-  if (!weapon?.weaponClass) return false;
-  const masteryId = WEAPON_MASTERY_MAP[weapon.weaponClass];
+  const weaponClass = getNormalizedWeaponClass(weapon);
+  if (!weaponClass) return false;
+  const masteryId = WEAPON_MASTERY_MAP[weaponClass];
   if (!masteryId) return false;
   return hasPerk(unit, masteryId);
 };
@@ -291,8 +306,8 @@ export const getWeaponMasteryEffects = (unit: CombatUnit): {
   throwDistanceBonus?: boolean;
 } => {
   const weapon = unit.equipment.mainHand;
-  if (!weapon?.weaponClass) return {};
-  const wc = weapon.weaponClass;
+  const wc = getNormalizedWeaponClass(weapon);
+  if (!wc) return {};
   
   if (wc === 'polearm' && hasPerk(unit, 'polearm_mastery')) {
     return { reducedApCost: 5 };

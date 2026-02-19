@@ -67,6 +67,7 @@ export const WEAPON_TEMPLATES: Item[] = parseCSV(WEAPONS_CSV).map(w => ({
   maxDurability: w.durability,
   damage: [w.dmgMin, w.dmgMax],
   twoHanded: w.twoHanded === true || w.twoHanded === 'true',
+  combatClass: w.combatClass || w.weaponClass || undefined,
   weaponClass: w.weaponClass || undefined,
   rarity: w.rarity || undefined,
 }));
@@ -285,63 +286,52 @@ export const getUnitAbilities = (char: Character): Ability[] => {
     const main = char.equipment.mainHand;
     const off = char.equipment.offHand;
     if (main) {
-        const wc = main.weaponClass;  // 优先使用武器类别字段
-        const wn = main.name;         // 兼容名称匹配
+        const wc = main.combatClass || main.weaponClass;
+        const wn = main.name;
 
-        // 投掷类优先检查（名称可能包含 枪/矛/斧 等字，需优先匹配）
-        if (wc === 'throw' || wn.includes('飞石') || wn.includes('飞蝗') || wn.includes('标枪') || wn.includes('投矛') || wn.includes('飞斧')) {
+        // 武器技能严格按配置类别判定
+        if (wc === 'throw') {
             skills.push(ABILITIES['THROW']);
         }
-        // 匕首类
-        else if (wc === 'dagger' || wn.includes('匕')) {
+        else if (wc === 'dagger') {
             skills.push(ABILITIES['PUNCTURE']); skills.push(ABILITIES['SLASH']);
         }
-        // 剑类
-        else if (wc === 'sword' || wn.includes('剑')) {
+        else if (wc === 'sword') {
             skills.push(ABILITIES['SLASH']);
             if (main.value > 200) skills.push(ABILITIES['RIPOSTE']);
         }
-        // 斧类
-        else if (wc === 'axe' || wn.includes('斧')) {
+        else if (wc === 'axe') {
             skills.push(ABILITIES['CHOP']); skills.push(ABILITIES['SPLIT_SHIELD']);
         }
-        // 刀类（厨刀、环首刀、斩马刀、龙牙刀等）
-        else if (wc === 'cleaver' || wn.includes('刀')) {
+        else if (wc === 'cleaver') {
             skills.push(ABILITIES['SLASH']);
         }
-        // 矛/枪类
-        else if (wc === 'spear' || wn.includes('矛') || wn.includes('枪')) {
+        else if (wc === 'spear') {
             skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']);
         }
-        // 锤类
-        else if (wc === 'hammer' || wn.includes('锤') || wn.includes('骨朵')) {
+        else if (wc === 'hammer') {
             skills.push(ABILITIES['BASH']);
         }
-        // 棒/殳/钝器类
-        else if (wc === 'mace' || wn.includes('棒') || wn.includes('殳')) {
+        else if (wc === 'mace') {
             skills.push(ABILITIES['BASH']);
         }
-        // 连枷/鞭/锏/铁链类
-        else if (wc === 'flail' || wn.includes('鞭') || wn.includes('锏') || wn.includes('铁链')) {
+        else if (wc === 'flail') {
             skills.push(ABILITIES['BASH']);
         }
-        // 戈/戟类（长柄武器）
-        else if (wc === 'polearm' || wn.includes('戈') || wn.includes('戟')) {
+        else if (wc === 'polearm') {
             skills.push(ABILITIES['IMPALE']);
         }
         // 野兽天然武器（爪/牙）
         else if (wn.includes('爪') || wn.includes('牙') || wn.includes('獠')) {
             skills.push(ABILITIES['BITE']);
         }
-        // 弓类
-        else if (wc === 'bow' || wn.includes('弓')) {
+        else if (wc === 'bow') {
             skills.push(ABILITIES['SHOOT']);
             if (ABILITIES['AIMED_SHOT']) {
                 skills.push(ABILITIES['AIMED_SHOT']);
             }
         }
-        // 弩类
-        else if (wc === 'crossbow' || wn.includes('弩')) {
+        else if (wc === 'crossbow') {
             skills.push({ ...ABILITIES['SHOOT'], apCost: CROSSBOW_SHOOT_AP_COST });
             skills.push({ ...ABILITIES['RELOAD'], apCost: CROSSBOW_RELOAD_AP_COST });
         }

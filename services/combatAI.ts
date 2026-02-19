@@ -76,7 +76,10 @@ const calculateThreat = (target: CombatUnit, attacker?: CombatUnit, state?: Comb
   threat += target.stats.meleeSkill * 0.3;
   
   // 弓箭手/远程单位威胁更高
-  if (target.equipment.mainHand?.name.includes('弓') || target.equipment.mainHand?.name.includes('弩')) {
+  const targetWeaponClass = target.equipment.mainHand
+    ? (target.equipment.mainHand.combatClass || target.equipment.mainHand.weaponClass)
+    : undefined;
+  if (targetWeaponClass === 'bow' || targetWeaponClass === 'crossbow') {
     threat += 20;
   }
   
@@ -233,7 +236,8 @@ const getAttackAbilities = (unit: CombatUnit): Ability[] => {
     // 弩未装填时禁止选择射击，避免 AI 无限连射。
     if (a.id === 'SHOOT') {
       const weapon = unit.equipment.mainHand;
-      const isCrossbow = weapon?.weaponClass === 'crossbow' || weapon?.name.includes('弩');
+      const wClass = weapon?.combatClass || weapon?.weaponClass;
+      const isCrossbow = wClass === 'crossbow';
       if (isCrossbow && unit.crossbowLoaded === false) return false;
     }
     return true;
@@ -254,7 +258,9 @@ const canAttackTarget = (
   if (!inBaseRange) return false;
 
   // 显式接入长柄后排规则：polearm 的攻击仅视为 1~2 格有效。
-  if (unit.equipment.mainHand?.weaponClass === 'polearm' && ability.type === 'ATTACK') {
+  const weapon = unit.equipment.mainHand;
+  const isPolearmWeapon = !!weapon && (weapon.combatClass || weapon.weaponClass) === 'polearm';
+  if (isPolearmWeapon && ability.type === 'ATTACK') {
     return isPolearmBacklineAttack(unit, ability, dist);
   }
 
@@ -786,7 +792,8 @@ const executeTankBehavior = (unit: CombatUnit, state: CombatState): AIAction => 
   // 不在 ZoC 中：优先移动到友方弓手前方保护他们
   const allyArchers = allies.filter(a => {
     const weapon = a.equipment.mainHand;
-    return weapon && (weapon.name.includes('弓') || weapon.name.includes('弩'));
+    const wClass = weapon?.combatClass || weapon?.weaponClass;
+    return wClass === 'bow' || wClass === 'crossbow';
   });
   
   if (allyArchers.length > 0 && enemies.length > 0) {
@@ -1020,7 +1027,8 @@ export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction =>
 
   // 弩未装填时优先装填，避免出现“无需装填即可连续射击”。
   const weapon = unit.equipment.mainHand;
-  const isCrossbow = weapon?.weaponClass === 'crossbow' || weapon?.name.includes('弩');
+  const weaponClass = weapon?.combatClass || weapon?.weaponClass;
+  const isCrossbow = weaponClass === 'crossbow';
   if (isCrossbow && unit.crossbowLoaded === false) {
     const reloadAbility = getUnitAbilities(unit).find(a => a.id === 'RELOAD');
     if (reloadAbility && unit.currentAP >= reloadAbility.apCost) {
