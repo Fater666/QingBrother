@@ -1705,6 +1705,9 @@ export const App: React.FC = () => {
             const activeEscortQuest = party.activeQuest && party.activeQuest.type === 'ESCORT' && !party.activeQuest.isCompleted
               ? party.activeQuest
               : null;
+            const activeHuntQuest = party.activeQuest && party.activeQuest.type === 'HUNT' && !party.activeQuest.isCompleted
+              ? party.activeQuest
+              : null;
             const activePatrolQuest = party.activeQuest && party.activeQuest.type === 'PATROL' && !party.activeQuest.isCompleted
               ? party.activeQuest
               : null;
@@ -1739,12 +1742,15 @@ export const App: React.FC = () => {
                 }
                 
                 // 军队 vs 土匪/野兽(敌对) -> 匪被剿
-                if (a.type === 'ARMY' && isHostileB) {
+                const protectedHuntTargetA = !!activeHuntQuest?.targetEntityId && a.id === activeHuntQuest.targetEntityId;
+                const protectedHuntTargetB = !!activeHuntQuest?.targetEntityId && b.id === activeHuntQuest.targetEntityId;
+
+                if (a.type === 'ARMY' && isHostileB && !protectedHuntTargetB) {
                   toRemoveIds.add(b.id);
                   if (b.campId) campDecrements.set(b.campId, (campDecrements.get(b.campId) || 0) + 1);
                   continue;
                 }
-                if (b.type === 'ARMY' && isHostileA) {
+                if (b.type === 'ARMY' && isHostileA && !protectedHuntTargetA) {
                   toRemoveIds.add(a.id);
                   if (a.campId) campDecrements.set(a.campId, (campDecrements.get(a.campId) || 0) + 1);
                   continue;
@@ -1826,6 +1832,99 @@ export const App: React.FC = () => {
               }
             } else {
               patrolRespawnCooldownRef.current = {};
+            }
+
+            // 讨伐任务保底：如果目标被剿灭/丢失，为当前任务重绑或补刷目标
+            if (activeHuntQuest && activeHuntQuest.targetEntityName) {
+              const hasBoundTarget =
+                !!activeHuntQuest.targetEntityId &&
+                updatedEntities.some(e => e.id === activeHuntQuest.targetEntityId && !toRemoveIds.has(e.id));
+
+              if (!hasBoundTarget) {
+                const sourceCity = cities.find(c => c.id === activeHuntQuest.sourceCityId);
+                const anchorX = sourceCity?.x ?? party.x;
+                const anchorY = sourceCity?.y ?? party.y;
+
+                let bestCandidate: WorldEntity | null = null;
+                let bestDist = Infinity;
+                for (const ent of updatedEntities) {
+                  if (toRemoveIds.has(ent.id)) continue;
+                  if (ent.faction !== 'HOSTILE' || ent.name !== activeHuntQuest.targetEntityName) continue;
+                  const d = Math.hypot(ent.x - anchorX, ent.y - anchorY);
+                  if (d < bestDist) {
+                    bestDist = d;
+                    bestCandidate = ent;
+                  }
+                }
+
+                if (bestCandidate) {
+                  const bestCandidateId = bestCandidate.id;
+                  const candidateIdx = updatedEntities.findIndex(ent => ent.id === bestCandidateId);
+                  if (candidateIdx >= 0) {
+                    updatedEntities[candidateIdx] = {
+                      ...updatedEntities[candidateIdx],
+                      isQuestTarget: true,
+                    };
+                  }
+                  setParty(prevParty => {
+                    if (!prevParty.activeQuest || prevParty.activeQuest.id !== activeHuntQuest.id || prevParty.activeQuest.isCompleted) {
+                      return prevParty;
+                    }
+                    if (prevParty.activeQuest.targetEntityId === bestCandidateId) return prevParty;
+                    return {
+                      ...prevParty,
+                      activeQuest: {
+                        ...prevParty.activeQuest,
+                        targetEntityId: bestCandidateId,
+                      },
+                    };
+                  });
+                } else {
+                  const spawnDist = 3 + Math.random() * 5;
+                  const spawnAngle = Math.random() * Math.PI * 2;
+                  const spawnX = Math.max(1, Math.min(MAP_SIZE - 2, anchorX + Math.cos(spawnAngle) * spawnDist));
+                  const spawnY = Math.max(1, Math.min(MAP_SIZE - 2, anchorY + Math.sin(spawnAngle) * spawnDist));
+                  const questEntId = `quest-target-rebind-${activeHuntQuest.id}-${Date.now()}`;
+                  const isBeast = BEAST_QUEST_TARGET_NAMES.has(activeHuntQuest.targetEntityName);
+                  const entityType: WorldEntity['type'] = isBeast ? 'BEAST' : 'BANDIT';
+                  const worldAIType: WorldAIType = isBeast ? 'BEAST' : 'BANDIT';
+
+                  updatedEntities.push({
+                    id: questEntId,
+                    name: activeHuntQuest.targetEntityName,
+                    type: entityType,
+                    faction: 'HOSTILE',
+                    x: spawnX,
+                    y: spawnY,
+                    targetX: null,
+                    targetY: null,
+                    speed: 0.6 + Math.random() * 0.3,
+                    aiState: 'WANDER',
+                    homeX: spawnX,
+                    homeY: spawnY,
+                    worldAIType,
+                    alertRadius: 4,
+                    chaseRadius: 8,
+                    isQuestTarget: true,
+                    wanderCooldown: Math.random() * 5,
+                    territoryRadius: 4 + Math.random() * 3,
+                  });
+
+                  setParty(prevParty => {
+                    if (!prevParty.activeQuest || prevParty.activeQuest.id !== activeHuntQuest.id || prevParty.activeQuest.isCompleted) {
+                      return prevParty;
+                    }
+                    if (prevParty.activeQuest.targetEntityId === questEntId) return prevParty;
+                    return {
+                      ...prevParty,
+                      activeQuest: {
+                        ...prevParty.activeQuest,
+                        targetEntityId: questEntId,
+                      },
+                    };
+                  });
+                }
+              }
             }
 
             if (toRemoveIds.size > 0) {
@@ -2622,6 +2721,11 @@ export const App: React.FC = () => {
                         if (bestId && bestDist <= MAX_QUEST_DIST) {
                             // 附近有匹配的敌人，直接绑定
                             linkedQuest.targetEntityId = bestId;
+                            setEntities(prev =>
+                              prev.map(ent =>
+                                ent.id === bestId ? { ...ent, isQuestTarget: true } : ent
+                              )
+                            );
                         } else {
                             // 附近没有匹配的敌人，在城市附近生成一个任务专属目标
                             const spawnDist = 3 + Math.random() * 5; // 距城市3-8格（确保任务目标在附近）
