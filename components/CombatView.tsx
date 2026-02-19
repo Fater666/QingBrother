@@ -4262,23 +4262,38 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={isMobile ? undefined : performAttack} onContextMenu={isMobile ? undefined : performMove} />
         <button
           type="button"
-          onClick={() => setShowUnitDetail(v => !v)}
-          className={`${isCompactLandscape ? 'top-1 right-1 px-1.5 py-0.5 text-[9px]' : 'top-2 right-2 px-2 py-1 text-[10px]'} absolute z-[70] rounded border border-amber-700/50 bg-black/70 text-amber-400 hover:bg-amber-950/40 transition-colors`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowUnitDetail(v => !v);
+          }}
+          className={`${isCompactLandscape ? 'top-1 right-1 px-2 py-1 text-[10px]' : 'top-2 right-2 px-2.5 py-1.5 text-[11px]'} absolute z-[72] rounded border border-amber-700/50 bg-black/70 text-amber-400 hover:bg-amber-950/40 transition-colors`}
+          title={showUnitDetail ? '隐藏单位详情' : '显示单位详情'}
+          aria-label={showUnitDetail ? '隐藏单位详情' : '显示单位详情'}
         >
           {showUnitDetail ? '隐藏详情' : '显示详情'}
         </button>
         {isPlayerTurn && activeUnit && (
           <button
             type="button"
-            onClick={() => requireDoubleClickForTurnAction('retreat', () => {
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              requireDoubleClickForTurnAction('retreat', () => {
               if (isRetreating) return;
               setIsRetreating(true);
               addToLog('全军开始撤退，单位将自动向边缘移动。', 'flee');
               showCenterBanner('全军撤退！', '#f87171', '🏳');
-            })}
+              });
+            }}
             disabled={isRetreating}
             title={isRetreating ? '撤退进行中' : '全军撤退'}
-            className={`${isCompactLandscape ? 'top-1 right-16 px-2 py-0.5 text-[9px]' : isMobile ? 'top-2 right-20 px-2.5 py-1 text-[10px]' : 'top-2 right-24 px-3 py-1 text-[11px]'} absolute z-[70] rounded border transition-colors
+            className={`${isCompactLandscape ? 'top-1 right-20 px-2 py-0.5 text-[9px]' : isMobile ? 'top-2 right-28 px-2.5 py-1 text-[10px]' : 'top-2 right-32 px-3 py-1 text-[11px]'} absolute z-[70] rounded border transition-colors
               ${isRetreating
                 ? 'border-red-900/40 bg-black/70 text-red-500 cursor-not-allowed'
                 : 'border-red-700/60 bg-black/75 text-red-300 hover:bg-red-950/40'
@@ -4393,7 +4408,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               <div 
                 key={u.id} 
                 ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
-                className="absolute"
+                className={`absolute ${showUnitDetail ? 'pointer-events-auto' : 'pointer-events-none'}`}
                 style={{ width: `${Math.max(104, Math.round((showUnitDetail ? 152 : 112) * compactFontScale))}px`, height: 'auto' }}
               >
                 <UnitCard
@@ -4603,6 +4618,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 const ghostWidth = staminaPct - previewStaminaPct;
                 const totalAP = 9;
                 const currentAP = activeUnit.currentAP;
+                const previewAPAfter = previewCosts
+                  ? Math.max(0, currentAP - previewCosts.apCost)
+                  : currentAP;
                 const barH = isCompactLandscape ? '6px' : isMobile ? '7px' : '8px';
 
                 return (
@@ -4634,10 +4652,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                           textShadow: '0 0 6px rgba(0,0,0,0.65)'
                         }}
                       >
-                        ⚡ 行动点 {currentAP}/{totalAP}
+                        ⚡ 行动点 {previewCosts ? `${currentAP}→${previewAPAfter}` : `${currentAP}`}/{totalAP}
                       </span>
                     </div>
-
                     <div className="flex gap-3">
                       <div className="flex items-center gap-1 flex-1 min-w-0">
                         <span className="text-[9px] text-cyan-400 w-3 flex-shrink-0 text-center" style={{ display: 'inline-block' }}>⛑</span>
@@ -4688,7 +4705,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                             </div>
                           </div>
                         </div>
-                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-teal-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>{remaining}/{maxFat}</span>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold text-teal-400 flex-shrink-0`} style={{ minWidth: isCompactLandscape ? '24px' : '30px', textAlign: 'right' }}>
+                          {previewCosts ? `${remaining}→${previewRemaining}` : `${remaining}`}/{maxFat}
+                        </span>
                       </div>
                     </div>
                   </div>
