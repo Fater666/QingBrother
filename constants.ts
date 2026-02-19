@@ -36,6 +36,7 @@ import QUEST_CITY_COUNT_CSV from './csv/quest_city_count.csv?raw';
 import QUEST_DIFFICULTY_POOLS_CSV from './csv/quest_difficulty_pools.csv?raw';
 import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
 import QUEST_GENERATION_RULES_CSV from './csv/quest_generation_rules.csv?raw';
+import BACKGROUND_TRAIT_WEIGHTS_CSV from './csv/background_trait_weights.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -149,40 +150,13 @@ export const NEGATIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type
  * 背景偏好特质映射：每个背景有更高概率获得的特质ID
  * 偏好特质的权重为普通特质的 3 倍
  */
-export const BG_TRAIT_WEIGHTS: Record<string, string[]> = {
-    'FARMER':     ['strong', 'tough'],
-    'DESERTER':   ['craven', 'quick'],
-    'HUNTER':     ['eagle_eyes', 'quick'],
-    'NOMAD':      ['quick', 'brave'],
-    'NOBLE':      ['brave', 'fragile'],
-    'MONK':       ['brave', 'iron_jaw'],
-    'BANDIT':     ['brave', 'clumsy'],
-    'BLACKSMITH': ['strong', 'tough'],
-    'PHYSICIAN':  ['eagle_eyes', 'fragile'],
-    'BEGGAR':     ['tiny', 'asthmatic'],
-    'MERCHANT':   ['short_sighted', 'craven'],
-    'ASSASSIN':   ['quick', 'natural_fighter'],
-    'LABORER':    ['strong', 'tough'],
-    'FISHERMAN':  ['tough', 'hesitant'],
-    'MINER':      ['strong', 'iron_jaw'],
-    'PERFORMER':  ['quick', 'fragile'],
-    'MOHIST':     ['brave', 'iron_jaw'],
-    'REFUGEE':    ['craven', 'fragile'],
-    'GRAVEDIGGER': ['tough', 'hesitant'],
-    'CRIPPLE':    ['iron_jaw', 'asthmatic'],
-    'WOODCUTTER': ['strong', 'tough'],
-    'BUTCHER':    ['strong', 'brave'],
-    'HERDSMAN':   ['tough', 'eagle_eyes'],
-    'MILITIAMAN': ['brave', 'strong'],
-    'SCOUT':      ['quick', 'eagle_eyes'],
-    'SWORDSMAN':  ['natural_fighter', 'brave'],
-    'CAVALRYMAN': ['brave', 'quick'],
-    'DIVINER':    ['eagle_eyes', 'fragile'],
-    'KNIGHT_ERRANT': ['brave', 'natural_fighter'],
-    'VETERAN_OFFICER': ['brave', 'iron_jaw'],
-    'SWORDMASTER': ['natural_fighter', 'quick'],
-    'STRATEGIST': ['eagle_eyes', 'brave'],
-};
+export const BG_TRAIT_WEIGHTS: Record<string, string[]> = {};
+parseCSV(BACKGROUND_TRAIT_WEIGHTS_CSV).forEach(row => {
+    const traitIds = Array.isArray(row.traitIds)
+        ? row.traitIds
+        : (typeof row.traitIds === 'string' && row.traitIds ? [row.traitIds] : []);
+    BG_TRAIT_WEIGHTS[row.bgId] = traitIds;
+});
 
 /**
  * 基于背景加权随机分配特质
