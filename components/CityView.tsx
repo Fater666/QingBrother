@@ -411,12 +411,13 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   };
 
   const getRoleRecommendation = (merc: Character) => {
-      const { meleeSkill, meleeDefense, rangedSkill } = merc.stats;
+      const { meleeSkill, meleeDefense, rangedSkill, initiative } = merc.stats;
       const { meleeSkill: msStar, rangedSkill: rsStar, meleeDefense: mdStar } = merc.stars;
-      if (rangedSkill > 45 || (rangedSkill > 40 && rsStar >= 2)) return "神射手";
+      const rangedAdvantage = rangedSkill - meleeSkill;
+      if ((rangedAdvantage >= 0 && rangedSkill > 50) || (rangedAdvantage >= -5 && rsStar >= 2 && rangedSkill > 45)) return "神射手";
       if ((meleeDefense > 5 || mdStar >= 2) && merc.hp > 60) return "重装步兵";
       if (meleeSkill > 55 || (meleeSkill > 50 && msStar >= 2)) return "主力输出";
-      if (merc.stats.initiative > 115) return "突袭者";
+      if (initiative > 115) return "突袭者";
       return "后备兵";
   };
 
@@ -880,7 +881,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                         <div className={`${isCompactLandscape ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2'}`}>
                                 {city.recruits.map((merc, i) => {
                                                 const hireCost = merc.hireCost;
-                                                const role = getRoleRecommendation(merc);
                                                 const bgEntry = Object.values(BACKGROUNDS).find(b => b.name === merc.background);
                                                 const bgIcon = bgEntry?.icon || '?';
                                                 const isSelected = selectedRecruit === i;
@@ -903,7 +903,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                             <span className="text-xl leading-none">{bgIcon}</span>
                                                             <div className="flex-1 min-w-0">
                                                                 <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : 'text-slate-200'}`}>{merc.name}</div>
-                                                                <div className="text-[10px] text-amber-700 truncate">{merc.background} · {role}</div>
+                                                                <div className="text-[10px] text-amber-700 truncate">{merc.background}</div>
                                                             </div>
                                                         </div>
                                                         {/* 费用 */}
@@ -929,7 +929,6 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] && (() => {
                                     const merc = city.recruits[selectedRecruit];
                                     const hireCost = merc.hireCost;
-                                    const role = getRoleRecommendation(merc);
                                     const canAfford = party.gold >= hireCost;
                                     const canHire = canAfford && party.mercenaries.length < 20;
                                     return (
@@ -939,7 +938,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                     {merc.name}
                                                 </div>
                                                 <div className="text-[10px] text-slate-500 truncate">
-                                                    雇佣费 {hireCost} 金 · 日薪 {merc.salary} 金/日 · {role}
+                                                    雇佣费 {hireCost} 金 · 日薪 {merc.salary} 金/日
                                                 </div>
                                             </div>
                                             <button
@@ -965,8 +964,12 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                             <div className={`${isCompactLandscape ? 'flex-[9] min-w-0 p-2.5' : (isMobileLayout ? 'w-full flex-none p-4 sm:p-5' : 'lg:flex-[2] flex-1 p-4 sm:p-5')} bg-[#0d0b08] border border-amber-900/30 flex flex-col shadow-xl min-w-0 lg:min-w-[300px] min-h-0 relative ${isCompactLandscape ? 'overflow-hidden' : (isMobileLayout ? 'overflow-visible' : 'overflow-hidden')}`}>
                                 {selectedRecruit !== null && city.recruits[selectedRecruit] ? (() => {
                                     const merc = city.recruits[selectedRecruit];
+                                    const role = getRoleRecommendation(merc);
                                     return (
                                         <>
+                                            <div className={`${isCompactLandscape ? 'mb-2 px-2 py-1 text-[10px]' : 'mb-3 px-3 py-1.5 text-xs'} shrink-0 bg-amber-950/20 border border-amber-900/40 text-amber-300`}>
+                                                推荐定位：{role}
+                                            </div>
                                             {/* 特质标签 */}
                                             {merc.traits && merc.traits.length > 0 && (
                                                 <div className={`flex flex-wrap ${isCompactLandscape ? 'gap-1 mb-2' : 'gap-1.5 mb-4'} shrink-0`}>

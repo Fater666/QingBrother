@@ -289,28 +289,60 @@ const createMercenary = (id: string): Character => {
   const baseRes = roll(30, 50) + rollMod(bg.resolveMod) + traitMods.resolveMod;
   const baseInit = roll(100, 110) + rollMod(bg.initMod) + traitMods.initMod;
   const baseMSkill = roll(47, 57) + rollMod(bg.meleeSkillMod) + traitMods.meleeSkillMod;
-  const baseRSkill = roll(32, 42) + rollMod(bg.rangedSkillMod) + traitMods.rangedSkillMod;
+  const baseRSkill = roll(37, 47) + rollMod(bg.rangedSkillMod) + traitMods.rangedSkillMod;
   const baseMDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.meleeDefMod;
   const baseRDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.rangedDefMod;
 
-  const genStars = () => {
-    const r = Math.random() * 100;
-    if (r > 95) return 3;
-    if (r > 80) return 2;
-    if (r > 50) return 1;
-    return 0;
+  type StarKey = 'meleeSkill' | 'rangedSkill' | 'meleeDefense' | 'rangedDefense' | 'resolve' | 'initiative' | 'hp' | 'fatigue';
+  const starKeys: StarKey[] = [
+    'meleeSkill', 'rangedSkill', 'meleeDefense', 'rangedDefense',
+    'resolve', 'initiative', 'hp', 'fatigue',
+  ];
+  const bgModMap: Record<string, [number, number]> = {
+    meleeSkill: bg.meleeSkillMod, rangedSkill: bg.rangedSkillMod,
+    meleeDefense: bg.defMod, rangedDefense: bg.defMod,
+    resolve: bg.resolveMod, initiative: bg.initMod,
+    hp: bg.hpMod, fatigue: bg.fatigueMod,
   };
 
-  const stars = {
-    meleeSkill: genStars(),
-    rangedSkill: genStars(),
-    meleeDefense: genStars(),
-    rangedDefense: genStars(),
-    resolve: genStars(),
-    initiative: genStars(),
-    hp: genStars(),
-    fatigue: genStars(),
+  const getModMedian = (mod: [number, number]) => (mod[0] + mod[1]) / 2;
+  const starWeight = (key: string) => {
+    const median = getModMedian(bgModMap[key]);
+    if (median >= 15) return 4;
+    if (median >= 8) return 2;
+    if (median < 0) return 0.3;
+    return 1;
   };
+
+  const starCountRoll = Math.random() * 100;
+  const starCount = starCountRoll < 15 ? 0 : starCountRoll < 40 ? 1 : starCountRoll < 70 ? 2 : starCountRoll < 90 ? 3 : 4;
+
+  const chosenStarKeys = new Set<string>();
+  const starPool = [...starKeys];
+  for (let i = 0; i < starCount && starPool.length > 0; i++) {
+    const weights = starPool.map(k => starWeight(k));
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    let picked = starPool.length - 1;
+    for (let j = 0; j < starPool.length; j++) {
+      r -= weights[j];
+      if (r <= 0) { picked = j; break; }
+    }
+    chosenStarKeys.add(starPool[picked]);
+    starPool.splice(picked, 1);
+  }
+
+  const rollStarLevel = (key: string): number => {
+    const median = getModMedian(bgModMap[key]);
+    const r = Math.random() * 100;
+    if (median >= 15) return r < 20 ? 3 : r < 60 ? 2 : 1;
+    return r < 10 ? 3 : r < 40 ? 2 : 1;
+  };
+
+  const stars: Record<StarKey, number> = {} as Record<StarKey, number>;
+  for (const key of starKeys) {
+    stars[key] = chosenStarKeys.has(key) ? rollStarLevel(key) : 0;
+  }
 
   const weaponPool = WEAPON_TEMPLATES.filter(w => w.value < 400);
   const weapon = weaponPool[Math.floor(Math.random() * weaponPool.length)];
