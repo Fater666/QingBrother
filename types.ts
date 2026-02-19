@@ -323,6 +323,13 @@ export interface Party {
 
 // 敌人AI类型
 export type AIType = 'BANDIT' | 'BEAST' | 'ARMY' | 'ARCHER' | 'BERSERKER' | 'TANK' | 'SKIRMISHER';
+export type EnemyUnitType = 'HUMANOID' | 'BEAST' | 'UNDEAD';
+export type EnemyAIConfigFlag =
+  | 'MORALE_IMMUNE'
+  | 'BEAST_WOLF'
+  | 'BEAST_ALPHA_WOLF'
+  | 'BEAST_BOAR'
+  | 'BEAST_TIGER';
 
 export interface CombatUnit extends Character {
   combatPos: { q: number; r: number };
@@ -340,6 +347,8 @@ export interface CombatUnit extends Character {
   freeSwapUsed: boolean;
   hasUsedFreeAttack: boolean; // 本回合是否已使用过截击（控制区机制）
   aiType?: AIType; // 敌人AI行为类型
+  unitType?: EnemyUnitType; // 单位类型（人类/野兽/亡灵）
+  aiConfig?: EnemyAIConfigFlag[]; // AI行为配置标签（来自单位表）
   // --- 专精被动战斗状态 ---
   colossusApplied?: boolean;       // 强体是否已在本场战斗中应用（防止重复叠加）
   nineLivesUsed?: boolean;         // 命不该绝是否已触发

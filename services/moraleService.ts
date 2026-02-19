@@ -228,9 +228,11 @@ export const performMoraleCheck = (
 ): MoraleCheckResult => {
   const previousMorale = unit.morale;
   
-  // 野兽和狂战士免疫士气系统（永不动摇、永不逃跑）
+  // 通过单位类型/AI配置决定士气免疫（不再依赖名称判断）
   const aiType = unit.aiType;
-  if (aiType === 'BEAST' || aiType === 'BERSERKER') {
+  const hasMoraleImmuneFlag = (unit.aiConfig || []).includes('MORALE_IMMUNE');
+  const isMoraleImmuneByType = unit.unitType === 'UNDEAD';
+  if (aiType === 'BEAST' || aiType === 'BERSERKER' || isMoraleImmuneByType || hasMoraleImmuneFlag) {
     return {
       unitId: unit.id,
       unitName: unit.name,

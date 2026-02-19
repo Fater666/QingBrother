@@ -1,5 +1,5 @@
 
-import { Item, Ability, Character, Perk, BackgroundTemplate, Trait, AIType } from './types.ts';
+import { Item, Ability, Character, Perk, BackgroundTemplate, Trait, AIType, EnemyUnitType, EnemyAIConfigFlag } from './types.ts';
 export type { BackgroundTemplate };
 
 // --- CSV DATA (loaded from csv/ folder) ---
@@ -444,12 +444,28 @@ export const getDifficultyTier = (day: number) => {
 };
 
 // --- ENEMY COMPOSITIONS (from enemy_compositions.csv) ---
-export const TIERED_ENEMY_COMPOSITIONS: Record<string, { name: string; bg: string; aiType: AIType }[][]> = {};
+export const TIERED_ENEMY_COMPOSITIONS: Record<string, {
+    name: string;
+    bg: string;
+    aiType: AIType;
+    unitType: EnemyUnitType;
+    aiConfig: EnemyAIConfigFlag[];
+}[][]> = {};
 parseCSV(ENEMY_COMPOSITIONS_CSV).forEach(e => {
     if (!TIERED_ENEMY_COMPOSITIONS[e.enemyType]) TIERED_ENEMY_COMPOSITIONS[e.enemyType] = [];
     const tiers = TIERED_ENEMY_COMPOSITIONS[e.enemyType];
     while (tiers.length <= e.tier) tiers.push([]);
-    tiers[e.tier].push({ name: e.name, bg: e.bg, aiType: e.aiType as AIType });
+    const aiConfigRaw = e.aiConfig;
+    const aiConfig = Array.isArray(aiConfigRaw)
+      ? aiConfigRaw
+      : (typeof aiConfigRaw === 'string' && aiConfigRaw ? [aiConfigRaw] : []);
+    tiers[e.tier].push({
+      name: e.name,
+      bg: e.bg,
+      aiType: e.aiType as AIType,
+      unitType: (e.type as EnemyUnitType) || 'HUMANOID',
+      aiConfig: aiConfig as EnemyAIConfigFlag[],
+    });
 });
 
 // --- GOLD REWARDS (from gold_rewards.csv) ---

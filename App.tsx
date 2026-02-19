@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
+import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, EnemyUnitType, EnemyAIConfigFlag, AmbitionState, EnemyCamp, CampRegion } from './types.ts';
 import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES } from './constants';
 import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
@@ -21,6 +21,8 @@ import { DEFAULT_AMBITION_STATE, selectAmbition, selectNoAmbition, completeAmbit
 import { GameTip } from './components/GameTip.tsx';
 import { GameTipData, GAME_TIPS, markTipShown } from './services/tipService.ts';
 import { GMPanel } from './components/GMPanel.tsx';
+
+const BGM_VOLUME_STORAGE_KEY = 'zhanguo_bgm_volume';
 
 // --- Character Generation ---
 const generateName = (): string => {
@@ -725,7 +727,13 @@ const getEquipmentForAIType = (aiType: AIType, valueLimit: number, tier: number 
 };
 
 /** 多阶段敌人编制表（从 CSV 加载） */
-interface EnemyComp { name: string; bg: string; aiType: AIType }
+interface EnemyComp {
+  name: string;
+  bg: string;
+  aiType: AIType;
+  unitType: EnemyUnitType;
+  aiConfig: EnemyAIConfigFlag[];
+}
 
 export const App: React.FC = () => {
   const AUTO_SAVE_INTERVAL_MS = 120000;
@@ -761,6 +769,14 @@ export const App: React.FC = () => {
   const [saveLoadMode, setSaveLoadMode] = useState<'SAVE' | 'LOAD' | null>(null);
   const [showContact, setShowContact] = useState(false);
   const [showSystemMenu, setShowSystemMenu] = useState(false);
+  const [bgmVolume, setBgmVolume] = useState<number>(() => {
+    const raw = localStorage.getItem(BGM_VOLUME_STORAGE_KEY);
+    const parsed = raw ? Number(raw) : NaN;
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.min(1, parsed));
+    }
+    return 0.3;
+  });
   const [showReturnMainMenuConfirm, setShowReturnMainMenuConfirm] = useState(false);
   const [gmOpen, setGmOpen] = useState(false);
   const gmTapRef = useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
@@ -802,10 +818,10 @@ export const App: React.FC = () => {
     if (!bgmRef.current) {
       bgmRef.current = new Audio();
       bgmRef.current.loop = true;
-      bgmRef.current.volume = 0.3;
     }
 
     const audio = bgmRef.current;
+    audio.volume = bgmVolume;
     
     // 战斗中使用特定的战斗音乐，其他界面使用主音乐
     const isCombat = view === 'COMBAT';
@@ -831,7 +847,11 @@ export const App: React.FC = () => {
       };
       playBgm();
     }
-  }, [view]);
+  }, [view, bgmVolume]);
+
+  useEffect(() => {
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, String(bgmVolume));
+  }, [bgmVolume]);
 
   // --- 从装备ID池中随机选取一件装备 ---
   const resolveItemFromPool = (ids: string[] | undefined, templates: Item[]): Item | null => {
@@ -1179,7 +1199,7 @@ export const App: React.FC = () => {
     combatBossCampIdRef.current = bossCamp?.id || '';
     
     // 获取当前实体类型对应的阶段编制
-    let compositions: { name: string; bg: string; aiType: AIType }[];
+    let compositions: EnemyComp[];
     if (isBoss && bossCamp?.bossCompositionKey) {
       // Boss使用专属分层编制：优先当前tier，缺失时回退到可用最高tier，再回退到bandit保底
       const bossComps = TIERED_ENEMY_COMPOSITIONS[bossCamp.bossCompositionKey];
@@ -1206,7 +1226,8 @@ export const App: React.FC = () => {
       const baseChar = createMercenary(`e${i}`, comp.name, comp.bg);
       
       // BEAST类型敌人及猛虎/野猪：使用天然武器，不穿装备
-      const isBeastCreature = comp.aiType === 'BEAST' || comp.name === '猛虎' || comp.name === '野猪';
+      const aiConfigSet = new Set(comp.aiConfig || []);
+      const isBeastCreature = comp.unitType === 'BEAST' || comp.aiType === 'BEAST';
       if (isBeastCreature) {
         const beastStatMult = statMult * ENEMY_STAT_NERF;
         // 根据不同野兽类型设置不同天然武器
@@ -1216,7 +1237,7 @@ export const App: React.FC = () => {
         let armorPen = 0.15, armorDmg = 0.5;
         let fatCost = 8, hitMod = 10;
         
-        if (comp.name === '猛虎') {
+        if (aiConfigSet.has('BEAST_TIGER')) {
           weaponName = '虎爪';
           weaponDesc = '猛虎锋利的巨爪，一击可致命。';
           dmgMin = 40; dmgMax = 65;
@@ -1226,7 +1247,7 @@ export const App: React.FC = () => {
           baseChar.maxHp = Math.floor(baseChar.maxHp * 1.35);
           baseChar.hp = baseChar.maxHp;
           baseChar.stats.meleeSkill = Math.floor(baseChar.stats.meleeSkill * 1.2);
-        } else if (comp.name === '野猪') {
+        } else if (aiConfigSet.has('BEAST_BOAR')) {
           weaponName = '獠牙';
           weaponDesc = '野猪尖锐的獠牙，冲撞力十足。';
           dmgMin = 25; dmgMax = 40;
@@ -1235,7 +1256,7 @@ export const App: React.FC = () => {
           // 野猪额外HP加成（坦克型）
           baseChar.maxHp = Math.floor(baseChar.maxHp * 1.2);
           baseChar.hp = baseChar.maxHp;
-        } else if (comp.name.includes('头狼')) {
+        } else if (aiConfigSet.has('BEAST_ALPHA_WOLF')) {
           weaponName = '狼牙';
           weaponDesc = '头狼锋利的獠牙，撕咬力惊人。';
           dmgMin = 30; dmgMax = 50;
@@ -1326,6 +1347,8 @@ export const App: React.FC = () => {
         freeSwapUsed: false,
         hasUsedFreeAttack: false,
         aiType: comp.aiType,
+        unitType: comp.unitType,
+        aiConfig: comp.aiConfig,
         morale: enemyStartMorale
       };
     });
@@ -2346,6 +2369,24 @@ export const App: React.FC = () => {
                         >
                           联系开发者
                         </button>
+                        <div className="px-3 py-1.5 border border-transparent">
+                          <div className="text-[10px] text-amber-300/80 mb-1 tracking-[0.12em]">
+                            设置声音大小
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              value={Math.round(bgmVolume * 100)}
+                              onChange={(e) => setBgmVolume(Number(e.target.value) / 100)}
+                              className="w-24 accent-amber-500 cursor-pointer"
+                            />
+                            <span className="text-[10px] text-slate-300 w-9 text-right tabular-nums">
+                              {Math.round(bgmVolume * 100)}%
+                            </span>
+                          </div>
+                        </div>
                         <div className="my-1 border-t border-amber-900/40" />
                         <button
                           onClick={() => {

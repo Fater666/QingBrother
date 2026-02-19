@@ -53,6 +53,39 @@ function Invoke-Step {
     & $Action
 }
 
+function Move-ApkToArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ArchiveDir
+    )
+
+    if (-not (Test-Path $SourcePath)) {
+        return
+    }
+
+    if (-not (Test-Path $ArchiveDir)) {
+        New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
+    }
+
+    $nameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($SourcePath)
+    $ext = [System.IO.Path]::GetExtension($SourcePath)
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $destFileName = "$nameWithoutExt-$timestamp$ext"
+    $destPath = Join-Path $ArchiveDir $destFileName
+    $counter = 1
+
+    while (Test-Path $destPath) {
+        $destFileName = "$nameWithoutExt-$timestamp-$counter$ext"
+        $destPath = Join-Path $ArchiveDir $destFileName
+        $counter++
+    }
+
+    Move-Item -Path $SourcePath -Destination $destPath -Force
+    Write-Host "已归档旧包: $destFileName" -ForegroundColor Yellow
+}
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $androidDir = Join-Path $projectRoot "android"
 
@@ -67,6 +100,7 @@ if ($BuildType -eq 'release') {
 }
 $apkOutputDir = Join-Path $androidDir "app\build\outputs\apk\$apkSubDir"
 $apkPath = Join-Path $apkOutputDir $(if ($BuildType -eq 'release') { "qingbrother-placeholder.apk" } else { $apkPattern })
+$oldApkDir = Join-Path $apkOutputDir "old_apk"
 $buildStartTime = Get-Date
 
 if (-not (Test-Path $androidDir)) {
@@ -94,9 +128,12 @@ try {
 
     Invoke-Step "Assemble Android $BuildType APK" {
         if ($BuildType -eq 'release') {
-            Remove-Item (Join-Path $apkOutputDir "qingbrother-*.apk") -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $apkOutputDir "qingbrother-*.apk") -File -ErrorAction SilentlyContinue |
+                ForEach-Object { Move-ApkToArchive -SourcePath $_.FullName -ArchiveDir $oldApkDir }
         } else {
-            if (Test-Path $apkPath) { Remove-Item $apkPath -Force }
+            if (Test-Path $apkPath) {
+                Move-ApkToArchive -SourcePath $apkPath -ArchiveDir $oldApkDir
+            }
         }
 
         Push-Location $androidDir
