@@ -228,11 +228,10 @@ export const performMoraleCheck = (
 ): MoraleCheckResult => {
   const previousMorale = unit.morale;
   
-  // 通过单位类型/AI配置决定士气免疫（不再依赖名称判断）
-  const aiType = unit.aiType;
+  // 士气免疫走配置驱动：仅亡灵类型或显式配置 MORALE_IMMUNE
   const hasMoraleImmuneFlag = (unit.aiConfig || []).includes('MORALE_IMMUNE');
   const isMoraleImmuneByType = unit.unitType === 'UNDEAD';
-  if (aiType === 'BEAST' || aiType === 'BERSERKER' || isMoraleImmuneByType || hasMoraleImmuneFlag) {
+  if (isMoraleImmuneByType || hasMoraleImmuneFlag) {
     return {
       unitId: unit.id,
       unitName: unit.name,
