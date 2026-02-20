@@ -98,9 +98,10 @@ if ($BuildType -eq 'release') {
     $apkPattern = "app-debug.apk"
     $gradleTask = "assembleDebug"
 }
-$apkOutputDir = Join-Path $androidDir "app\build\outputs\apk\$apkSubDir"
+$apkRootDir = Join-Path $androidDir "app\build\outputs\apk"
+$apkOutputDir = Join-Path $apkRootDir $apkSubDir
 $apkPath = Join-Path $apkOutputDir $(if ($BuildType -eq 'release') { "qingbrother-placeholder.apk" } else { $apkPattern })
-$oldApkDir = Join-Path $apkOutputDir "old_apk"
+$oldApkDir = Join-Path $apkRootDir "old_apk"
 $buildStartTime = Get-Date
 
 if (-not (Test-Path $androidDir)) {
