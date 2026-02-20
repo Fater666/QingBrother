@@ -144,7 +144,7 @@ parseCSV(TRAITS_CSV).forEach(t => {
 /** 正面特质列表 */
 export const POSITIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type === 'positive');
 /** 负面特质列表 */
-export const NEGATIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type === 'negative');
+export const NEGATIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type === 'negative' && !t.id.startsWith('injury_'));
 
 /**
  * 背景偏好特质映射：每个背景有更高概率获得的特质ID

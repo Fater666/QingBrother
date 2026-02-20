@@ -405,7 +405,18 @@ export interface BattleResult {
   enemyName: string;
   // 阶段一：伤亡与经验
   casualties: { id: string; name: string; background: string }[];
-  survivors: { id: string; name: string; background: string; hpBefore: number; hpAfter: number; maxHp: number; xpGained: number }[];
+  survivors: {
+    id: string;
+    name: string;
+    background: string;
+    hpBefore: number;
+    hpAfter: number;
+    maxHp: number;
+    xpGained: number;
+    cheatedDeath?: boolean;
+    injuryTraitId?: string;
+    injuryTraitName?: string;
+  }[];
   enemiesKilled: number;
   enemiesRouted: number;
   // 阶段二：战利品

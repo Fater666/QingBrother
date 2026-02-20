@@ -425,6 +425,18 @@ const generateEntities = (cities: City[], tiles: WorldTile[], camps: EnemyCamp[]
     return ents;
 };
 
+const CHEATED_DEATH_CHANCE = 0.33;
+const PERMANENT_INJURY_TRAIT_IDS = [
+  'injury_skull_crack',
+  'injury_broken_arm',
+  'injury_broken_leg',
+  'injury_missing_eye',
+  'injury_deep_scar',
+  'injury_crushed_ribs',
+  'injury_shell_shocked',
+  'injury_weak_spot',
+];
+
 // --- 战斗结果生成 ---
 const generateBattleResult = (
   victory: boolean,
@@ -449,8 +461,24 @@ const generateBattleResult = (
       .map(m => m.id)
   );
 
+  const deadPlayers = playerUnitsBeforeCombat.filter(m => deadPlayerIds.has(m.id));
+  const cheatedDeathById = new Map<string, string>();
+  deadPlayers.forEach(m => {
+    if (Math.random() >= CHEATED_DEATH_CHANCE) return;
+    const ownedTraits = new Set(m.traits);
+    const candidates = PERMANENT_INJURY_TRAIT_IDS.filter(id => !ownedTraits.has(id));
+    const pool = candidates.length > 0 ? candidates : PERMANENT_INJURY_TRAIT_IDS;
+    cheatedDeathById.set(m.id, pool[Math.floor(Math.random() * pool.length)]);
+  });
+
+  const trueDeadIds = new Set(
+    deadPlayers
+      .filter(m => !cheatedDeathById.has(m.id))
+      .map(m => m.id)
+  );
+
   const casualties = playerUnitsBeforeCombat
-    .filter(m => deadPlayerIds.has(m.id))
+    .filter(m => trueDeadIds.has(m.id))
     .map(m => ({
       id: m.id,
       name: m.name,
@@ -461,7 +489,7 @@ const generateBattleResult = (
   const baseXpPerSurvivor = victory ? 25 + enemiesKilled * 15 + rounds * 2 : 0;
   const xpPerSurvivor = Math.floor(baseXpPerSurvivor * Math.max(0, xpMultiplier));
 
-  const survivorData = survivors.map(s => {
+  const survivorData: BattleResult['survivors'] = survivors.map(s => {
     const beforeMerc = playerUnitsBeforeCombat.find(m => m.id === s.id);
     return {
       id: s.id,
@@ -473,6 +501,23 @@ const generateBattleResult = (
       xpGained: xpPerSurvivor,
     };
   });
+  deadPlayers
+    .filter(m => cheatedDeathById.has(m.id))
+    .forEach(m => {
+      const injuryTraitId = cheatedDeathById.get(m.id)!;
+      survivorData.push({
+        id: m.id,
+        name: m.name,
+        background: BACKGROUNDS[m.background]?.name || m.background,
+        hpBefore: m.hp,
+        hpAfter: 1,
+        maxHp: m.maxHp,
+        xpGained: 0,
+        cheatedDeath: true,
+        injuryTraitId,
+        injuryTraitName: TRAIT_TEMPLATES[injuryTraitId]?.name || '永久战伤',
+      });
+    });
 
   // --- 战利品生成 ---
   const lootItems: Item[] = [];
@@ -545,6 +590,33 @@ const generateBattleResult = (
         });
       }
     }
+
+    // 回收己方阵亡者装备（死里逃生者保留装备）
+    deadPlayers
+      .filter(m => trueDeadIds.has(m.id))
+      .forEach(m => {
+        const carriedItems = [
+          m.equipment.mainHand,
+          m.equipment.offHand,
+          m.equipment.armor,
+          m.equipment.helmet,
+          m.equipment.ammo,
+          m.equipment.accessory,
+          ...m.bag,
+        ].filter((item): item is Item => !!item);
+
+        carriedItems.forEach(item => {
+          if (item.value <= 0) return;
+          const baseDurability = item.durability ?? item.maxDurability;
+          const durabilityLoss = 0.1 + Math.random() * 0.2; // 10%-30%
+          const recoveredDurability = Math.max(1, Math.floor(baseDurability * (1 - durabilityLoss)));
+          lootItems.push({
+            ...item,
+            id: `loot-reclaim-${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            durability: item.maxDurability > 1 ? recoveredDurability : item.durability,
+          });
+        });
+      });
   }
 
   // --- 金钱奖励（从 CSV 配置读取） ---
@@ -2769,6 +2841,11 @@ export const App: React.FC = () => {
                     setParty(p => {
                       // 移除阵亡者
                       const deadIds = new Set(battleResult.casualties.map(c => c.id));
+                      const cheatedDeathInjuries = new Map<string, string>(
+                        battleResult.survivors
+                          .filter(s => s.cheatedDeath && !!s.injuryTraitId)
+                          .map(s => [s.id, s.injuryTraitId as string])
+                      );
 
                       const updatedMercs = p.mercenaries
                         .filter(m => !deadIds.has(m.id))
@@ -2779,7 +2856,14 @@ export const App: React.FC = () => {
                           const withXp = { ...m, xp: m.xp + xp };
                           // 自动检测升级（可能连升多级）
                           const { char: leveled } = checkLevelUp(withXp);
-                          return leveled;
+                          const injuryTraitId = cheatedDeathInjuries.get(m.id);
+                          if (!injuryTraitId) return leveled;
+                          return {
+                            ...leveled,
+                            hp: 1,
+                            fatigue: 0,
+                            traits: leveled.traits.includes(injuryTraitId) ? leveled.traits : [...leveled.traits, injuryTraitId],
+                          };
                         });
 
                       return {

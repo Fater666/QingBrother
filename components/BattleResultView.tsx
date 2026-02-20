@@ -269,11 +269,12 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
             const hpPercent = Math.round((s.hpAfter / s.maxHp) * 100);
             const isInjured = s.hpAfter < s.maxHp;
             const isCritical = hpPercent < 30;
+            const isCheatedDeath = !!s.cheatedDeath;
 
-            const statusText = !isInjured ? '无恙' : isCritical ? '重伤' : '轻伤';
-            const statusColor = !isInjured ? 'text-emerald-400' : isCritical ? 'text-red-400' : 'text-yellow-400';
-            const borderColor = !isInjured ? 'border-emerald-900/30' : isCritical ? 'border-red-900/30' : 'border-yellow-900/30';
-            const bgColor = !isInjured ? 'bg-emerald-950/10' : isCritical ? 'bg-red-950/15' : 'bg-yellow-950/10';
+            const statusText = isCheatedDeath ? '死里逃生' : !isInjured ? '无恙' : isCritical ? '重伤' : '轻伤';
+            const statusColor = isCheatedDeath ? 'text-purple-300' : !isInjured ? 'text-emerald-400' : isCritical ? 'text-red-400' : 'text-yellow-400';
+            const borderColor = isCheatedDeath ? 'border-purple-800/60' : !isInjured ? 'border-emerald-900/30' : isCritical ? 'border-red-900/30' : 'border-yellow-900/30';
+            const bgColor = isCheatedDeath ? 'bg-purple-950/20' : !isInjured ? 'bg-emerald-950/10' : isCritical ? 'bg-red-950/15' : 'bg-yellow-950/10';
 
             return (
               <div
@@ -296,6 +297,11 @@ export const BattleResultView: React.FC<BattleResultViewProps> = ({ result, part
                         />
                       </div>
                       <span className="text-[10px] text-slate-500">{s.hpAfter}/{s.maxHp}</span>
+                    </div>
+                  )}
+                  {isCheatedDeath && (
+                    <div className="text-[10px] text-purple-300/80 mt-1 tracking-wide">
+                      永久战伤：{s.injuryTraitName || '未知'}
                     </div>
                   )}
                 </div>
