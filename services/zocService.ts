@@ -353,6 +353,66 @@ export const processZoCAttacks = (
   return { results, movementAllowed, totalDamage };
 };
 
+const isSpearwallAttacker = (unit: CombatUnit): boolean => {
+  if (!unit.isHalberdWall) return false;
+  const weapon = unit.equipment.mainHand;
+  const weaponClass = weapon?.combatClass || weapon?.weaponClass;
+  return weaponClass === 'spear' || weaponClass === 'polearm';
+};
+
+/**
+ * 处理“进入敌方控制区”时由矛墙触发的截击。
+ * 规则：
+ * - 仅处于矛墙状态且持矛/长柄武器的单位可触发。
+ * - 命中时必定阻止移动；未命中则视为被躲开，可继续前进（破解矛墙）。
+ */
+export const processSpearwallEntryAttacks = (
+  unit: CombatUnit,
+  threateningEnemies: CombatUnit[],
+  state: CombatState
+): { results: FreeAttackResult[]; movementAllowed: boolean; totalDamage: number; triggered: boolean } => {
+  const spearwallEnemies = threateningEnemies.filter(isSpearwallAttacker);
+  if (spearwallEnemies.length === 0) {
+    return { results: [], movementAllowed: true, totalDamage: 0, triggered: false };
+  }
+
+  const results: FreeAttackResult[] = [];
+  let totalDamage = 0;
+  let totalHpDamage = 0;
+  let movementAllowed = true;
+
+  const sortedEnemies = [...spearwallEnemies].sort(
+    (a, b) => b.stats.initiative - a.stats.initiative
+  );
+
+  for (const enemy of sortedEnemies) {
+    const currentTarget = {
+      ...unit,
+      hp: unit.hp - totalHpDamage
+    };
+    if (currentTarget.hp <= 0) {
+      movementAllowed = false;
+      break;
+    }
+
+    const result = executeFreeAttack(enemy, currentTarget as CombatUnit, state);
+    if (result.hit) {
+      result.movementBlocked = true;
+      result.blockChance = 1;
+    }
+    results.push(result);
+
+    if (result.hit) {
+      totalDamage += result.hpDamage;
+      totalHpDamage += result.hpDamage;
+      movementAllowed = false;
+      break;
+    }
+  }
+
+  return { results, movementAllowed, totalDamage, triggered: true };
+};
+
 /**
  * 获取截击的日志文本（含护甲信息）
  */

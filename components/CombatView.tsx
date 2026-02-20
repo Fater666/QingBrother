@@ -30,6 +30,7 @@ import {
   checkZoCOnMove,
   checkZoCEnterOnStep,
   processZoCAttacks,
+  processSpearwallEntryAttacks,
   getFreeAttackLogText,
   FreeAttackResult
 } from '../services/zocService.ts';
@@ -2297,6 +2298,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
     
+    if (activeUnit.isHalberdWall) {
+      addToLog(`🚧 ${activeUnit.name} 通过等待取消了矛墙架势。`, 'info');
+    }
+
     setState(prev => {
       const currentId = prev.turnOrder[prev.currentUnitIndex];
       // 将当前单位移到回合队列的末尾
@@ -2323,7 +2328,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         currentUnitIndex: nextIdx,
         // 增加该单位的等待计数
         units: prev.units.map(u => 
-          u.id === currentId ? { ...u, waitCount: u.waitCount + 1 } : u
+          u.id === currentId ? { ...u, waitCount: u.waitCount + 1, isHalberdWall: false } : u
         ),
       };
     });
@@ -2635,16 +2640,85 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           }
 
           if (shouldStopOnZoCEntry) {
-            currentPos = { ...movementTargetPos };
-            setState(prev => ({
-              ...prev,
-              units: prev.units.map(u =>
-                u.id === activeUnit.id
-                  ? { ...u, combatPos: movementTargetPos, currentAP, fatigue: currentFatigue }
-                  : u
-              )
-            }));
-            addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
+            const spearwallOutcome = processSpearwallEntryAttacks(aiMoveUnit, moveOutcome.threateningEnemies, state);
+            if (spearwallOutcome.triggered) {
+              for (const result of spearwallOutcome.results) {
+                addToLog(`🚧 ${getFreeAttackLogText(result)}`, 'intercept');
+                if (!result.hit) {
+                  addToLog(`💨 ${activeUnit.name} 躲开矛墙突刺，尝试突破防线！`, 'intercept');
+                }
+              }
+
+              const finalPos = spearwallOutcome.movementAllowed ? movementTargetPos : currentPos;
+              const attemptedSpearwallIds = new Set(spearwallOutcome.results.map(r => r.attacker.id));
+
+              setState(prev => {
+                const newUnits = prev.units.map(u => {
+                  if (attemptedSpearwallIds.has(u.id)) {
+                    return { ...u, hasUsedFreeAttack: true, isHalberdWall: false };
+                  }
+                  if (u.id === activeUnit.id) {
+                    const newHp = Math.max(0, u.hp - spearwallOutcome.totalDamage);
+                    let updatedEquipment = { ...u.equipment };
+                    spearwallOutcome.results.forEach(r => {
+                      if (r.hit && r.damageResult) {
+                        const dr = r.damageResult;
+                        if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
+                          updatedEquipment = {
+                            ...updatedEquipment,
+                            helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
+                          };
+                        } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
+                          updatedEquipment = {
+                            ...updatedEquipment,
+                            armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
+                          };
+                        }
+                      }
+                    });
+                    return {
+                      ...u,
+                      hp: newHp,
+                      isDead: newHp <= 0,
+                      equipment: updatedEquipment,
+                      combatPos: finalPos,
+                      currentAP,
+                      fatigue: currentFatigue,
+                    };
+                  }
+                  return u;
+                });
+                return { ...prev, units: newUnits };
+              });
+
+              currentPos = { ...finalPos };
+              if (spearwallOutcome.movementAllowed) {
+                addToLog(`${activeUnit.name} 破解矛墙并继续前进。`, 'move');
+              } else {
+                addToLog(`${activeUnit.name} 被矛墙命中，冲锋被打断！`, 'intercept');
+              }
+
+              if (spearwallOutcome.totalDamage > 0) {
+                setTimeout(() => {
+                  spearwallOutcome.results.forEach(result => {
+                    if (result.hit) {
+                      processDamageWithMorale(activeUnit.id, result.hpDamage, result.attacker.id, result.damageResult);
+                    }
+                  });
+                }, 100);
+              }
+            } else {
+              currentPos = { ...movementTargetPos };
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u =>
+                  u.id === activeUnit.id
+                    ? { ...u, combatPos: movementTargetPos, currentAP, fatigue: currentFatigue }
+                    : u
+                )
+              }));
+              addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
+            }
             actionsPerformed++;
             continue;
           }
@@ -3188,6 +3262,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const ability = overrideAbility ?? selectedAbility;
     if (!activeUnit || !isPlayerTurn || !ability) return;
     const abilityFatCost = getEffectiveFatigueCost(activeUnit, ability);
+    const isAttackAction = isAttackLikeAbility(ability);
 
     // 检查玩家单位是否在逃跑状态
     if (activeUnit.morale === MoraleStatus.FLEEING) {
@@ -3198,6 +3273,25 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     if (abilityFatCost > getRemainingFatigue(activeUnit)) {
       showInsufficientFatigue(ability.name, abilityFatCost);
       return;
+    }
+
+    // 矛墙规则：
+    // 1) 架势期间不能主动攻击
+    // 2) 执行其他操作会解除矛墙
+    if (activeUnit.isHalberdWall) {
+      if (isAttackAction) {
+        addToLog(`🚧 ${activeUnit.name} 处于矛墙架势，无法主动攻击！`, 'info');
+        return;
+      }
+      if (ability.id !== 'SPEARWALL') {
+        setState(prev => ({
+          ...prev,
+          units: prev.units.map(u =>
+            u.id === activeUnit.id ? { ...u, isHalberdWall: false } : u
+          )
+        }));
+        addToLog(`🚧 ${activeUnit.name} 取消矛墙，改为执行「${ability.name}」。`, 'skill');
+      }
     }
 
     // ==================== 无需选择目标的自身技能（盾墙、矛墙等）：点击即用 ====================
@@ -3609,6 +3703,58 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   : u)
               }));
             }
+            // 推撞：仅做位移控制，不造成伤害
+            if (ability.id === 'KNOCK_BACK') {
+              const dq = target.combatPos.q - activeUnit.combatPos.q;
+              const dr = target.combatPos.r - activeUnit.combatPos.r;
+              const pushPos = { q: target.combatPos.q + dq, r: target.combatPos.r + dr };
+              const pushKey = `${pushPos.q},${pushPos.r}`;
+              const hasTerrain = terrainData.has(pushKey);
+              const blockedByUnit = state.units.some(u =>
+                !u.isDead &&
+                !u.hasEscaped &&
+                u.id !== target.id &&
+                u.combatPos.q === pushPos.q &&
+                u.combatPos.r === pushPos.r
+              );
+              const pushed = hasTerrain && !blockedByUnit;
+
+              if (pushed) {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u =>
+                    u.id === target.id ? { ...u, combatPos: pushPos, hasUsedFreeAttack: true } : u
+                  )
+                }));
+                setFloatingTexts(prev => [...prev, {
+                  id: Date.now(),
+                  text: 'PUSH',
+                  x: hoveredHex.q,
+                  y: hoveredHex.r,
+                  color: '#f59e0b',
+                  type: 'block' as FloatingTextType,
+                  size: 'md' as const,
+                }]);
+                addToLog(`👊 ${activeUnit.name} 推撞命中 ${target.name}，将其击退一格！(${hitInfo.final}%)`, 'skill');
+              } else {
+                setFloatingTexts(prev => [...prev, {
+                  id: Date.now(),
+                  text: 'BLOCKED',
+                  x: hoveredHex.q,
+                  y: hoveredHex.r,
+                  color: '#94a3b8',
+                  type: 'block' as FloatingTextType,
+                  size: 'sm' as const,
+                }]);
+                addToLog(`👊 ${activeUnit.name} 推撞命中 ${target.name}，但后方受阻未能击退。(${hitInfo.final}%)`, 'info');
+              }
+
+              triggerHitEffect(target.id);
+              triggerAttackLine(activeUnit.combatPos.q, activeUnit.combatPos.r, hoveredHex.q, hoveredHex.r, '#f59e0b');
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+              tryTriggerRiposte(target.id, activeUnit.id);
+              return;
+            }
             const dmgResult = calculateDamage(activeUnit, target, ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             const shouldTryStun = isHammerBashStunAttack(ability, activeUnit) && !dmgResult.willKill;
@@ -3793,6 +3939,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     // 检查玩家单位是否在逃跑状态
     if (activeUnit.morale === MoraleStatus.FLEEING) {
       addToLog(`${activeUnit.name} 正在逃跑，无法控制！`, 'flee');
+      return;
+    }
+
+    if (activeUnit.isHalberdWall) {
+      addToLog(`🚧 ${activeUnit.name} 处于矛墙架势，不能移动。可先使用其他技能解除。`, 'info');
       return;
     }
     
@@ -3990,14 +4141,141 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }, results.length * 300 + 100);
       }
     } else if (shouldStopOnZoCEntry) {
-      // 中途首次进入敌方控制区：停在进入格，不触发截击
-      setState(prev => ({
-        ...prev,
-        units: prev.units.map(u => u.id === activeUnit.id
-          ? { ...u, combatPos: movementTargetPos, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
-          : u)
-      }));
-      addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
+      // 进入敌方控制区时，若对方存在矛墙则先结算“矛墙截击”
+      const spearwallOutcome = processSpearwallEntryAttacks(activeUnit, moveOutcome.threateningEnemies, state);
+      if (spearwallOutcome.triggered) {
+        spearwallOutcome.results.forEach((result, index) => {
+          setTimeout(() => {
+            addToLog(`🚧 ${getFreeAttackLogText(result)}`, 'intercept');
+
+            if (result.hit && result.hpDamage > 0) {
+              const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
+              if (result.damageResult && result.damageResult.armorDamageDealt > 0) {
+                floatTexts.push({
+                  id: Date.now() + index * 10,
+                  text: result.damageResult.armorDestroyed ? `🚧🛡💥-${result.damageResult.armorDamageDealt}` : `🚧🛡-${result.damageResult.armorDamageDealt}`,
+                  x: movementTargetPos.q,
+                  y: movementTargetPos.r,
+                  color: result.damageResult.armorDestroyed ? '#f59e0b' : '#38bdf8',
+                  type: 'intercept' as FloatingTextType,
+                  size: 'sm' as const,
+                });
+              }
+              floatTexts.push({
+                id: Date.now() + index * 10 + 1,
+                text: `🚧-${result.hpDamage}`,
+                x: movementTargetPos.q,
+                y: movementTargetPos.r,
+                color: '#f97316',
+                type: 'intercept' as FloatingTextType,
+                size: 'md' as const,
+              });
+              setFloatingTexts(prev => [...prev, ...floatTexts]);
+              triggerHitEffect(activeUnit.id);
+              triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, movementTargetPos.q, movementTargetPos.r, '#f97316');
+              triggerScreenShake('light');
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+            } else if (!result.hit) {
+              triggerDodgeEffect(activeUnit.id, result.attacker.combatPos, movementTargetPos);
+              setFloatingTexts(prev => [...prev, {
+                id: Date.now() + index * 10 + 2,
+                text: 'MISS',
+                x: movementTargetPos.q,
+                y: movementTargetPos.r,
+                color: '#94a3b8',
+                type: 'miss' as FloatingTextType,
+                size: 'md' as const,
+              }]);
+              triggerAttackLine(result.attacker.combatPos.q, result.attacker.combatPos.r, movementTargetPos.q, movementTargetPos.r, '#475569');
+              addToLog(`💨 ${activeUnit.name} 躲开了矛墙突刺，强行逼近！`, 'intercept');
+              setTimeout(() => setFloatingTexts(prev => prev.slice(1)), 1200);
+            }
+          }, index * 280);
+        });
+
+        setState(prev => {
+          const finalPos = spearwallOutcome.movementAllowed ? movementTargetPos : activeUnit.combatPos;
+          const attemptedSpearwallIds = new Set(spearwallOutcome.results.map(r => r.attacker.id));
+
+          let newUnits = prev.units.map(u => {
+            if (attemptedSpearwallIds.has(u.id)) {
+              return { ...u, hasUsedFreeAttack: true, isHalberdWall: false };
+            }
+            return u;
+          });
+
+          if (spearwallOutcome.totalDamage > 0) {
+            newUnits = newUnits.map(u => {
+              if (u.id !== activeUnit.id) return u;
+              const newHp = Math.max(0, u.hp - spearwallOutcome.totalDamage);
+              let updatedEquipment = { ...u.equipment };
+              spearwallOutcome.results.forEach(r => {
+                if (r.hit && r.damageResult) {
+                  const dr = r.damageResult;
+                  if (dr.armorType === 'HELMET' && updatedEquipment.helmet) {
+                    updatedEquipment = {
+                      ...updatedEquipment,
+                      helmet: { ...updatedEquipment.helmet!, durability: Math.max(0, updatedEquipment.helmet!.durability - dr.armorDamageDealt) }
+                    };
+                  } else if (dr.armorType === 'ARMOR' && updatedEquipment.armor) {
+                    updatedEquipment = {
+                      ...updatedEquipment,
+                      armor: { ...updatedEquipment.armor!, durability: Math.max(0, updatedEquipment.armor!.durability - dr.armorDamageDealt) }
+                    };
+                  }
+                }
+              });
+              return {
+                ...u,
+                hp: newHp,
+                isDead: newHp <= 0,
+                equipment: updatedEquipment,
+                combatPos: finalPos,
+                currentAP: u.currentAP - apCost,
+                fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost),
+              };
+            });
+          } else {
+            newUnits = newUnits.map(u => u.id === activeUnit.id
+              ? { ...u, combatPos: finalPos, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
+              : u
+            );
+          }
+
+          return { ...prev, units: newUnits };
+        });
+
+        if (spearwallOutcome.movementAllowed) {
+          addToLog(`⚠️ ${activeUnit.name} 破解矛墙，仍然进入了近身范围！`, 'intercept');
+        } else {
+          addToLog(`🚧 ${activeUnit.name} 被矛墙命中，无法上前！`, 'intercept');
+          const lastResult = spearwallOutcome.results[spearwallOutcome.results.length - 1];
+          if (lastResult?.targetKilled) {
+            addToLog(`${activeUnit.name} 被矛墙截击击杀！`, 'kill');
+            triggerDeathEffect(activeUnit.combatPos.q, activeUnit.combatPos.r);
+            showCenterBanner(`${activeUnit.name} 被矛墙击杀！`, '#ef4444', '💀');
+          }
+        }
+
+        if (spearwallOutcome.totalDamage > 0) {
+          setTimeout(() => {
+            spearwallOutcome.results.forEach(result => {
+              if (result.hit) {
+                processDamageWithMorale(activeUnit.id, result.hpDamage, result.attacker.id, result.damageResult);
+              }
+            });
+          }, spearwallOutcome.results.length * 280 + 100);
+        }
+      } else {
+        // 无矛墙时，进入控制区后停在进入格
+        setState(prev => ({
+          ...prev,
+          units: prev.units.map(u => u.id === activeUnit.id
+            ? { ...u, combatPos: movementTargetPos, currentAP: u.currentAP - apCost, fatigue: Math.min(u.maxFatigue, u.fatigue + fatigueCost) }
+            : u)
+        }));
+        addToLog(`${activeUnit.name} 进入敌方控制区后停下。`, 'move');
+      }
     } else {
       // 没有截击，正常移动
       setState(prev => ({
