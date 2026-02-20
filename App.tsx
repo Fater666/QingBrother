@@ -1488,7 +1488,8 @@ export const App: React.FC = () => {
       currentUnitIndex: 0, 
       round: 1, 
       combatLog: [`与 ${entity.name} 激战开始！（第${Math.floor(day)}天，${['初期', '中期', '后期', '末期'][tier]}难度）`], 
-      terrainType: worldTerrain
+      terrainType: worldTerrain,
+      factionTactics: entity.type
     });
     setEntities(prev => prev.filter(e => e.id !== entity.id));
     // 巢穴计数减少

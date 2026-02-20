@@ -394,6 +394,7 @@ export interface CombatState {
   round: number;
   combatLog: string[];
   terrainType: string; 
+  factionTactics?: string;
 }
 
 // 战斗结算数据

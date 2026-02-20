@@ -1,17 +1,22 @@
 /**
- * 战斗 AI 行为树系统
- * 根据不同敌人类型实现不同的战术策略
+ * 战斗 AI 效用评估系统
+ * 架构参考《战场兄弟》(Battle Brothers) 的三层 Utility AI 设计
+ *
+ * Layer 1 — 行为积木库：9 个独立行为模块，各自实现 evaluate() + execute()
+ * Layer 2 — 权重调参：每种 AIType 通过行为注册表（拥有哪些行为）和权重配置（偏好程度）实现兵种差异
+ * Layer 3 — 战术意图：阵营级 TacticalStrategy 修正位置 / 目标评分，实现阵营协同
+ *
+ * 决策流程：遍历该单位可用行为 → evaluate() 计算效用分 → 乘以权重 → 选最高分执行
+ * 原子化执行（已在 CombatView.tsx 中实现）：每执行一个动作后重新调用 executeAITurn
  */
 
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus } from '../constants';
+import { getHexDistance, getUnitAbilities, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus } from '../constants';
 import { MORALE_ORDER } from './moraleService';
 import { isPolearmBacklineAttack } from './combatUtils';
 
-// 行为树执行结果
-type BehaviorResult = 'SUCCESS' | 'FAILURE' | 'RUNNING';
+// ==================== 类型定义 ====================
 
-// AI 行动类型
 export interface AIAction {
   type: 'MOVE' | 'ATTACK' | 'SKILL' | 'WAIT' | 'FLEE';
   targetPos?: { q: number; r: number };
@@ -19,6 +24,41 @@ export interface AIAction {
   ability?: Ability;
   damage?: number;
 }
+
+type BehaviorId = 'attackMelee' | 'attackRanged' | 'engage' | 'flee' | 'shieldWall' | 'kite' | 'protectAlly' | 'reload' | 'wait';
+
+interface AIBehavior {
+  id: BehaviorId;
+  evaluate(unit: CombatUnit, state: CombatState, ctx: AIContext): number;
+  execute(unit: CombatUnit, state: CombatState, ctx: AIContext): AIAction;
+}
+
+interface TacticalStrategy {
+  id: string;
+  positionModifier?(pos: { q: number; r: number }, unit: CombatUnit, baseScore: number, ctx: AIContext): number;
+  targetModifier?(target: CombatUnit, unit: CombatUnit, baseScore: number, ctx: AIContext): number;
+}
+
+interface AIContext {
+  enemies: CombatUnit[];
+  allies: CombatUnit[];
+  inZoC: boolean;
+  hpPercent: number;
+  moraleIndex: number;
+  riskProfile: AIRiskProfile;
+  attackAbilities: Ability[];
+  allAbilities: Ability[];
+  adjacentEnemies: CombatUnit[];
+  tactics: TacticalStrategy;
+  _cache: Map<string, any>;
+}
+
+// ==================== 常量 ====================
+
+const SCORE_THRESHOLD = 5;
+const NOISE_FACTOR = 0.08;
+
+// ==================== AI 风险配置（Layer 2 — 位置评估参数） ====================
 
 interface AIRiskProfile {
   zocBasePenalty: number;
@@ -34,317 +74,219 @@ interface AIRiskProfile {
 
 const AI_RISK_PROFILES: Record<AIType, AIRiskProfile> = {
   BANDIT: {
-    zocBasePenalty: 16,
-    zocThreatPenalty: 24,
-    lowHpPenalty: 24,
-    lowMoralePenalty: 12,
-    allySupportReduction: 5,
-    engageBonus: 30,
-    fallbackAdvanceTolerance: 10,
-    emergencyHpThreshold: 0.35,
-    emergencyMoraleIndex: 3,
+    zocBasePenalty: 16, zocThreatPenalty: 24, lowHpPenalty: 24, lowMoralePenalty: 12,
+    allySupportReduction: 5, engageBonus: 30, fallbackAdvanceTolerance: 10,
+    emergencyHpThreshold: 0.35, emergencyMoraleIndex: 3,
   },
   BEAST: {
-    zocBasePenalty: 10,
-    zocThreatPenalty: 18,
-    lowHpPenalty: 14,
-    lowMoralePenalty: 6,
-    allySupportReduction: 4,
-    engageBonus: 36,
-    fallbackAdvanceTolerance: 16,
-    emergencyHpThreshold: 0.25,
-    emergencyMoraleIndex: 4,
+    zocBasePenalty: 10, zocThreatPenalty: 18, lowHpPenalty: 14, lowMoralePenalty: 6,
+    allySupportReduction: 4, engageBonus: 36, fallbackAdvanceTolerance: 16,
+    emergencyHpThreshold: 0.25, emergencyMoraleIndex: 4,
   },
   ARMY: {
-    zocBasePenalty: 14,
-    zocThreatPenalty: 20,
-    lowHpPenalty: 18,
-    lowMoralePenalty: 8,
-    allySupportReduction: 6,
-    engageBonus: 34,
-    fallbackAdvanceTolerance: 14,
-    emergencyHpThreshold: 0.3,
-    emergencyMoraleIndex: 4,
+    zocBasePenalty: 14, zocThreatPenalty: 20, lowHpPenalty: 18, lowMoralePenalty: 8,
+    allySupportReduction: 6, engageBonus: 34, fallbackAdvanceTolerance: 14,
+    emergencyHpThreshold: 0.3, emergencyMoraleIndex: 4,
   },
   ARCHER: {
-    zocBasePenalty: 20,
-    zocThreatPenalty: 28,
-    lowHpPenalty: 28,
-    lowMoralePenalty: 14,
-    allySupportReduction: 4,
-    engageBonus: 10,
-    fallbackAdvanceTolerance: 4,
-    emergencyHpThreshold: 0.4,
-    emergencyMoraleIndex: 2,
+    zocBasePenalty: 20, zocThreatPenalty: 28, lowHpPenalty: 28, lowMoralePenalty: 14,
+    allySupportReduction: 4, engageBonus: 10, fallbackAdvanceTolerance: 4,
+    emergencyHpThreshold: 0.4, emergencyMoraleIndex: 2,
   },
   BERSERKER: {
-    zocBasePenalty: 8,
-    zocThreatPenalty: 16,
-    lowHpPenalty: 8,
-    lowMoralePenalty: 2,
-    allySupportReduction: 3,
-    engageBonus: 40,
-    fallbackAdvanceTolerance: 18,
-    emergencyHpThreshold: 0.18,
-    emergencyMoraleIndex: 4,
+    zocBasePenalty: 8, zocThreatPenalty: 16, lowHpPenalty: 8, lowMoralePenalty: 2,
+    allySupportReduction: 3, engageBonus: 40, fallbackAdvanceTolerance: 18,
+    emergencyHpThreshold: 0.18, emergencyMoraleIndex: 4,
   },
   TANK: {
-    zocBasePenalty: 8,
-    zocThreatPenalty: 14,
-    lowHpPenalty: 12,
-    lowMoralePenalty: 4,
-    allySupportReduction: 8,
-    engageBonus: 42,
-    fallbackAdvanceTolerance: 20,
-    emergencyHpThreshold: 0.2,
-    emergencyMoraleIndex: 4,
+    zocBasePenalty: 8, zocThreatPenalty: 14, lowHpPenalty: 12, lowMoralePenalty: 4,
+    allySupportReduction: 8, engageBonus: 42, fallbackAdvanceTolerance: 20,
+    emergencyHpThreshold: 0.2, emergencyMoraleIndex: 4,
   },
   SKIRMISHER: {
-    zocBasePenalty: 22,
-    zocThreatPenalty: 30,
-    lowHpPenalty: 26,
-    lowMoralePenalty: 14,
-    allySupportReduction: 4,
-    engageBonus: 8,
-    fallbackAdvanceTolerance: 4,
-    emergencyHpThreshold: 0.38,
-    emergencyMoraleIndex: 3,
+    zocBasePenalty: 22, zocThreatPenalty: 30, lowHpPenalty: 26, lowMoralePenalty: 14,
+    allySupportReduction: 4, engageBonus: 8, fallbackAdvanceTolerance: 4,
+    emergencyHpThreshold: 0.38, emergencyMoraleIndex: 3,
   },
 };
 
 const getAIRiskProfile = (unit: CombatUnit): AIRiskProfile => {
-  const aiType = unit.aiType || 'BANDIT';
-  return AI_RISK_PROFILES[aiType] || AI_RISK_PROFILES.BANDIT;
+  return AI_RISK_PROFILES[unit.aiType || 'BANDIT'] || AI_RISK_PROFILES.BANDIT;
 };
 
 // ==================== 工具函数 ====================
 
-/**
- * 获取所有敌方单位
- */
-const getEnemies = (unit: CombatUnit, state: CombatState): CombatUnit[] => {
-  return state.units.filter(u => !u.isDead && u.team !== unit.team);
+const getEnemies = (unit: CombatUnit, state: CombatState): CombatUnit[] =>
+  state.units.filter(u => !u.isDead && u.team !== unit.team);
+
+const getAllies = (unit: CombatUnit, state: CombatState): CombatUnit[] =>
+  state.units.filter(u => !u.isDead && u.team === unit.team && u.id !== unit.id);
+
+const isHexOccupied = (pos: { q: number; r: number }, state: CombatState): boolean =>
+  state.units.some(u => !u.isDead && u.combatPos.q === pos.q && u.combatPos.r === pos.r);
+
+const getMoraleIndex = (morale: MoraleStatus): number => MORALE_ORDER.indexOf(morale);
+
+const addNoise = (score: number): number =>
+  score * (1 + (Math.random() - 0.5) * 2 * NOISE_FACTOR);
+
+// ==================== 命中率 / 伤害估算 ====================
+
+const estimateMeleeHitChance = (attacker: CombatUnit, target: CombatUnit, state: CombatState): number => {
+  let chance = attacker.stats.meleeSkill - target.stats.meleeDefense;
+  if (attacker.equipment.mainHand?.hitChanceMod) chance += attacker.equipment.mainHand.hitChanceMod;
+  const shield = target.equipment.offHand;
+  if (shield?.type === 'SHIELD' && shield.defenseBonus) chance -= shield.defenseBonus;
+  if (target.isShieldWall && shield?.type === 'SHIELD') chance -= 15;
+  chance += getSurroundingBonus(attacker, target, state);
+  return Math.max(5, Math.min(95, chance));
 };
 
-/**
- * 获取所有友方单位
- */
-const getAllies = (unit: CombatUnit, state: CombatState): CombatUnit[] => {
-  return state.units.filter(u => !u.isDead && u.team === unit.team && u.id !== unit.id);
+const estimateRangedHitChance = (attacker: CombatUnit, target: CombatUnit): number => {
+  let chance = attacker.stats.rangedSkill - target.stats.rangedDefense;
+  if (attacker.equipment.mainHand?.hitChanceMod) chance += attacker.equipment.mainHand.hitChanceMod;
+  const shield = target.equipment.offHand;
+  if (shield?.type === 'SHIELD' && shield.rangedBonus) chance -= shield.rangedBonus;
+  return Math.max(5, Math.min(95, chance));
 };
 
-/**
- * 检查位置是否被占用
- */
-const isHexOccupied = (pos: { q: number; r: number }, state: CombatState): boolean => {
-  return state.units.some(u => !u.isDead && u.combatPos.q === pos.q && u.combatPos.r === pos.r);
+const estimateAvgDamage = (unit: CombatUnit): number => {
+  const weapon = unit.equipment.mainHand;
+  if (!weapon?.damage) return 10;
+  return (weapon.damage[0] + weapon.damage[1]) / 2;
 };
 
-/**
- * 获取士气状态的索引（用于比较）
- */
-const getMoraleIndex = (morale: MoraleStatus): number => {
-  return MORALE_ORDER.indexOf(morale);
+const hitChanceMultiplier = (chance: number): number => {
+  if (chance < 20) return 0.2;
+  if (chance < 50) return 0.6;
+  if (chance > 80) return 1.3;
+  return 1.0;
 };
 
-/**
- * 计算单位的威胁值（用于目标选择）
- * 现在考虑士气状态和合围加成
- * @param target 目标单位
- * @param attacker 可选：攻击者（用于计算合围加成）
- * @param state 可选：战斗状态（用于计算合围加成）
- */
+// ==================== 目标威胁评估 ====================
+
 const calculateThreat = (target: CombatUnit, attacker?: CombatUnit, state?: CombatState): number => {
   let threat = 0;
-  
-  // === 挑衅 (taunt): 正在挑衅的目标威胁值大幅提升 ===
+
   if (target.taunting && attacker) {
-    const dist = attacker ? getHexDistance(attacker.combatPos, target.combatPos) : 999;
-    if (dist <= 3) {
-      threat += 200; // 大幅提升优先级
-    }
+    if (getHexDistance(attacker.combatPos, target.combatPos) <= 3) threat += 200;
   }
-  
-  // 低血量目标优先
+
   const hpPercent = target.hp / target.maxHp;
   threat += (1 - hpPercent) * 30;
-  
-  // 高攻击力目标优先
   threat += target.stats.meleeSkill * 0.3;
-  
-  // 弓箭手/远程单位威胁更高
-  const targetWeaponClass = target.equipment.mainHand
+
+  const wClass = target.equipment.mainHand
     ? (target.equipment.mainHand.combatClass || target.equipment.mainHand.weaponClass)
     : undefined;
-  if (targetWeaponClass === 'bow' || targetWeaponClass === 'crossbow') {
-    threat += 20;
-  }
-  
-  // 无盾目标更容易被攻击
-  if (!target.equipment.offHand || target.equipment.offHand.type !== 'SHIELD') {
-    threat += 10;
-  }
-  
-  // 士气低落的目标更容易被攻击（优先攻击）
-  const moraleIndex = getMoraleIndex(target.morale);
-  if (moraleIndex >= 2) { // WAVERING 或更差
-    threat += (moraleIndex - 1) * 15; // 动摇+15, 崩溃+30, 逃跑+45
-  }
-  
-  // 正在逃跑的目标是绝佳的攻击目标
-  if (target.morale === MoraleStatus.FLEEING) {
-    threat += 25;
-  }
-  
-  // 合围加成：友军已包围目标时，该目标优先级提升
+  if (wClass === 'bow' || wClass === 'crossbow') threat += 20;
+  if (!target.equipment.offHand || target.equipment.offHand.type !== 'SHIELD') threat += 10;
+
+  const mi = getMoraleIndex(target.morale);
+  if (mi >= 2) threat += (mi - 1) * 15;
+  if (target.morale === MoraleStatus.FLEEING) threat += 25;
+
   if (attacker && state) {
-    const surroundBonus = getSurroundingBonus(attacker, target, state);
-    threat += surroundBonus * 2; // 每5%合围命中加成 → +10威胁值
+    threat += getSurroundingBonus(attacker, target, state) * 2;
   }
-  
+
   return threat;
 };
 
-/**
- * 计算位置的战术得分
- * 用于评估移动目标的优劣
- */
+// ==================== 位置评估 & 移动 ====================
+
 const calculatePositionScore = (
   unit: CombatUnit,
   pos: { q: number; r: number },
   targetPos: { q: number; r: number },
   state: CombatState,
-  preferredRange: number
+  preferredRange: number,
+  ctx?: AIContext
 ): number => {
   const distToTarget = getHexDistance(pos, targetPos);
   let score = 0;
   const riskProfile = getAIRiskProfile(unit);
 
-  // 1. 距离评分
   if (preferredRange > 1) {
-    // 远程单位逻辑
-    if (distToTarget > preferredRange) {
-      // 距离太远，需要靠近：距离每增加1格，扣10分
-      // 例：Range=4. Dist=5 -> 100 - 10 = 90
-      score += 100 - (distToTarget - preferredRange) * 10;
-    } else {
-      // 在射程内：距离越接近 preferredRange 越好
-      // 距离每减少1格（过于靠近），扣15分（加大惩罚防止骑脸）
-      // 例：Range=4. Dist=4 -> 100. Dist=3 -> 85. Dist=1 -> 55.
-      score += 100 - (preferredRange - distToTarget) * 15;
-    }
+    score += distToTarget > preferredRange
+      ? 100 - (distToTarget - preferredRange) * 10
+      : 100 - (preferredRange - distToTarget) * 15;
   } else {
-    // 近战单位逻辑：越接近目标越好
-    if (distToTarget <= preferredRange) {
-      score += 100 - distToTarget * 10;
-    } else {
-      score += 80 - distToTarget * 5;
-    }
+    score += distToTarget <= preferredRange
+      ? 100 - distToTarget * 10
+      : 80 - distToTarget * 5;
   }
 
-  // 2. ZoC (控制区) 威胁评估
   const inZoC = isInEnemyZoC(pos, unit, state);
   if (inZoC) {
     let zocPenalty = riskProfile.zocBasePenalty;
-    
-    // 检查具体的威胁（有多少人能截击）
     const threats = getThreateningEnemies(pos, unit, state);
-    if (threats.length > 0) {
-       zocPenalty += threats.length * riskProfile.zocThreatPenalty;
-    } else {
-       // 在ZoC内但暂无直接威胁（如敌人已行动过），仍有轻微风险
-       zocPenalty += 8;
-    }
+    zocPenalty += threats.length > 0 ? threats.length * riskProfile.zocThreatPenalty : 8;
 
-    // 状态修正：低血/低士气时更趋向保守
     const hpPercent = unit.hp / unit.maxHp;
     if (hpPercent < 0.5) {
       zocPenalty += hpPercent < 0.25 ? Math.round(riskProfile.lowHpPenalty * 1.4) : riskProfile.lowHpPenalty;
     }
     const moraleIndex = getMoraleIndex(unit.morale);
-    if (moraleIndex >= 2) {
-      zocPenalty += (moraleIndex - 1) * riskProfile.lowMoralePenalty;
-    }
+    if (moraleIndex >= 2) zocPenalty += (moraleIndex - 1) * riskProfile.lowMoralePenalty;
 
-    // 友军支援减免：身边友军越多，越敢进入接战
     const adjacentAllies = getAllies(unit, state).filter(a => getHexDistance(a.combatPos, pos) === 1).length;
     zocPenalty -= adjacentAllies * riskProfile.allySupportReduction;
 
-    // 接战奖励：近战若能贴身/一步接战，降低ZoC惩罚，防止被无限放风筝
     if (preferredRange === 1) {
-      if (distToTarget <= 1) {
-        zocPenalty -= riskProfile.engageBonus;
-      } else if (distToTarget === 2) {
-        zocPenalty -= Math.floor(riskProfile.engageBonus * 0.5);
-      }
+      if (distToTarget <= 1) zocPenalty -= riskProfile.engageBonus;
+      else if (distToTarget === 2) zocPenalty -= Math.floor(riskProfile.engageBonus * 0.5);
     }
 
-    zocPenalty = Math.max(0, zocPenalty);
-    
-    score -= zocPenalty;
+    score -= Math.max(0, zocPenalty);
+  }
+
+  // Layer 3: 战术策略位置修正
+  if (ctx?.tactics?.positionModifier) {
+    score = ctx.tactics.positionModifier(pos, unit, score, ctx);
   }
 
   return score;
 };
 
-/**
- * 寻找移动到目标附近的最佳位置
- * 强化控制区感知与远程单位风筝逻辑
- */
 const findBestMovePosition = (
   unit: CombatUnit,
   targetPos: { q: number; r: number },
   state: CombatState,
   preferredRange: number = 1,
-  allowFallbackAdvance: boolean = false
+  allowFallbackAdvance: boolean = false,
+  ctx?: AIContext
 ): { q: number; r: number } | null => {
   const maxMoveDistance = Math.floor(unit.currentAP / 2);
   if (maxMoveDistance < 1) return null;
-  
-  // 1. 计算当前位置的得分作为基准
-  // 只有找到比当前位置得分更高的位置，才会移动
-  let bestScore = calculatePositionScore(unit, unit.combatPos, targetPos, state, preferredRange);
+
+  let bestScore = calculatePositionScore(unit, unit.combatPos, targetPos, state, preferredRange, ctx);
   let bestPos: { q: number; r: number } | null = null;
   const currentDistToTarget = getHexDistance(unit.combatPos, targetPos);
   let fallbackPos: { q: number; r: number } | null = null;
   let fallbackScore = -Infinity;
   let fallbackDistToTarget = currentDistToTarget;
   const riskProfile = getAIRiskProfile(unit);
+  const searchRadius = Math.min(maxMoveDistance, 6);
 
-  // 2. 搜索可移动范围
-  const searchRadius = Math.min(maxMoveDistance, 6); // 限制搜索范围避免性能问题
-  
   for (let q = -searchRadius; q <= searchRadius; q++) {
     for (let r = Math.max(-searchRadius, -q - searchRadius); r <= Math.min(searchRadius, -q + searchRadius); r++) {
-      // 偏移量为0即当前位置，跳过
       if (q === 0 && r === 0) continue;
-
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
-      
-      // 跳过超出移动范围的位置
       if (moveDistance > maxMoveDistance) continue;
-      // 跳过被占用的位置
       if (isHexOccupied(newPos, state)) continue;
-      
-      // 计算新位置得分
-      let score = calculatePositionScore(unit, newPos, targetPos, state, preferredRange);
-      
-      // 减去移动消耗（避免无意义的反复横跳）
+
+      let score = calculatePositionScore(unit, newPos, targetPos, state, preferredRange, ctx);
       score -= moveDistance * 2;
       const newDistToTarget = getHexDistance(newPos, targetPos);
-      
-      // 只有得分显著高于当前位置才移动（设置阈值+1，避免微小差异导致的抖动）
+
       if (score > bestScore + 1) {
         bestScore = score;
         bestPos = newPos;
       }
 
-      // 反风筝兜底：记录“能缩短距离”的最优推进格
-      if (
-        newDistToTarget < fallbackDistToTarget ||
-        (newDistToTarget === fallbackDistToTarget && score > fallbackScore)
-      ) {
+      if (newDistToTarget < fallbackDistToTarget || (newDistToTarget === fallbackDistToTarget && score > fallbackScore)) {
         fallbackDistToTarget = newDistToTarget;
         fallbackScore = score;
         fallbackPos = newPos;
@@ -354,734 +296,17 @@ const findBestMovePosition = (
 
   if (bestPos) return bestPos;
 
-  // 无显著更优格时，近战可在可控风险下强制推进，降低原地WAIT概率
   if (allowFallbackAdvance && preferredRange === 1 && fallbackPos) {
     const hpPercent = unit.hp / unit.maxHp;
     const moraleIndex = getMoraleIndex(unit.morale);
-    const emergencyState =
-      hpPercent < riskProfile.emergencyHpThreshold ||
-      moraleIndex >= riskProfile.emergencyMoraleIndex;
-    const canPushAdvance =
-      fallbackDistToTarget < currentDistToTarget &&
-      fallbackScore >= bestScore - riskProfile.fallbackAdvanceTolerance;
-
-    if (!emergencyState && canPushAdvance) {
-      return fallbackPos;
-    }
+    const emergencyState = hpPercent < riskProfile.emergencyHpThreshold || moraleIndex >= riskProfile.emergencyMoraleIndex;
+    const canPushAdvance = fallbackDistToTarget < currentDistToTarget && fallbackScore >= bestScore - riskProfile.fallbackAdvanceTolerance;
+    if (!emergencyState && canPushAdvance) return fallbackPos;
   }
 
   return null;
 };
 
-/**
- * 获取单位可用的攻击技能
- */
-const getAttackAbilities = (unit: CombatUnit): Ability[] => {
-  return getUnitAbilities(unit).filter(a => {
-    if (a.type !== 'ATTACK') return false;
-    // 弩未装填时禁止选择射击，避免 AI 无限连射。
-    if (a.id === 'SHOOT') {
-      const weapon = unit.equipment.mainHand;
-      const wClass = weapon?.combatClass || weapon?.weaponClass;
-      const isCrossbow = wClass === 'crossbow';
-      if (isCrossbow && unit.crossbowLoaded === false) return false;
-    }
-    return true;
-  });
-};
-
-/**
- * 检查是否能攻击目标
- */
-const canAttackTarget = (
-  unit: CombatUnit,
-  target: CombatUnit,
-  ability: Ability
-): boolean => {
-  const dist = getHexDistance(unit.combatPos, target.combatPos);
-  if (unit.currentAP < ability.apCost) return false;
-  const inBaseRange = dist >= ability.range[0] && dist <= ability.range[1];
-  if (!inBaseRange) return false;
-
-  // 显式接入长柄后排规则：polearm 的攻击仅视为 1~2 格有效。
-  const weapon = unit.equipment.mainHand;
-  const isPolearmWeapon = !!weapon && (weapon.combatClass || weapon.weaponClass) === 'polearm';
-  if (isPolearmWeapon && ability.type === 'ATTACK') {
-    return isPolearmBacklineAttack(unit, ability, dist);
-  }
-
-  return true;
-};
-
-// ==================== 行为树实现 ====================
-
-/**
- * BANDIT（匪徒）行为树
- * 特点：优先攻击落单/低血量目标，血量低或士气低时会逃跑
- * ZoC感知：在控制区内优先攻击邻近敌人，不冒险移动
- */
-const executeBanditBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  const allies = getAllies(unit, state);
-  
-  // 血量极低且士气动摇，或士气崩溃时，才有逃跑倾向
-  const hpPercent = unit.hp / unit.maxHp;
-  const moraleIndex = getMoraleIndex(unit.morale);
-  const shouldConsiderFleeing = (hpPercent < 0.25 && moraleIndex >= 2) || moraleIndex >= 3;
-
-  if (shouldConsiderFleeing && allies.length < enemies.length) {
-    // 士气越低越容易逃跑
-    const fleeChance = moraleIndex >= 3 ? 0.45 : 0.15;
-    if (Math.random() < fleeChance) {
-      let fleePos = findFleePosition(unit, enemies, state);
-      if (fleePos) {
-        return { type: 'MOVE', targetPos: fleePos };
-      }
-    }
-  }
-  
-  // 选择目标：优先低血量、落单、士气低落的敌人（含合围加成）
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    let score = calculateThreat(enemy, unit, state);
-    
-    // 落单目标加分（周围没有友军）
-    const nearbyAllies = enemies.filter(e => 
-      e.id !== enemy.id && getHexDistance(e.combatPos, enemy.combatPos) <= 2
-    );
-    if (nearbyAllies.length === 0) {
-      score += 25;
-    }
-    
-    // 距离近的加分
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    score -= dist * 3;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试攻击首选目标（伤害由执行层 calculateDamage 统一计算）
-  const attackAbilities = getAttackAbilities(unit);
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { 
-        type: 'ATTACK', 
-        targetUnitId: bestTarget.id, 
-        ability
-      };
-    }
-  }
-  
-  // ==================== ZoC感知：在控制区内不冒险移动 ====================
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  if (inZoC) {
-    // 尝试攻击任何邻近敌人（而非冒险移动去找更远的目标）
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    // 在ZoC内无法攻击任何人，等待而非冒险移动
-    return { type: 'WAIT' };
-  }
-  
-  // 不在ZoC中，安全地移动靠近
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * BEAST（野兽）行为树
- * 特点：凶猛进攻，优先攻击最近目标或逃跑的猎物，永不逃跑
- * ZoC感知：野兽在控制区内不会冒险移动，优先撕咬邻近目标
- */
-const executeBeastBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  
-  // 找最近的敌人，但优先追杀逃跑的猎物
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    let score = 100 - dist * 10; // 基础分数：距离越近越好
-    
-    // 野兽有追杀逃跑目标的本能
-    if (enemy.morale === MoraleStatus.FLEEING) {
-      score += 50;
-    } else if (enemy.morale === MoraleStatus.BREAKING) {
-      score += 20;
-    }
-    
-    // 低血量目标更有吸引力（容易击杀）
-    const hpPercent = enemy.hp / enemy.maxHp;
-    score += (1 - hpPercent) * 30;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试攻击（伤害由执行层 calculateDamage 统一计算）
-  const attackAbilities = getAttackAbilities(unit);
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { 
-        type: 'ATTACK', 
-        targetUnitId: bestTarget.id, 
-        ability
-      };
-    }
-  }
-  
-  // ==================== ZoC感知：野兽在控制区内不冒险移动 ====================
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  if (inZoC) {
-    // 尝试撕咬邻近的任何敌人
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => {
-        // 优先攻击逃跑的猎物
-        const aFlee = a.morale === MoraleStatus.FLEEING ? 50 : 0;
-        const bFlee = b.morale === MoraleStatus.FLEEING ? 50 : 0;
-        return (bFlee + calculateThreat(b, unit, state)) - (aFlee + calculateThreat(a, unit, state));
-      });
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    // 在ZoC内无法攻击，等待而非冒险移动
-    return { type: 'WAIT' };
-  }
-  
-  // 不在ZoC中，全力冲向目标
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * ARMY（军队）行为树
- * 特点：有序推进，保持阵型，优先集火同一目标，士气较稳定
- * ZoC感知：军队纪律严明，在控制区内绝不轻举妄动
- */
-const executeArmyBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  const allies = getAllies(unit, state);
-  
-  // 军队单位士气较稳定，只有在崩溃时才考虑撤退
-  if (unit.morale === MoraleStatus.BREAKING && allies.length === 0) {
-    const fleePos = findFleePosition(unit, enemies, state);
-    if (fleePos && Math.random() < 0.3) {
-      return { type: 'MOVE', targetPos: fleePos };
-    }
-  }
-  
-  // 选择目标：优先选择已经被友军攻击过的目标（集火）
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    let score = 0;
-    
-    // 低血量但未死的目标高优先（集火补刀）
-    const hpPercent = enemy.hp / enemy.maxHp;
-    if (hpPercent < 0.5 && hpPercent > 0) {
-      score += 50;
-    }
-    
-    // 威胁评估（包含士气因素和合围加成）
-    score += calculateThreat(enemy, unit, state);
-    
-    // 友军附近的敌人优先（包围战术）
-    const nearbyAllies = allies.filter(a => 
-      getHexDistance(a.combatPos, enemy.combatPos) <= 2
-    );
-    score += nearbyAllies.length * 15;
-    
-    // 距离因素
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    score -= dist * 2;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试攻击首选目标（伤害由执行层 calculateDamage 统一计算）
-  const attackAbilities = getAttackAbilities(unit);
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { 
-        type: 'ATTACK', 
-        targetUnitId: bestTarget.id, 
-        ability
-      };
-    }
-  }
-  
-  // ==================== ZoC感知：军队在控制区内坚守阵地 ====================
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  if (inZoC) {
-    // 军队纪律严明，在ZoC内绝不移动，改为攻击邻近任何敌人
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    // 在ZoC内无法攻击，坚守等待
-    return { type: 'WAIT' };
-  }
-  
-  // 不在ZoC中，有序推进
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * ARCHER（弓手）行为树
- * 特点：保持距离，优先攻击无盾目标，士气低落时更容易逃跑
- * ZoC感知：在控制区内不轻易后撤（会被截击），除非极度危险
- */
-const executeArcherBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  const moraleIndex = getMoraleIndex(unit.morale);
-  const hpPercent = unit.hp / unit.maxHp;
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  
-  // 检查是否有敌人太近
-  const tooCloseEnemies = enemies.filter(e => 
-    getHexDistance(unit.combatPos, e.combatPos) <= 2
-  );
-  
-  // 如果敌人太近，尝试拉开距离
-  // ZoC感知：在控制区内后撤会被截击，只有极端情况才冒险
-  if (tooCloseEnemies.length > 0) {
-    const desperateSituation = hpPercent < 0.25 || moraleIndex >= 3; // 血量极低或崩溃
-    if (!inZoC || desperateSituation) {
-      const fleePos = findFleePosition(unit, tooCloseEnemies, state);
-      if (fleePos && getHexDistance(unit.combatPos, fleePos) >= 1) {
-        return { type: 'MOVE', targetPos: fleePos };
-      }
-    }
-  }
-  
-  // 选择目标：优先无盾、低血量、士气低落的目标
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    let score = calculateThreat(enemy, unit, state);
-    
-    // 无盾目标大幅加分
-    if (!enemy.equipment.offHand || enemy.equipment.offHand.type !== 'SHIELD') {
-      score += 40;
-    }
-    
-    // 距离适中（远程攻击范围内）加分
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    if (dist >= 3 && dist <= 6) {
-      score += 20;
-    }
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试远程攻击（伤害由执行层 calculateDamage 统一计算）
-  const attackAbilities = getAttackAbilities(unit);
-  const rangedAbility = attackAbilities.find(a => a.range[1] > 2);
-  
-  if (rangedAbility && canAttackTarget(unit, bestTarget, rangedAbility)) {
-    return { 
-      type: 'ATTACK', 
-      targetUnitId: bestTarget.id, 
-      ability: rangedAbility
-    };
-  }
-  
-  // 如果没有远程技能或射程不够，尝试近战（对邻近目标）
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { 
-        type: 'ATTACK', 
-        targetUnitId: bestTarget.id, 
-        ability
-      };
-    }
-  }
-  
-  // ==================== ZoC感知：在控制区内不移动 ====================
-  if (inZoC) {
-    // 尝试近战攻击邻近的任何敌人
-    const adjacentEnemies = enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1);
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    // 在ZoC内无法攻击，等待
-    return { type: 'WAIT' };
-  }
-  
-  // 不在ZoC中，移动到合适的射击位置
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 4);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * BERSERKER（狂战士）行为树
- * 特点：血量越低攻击越高，永不后退，无视士气惩罚
- * ZoC感知：狂战士在控制区内优先攻击邻近敌人，不冒险移动
- */
-const executeBerserkerBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  
-  // 选择目标：优先攻击最强的敌人，或者士气最低的敌人
-  let bestTarget: CombatUnit | null = null;
-  let maxThreat = -Infinity;
-  
-  for (const enemy of enemies) {
-    const threat = calculateThreat(enemy, unit, state);
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    
-    // 狂战士优先挑战强敌，或追杀逃跑者
-    let score = threat - dist * 2;
-    
-    // 额外偏好逃跑中的敌人（追杀本能）
-    if (enemy.morale === MoraleStatus.FLEEING) {
-      score += 30;
-    }
-    
-    if (score > maxThreat) {
-      maxThreat = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试攻击（伤害由执行层 calculateDamage 统一计算，狂战士加成通过 bonusDamage 传递）
-  const attackAbilities = getAttackAbilities(unit);
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { 
-        type: 'ATTACK', 
-        targetUnitId: bestTarget.id, 
-        ability
-      };
-    }
-  }
-  
-  // ==================== ZoC感知：狂战士在控制区内不冒险移动 ====================
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  if (inZoC) {
-    // 尝试攻击邻近的任何敌人
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    // 在ZoC内无法攻击，等待而非冒险移动
-    return { type: 'WAIT' };
-  }
-  
-  // 不在ZoC中，冲向目标
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * TANK（盾卫）行为树
- * 特点：优先使用盾墙技能保护友军弓手，站在前线不主动追击远处敌人
- * 在 ZoC 内坚守阵地，只有当邻近无敌人时才缓慢推进
- */
-const executeTankBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  const allies = getAllies(unit, state);
-  
-  // 盾卫士气较稳定，只有在崩溃且孤立无援时才考虑撤退
-  if (unit.morale === MoraleStatus.BREAKING && allies.length === 0) {
-    const fleePos = findFleePosition(unit, enemies, state);
-    if (fleePos && Math.random() < 0.2) {
-      return { type: 'MOVE', targetPos: fleePos };
-    }
-  }
-  
-  // 优先使用盾墙技能（如果有盾牌且未开启盾墙）
-  if (!unit.isShieldWall && unit.equipment.offHand?.type === 'SHIELD') {
-    const allAbilities = getUnitAbilities(unit);
-    const shieldWall = allAbilities.find(a => a.id === 'SHIELDWALL');
-    if (shieldWall && unit.currentAP >= shieldWall.apCost) {
-      // 检查是否有敌人在 3 格以内（需要防御时才开盾墙）
-      const nearbyEnemies = enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) <= 3);
-      if (nearbyEnemies.length > 0) {
-        return { type: 'SKILL', ability: shieldWall };
-      }
-    }
-  }
-  
-  // 选择目标：优先攻击最近的敌人，偏好已经与友军交战的目标
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    let score = 0;
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    
-    // 盾卫不追击远处目标，距离惩罚很重
-    score -= dist * 8;
-    
-    // 邻近敌人大幅加分（盾卫的主要职责是挡住眼前的敌人）
-    if (dist <= 1) score += 60;
-    else if (dist <= 2) score += 30;
-    
-    // 友军附近的敌人优先（协同防御）
-    const nearbyAllies = allies.filter(a => getHexDistance(a.combatPos, enemy.combatPos) <= 2);
-    score += nearbyAllies.length * 10;
-    
-    // 低血量目标适当加分
-    const hpPercent = enemy.hp / enemy.maxHp;
-    if (hpPercent < 0.5) score += 20;
-    
-    // 威胁评估
-    score += calculateThreat(enemy, unit, state) * 0.5;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 尝试攻击首选目标
-  const attackAbilities = getAttackAbilities(unit);
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { type: 'ATTACK', targetUnitId: bestTarget.id, ability };
-    }
-  }
-  
-  // ZoC感知：盾卫在控制区内绝不移动
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  if (inZoC) {
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    return { type: 'WAIT' };
-  }
-  
-  // 不在 ZoC 中：优先移动到友方弓手前方保护他们
-  const allyArchers = allies.filter(a => {
-    const weapon = a.equipment.mainHand;
-    const wClass = weapon?.combatClass || weapon?.weaponClass;
-    return wClass === 'bow' || wClass === 'crossbow';
-  });
-  
-  if (allyArchers.length > 0 && enemies.length > 0) {
-    // 找到弓手和最近敌人之间的位置
-    const closestEnemy = enemies.reduce((a, b) => {
-      const distA = Math.min(...allyArchers.map(ar => getHexDistance(ar.combatPos, a.combatPos)));
-      const distB = Math.min(...allyArchers.map(ar => getHexDistance(ar.combatPos, b.combatPos)));
-      return distA < distB ? a : b;
-    });
-    const movePos = findBestMovePosition(unit, closestEnemy.combatPos, state, 1, true);
-    if (movePos) {
-      return { type: 'MOVE', targetPos: movePos };
-    }
-  }
-  
-  // 缓慢推进向最近敌人
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, 1, true);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * SKIRMISHER（游击）行为树
- * 特点：优先使用投掷武器攻击，保持 2-3 格距离，弹药耗尽后切近战
- * 优先攻击侧翼/落单目标，在 ZoC 内尝试脱离而非死战
- */
-const executeSkirmisherBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  const allies = getAllies(unit, state);
-  const hpPercent = unit.hp / unit.maxHp;
-  const moraleIndex = getMoraleIndex(unit.morale);
-  const inZoC = isInEnemyZoC(unit.combatPos, unit, state);
-  
-  // 游击手血量极低且士气动摇，或士气崩溃时才逃跑
-  const shouldConsiderFleeing = (hpPercent < 0.3 && moraleIndex >= 2) || moraleIndex >= 3;
-  if (shouldConsiderFleeing) {
-    const fleeChance = moraleIndex >= 3 ? 0.55 : 0.20;
-    if (Math.random() < fleeChance) {
-      const fleePos = findFleePosition(unit, enemies, state);
-      if (fleePos) {
-        return { type: 'MOVE', targetPos: fleePos };
-      }
-    }
-  }
-  
-  // 检查是否有投掷武器
-  const attackAbilities = getAttackAbilities(unit);
-  const throwAbility = attackAbilities.find(a => a.id === 'THROW');
-  const hasThrowWeapon = !!throwAbility;
-  
-  // 选择目标：优先落单、侧翼暴露的敌人
-  let bestTarget: CombatUnit | null = null;
-  let bestScore = -Infinity;
-  
-  for (const enemy of enemies) {
-    let score = calculateThreat(enemy, unit, state);
-    const dist = getHexDistance(unit.combatPos, enemy.combatPos);
-    
-    // 落单目标大幅加分
-    const nearbyFriends = enemies.filter(e => 
-      e.id !== enemy.id && getHexDistance(e.combatPos, enemy.combatPos) <= 2
-    );
-    if (nearbyFriends.length === 0) {
-      score += 35;
-    }
-    
-    // 无盾目标加分（投掷武器对无盾目标更有效）
-    if (!enemy.equipment.offHand || enemy.equipment.offHand.type !== 'SHIELD') {
-      score += 25;
-    }
-    
-    // 游击手偏好适中距离的目标
-    if (hasThrowWeapon) {
-      if (dist >= 2 && dist <= 4) score += 20;
-      else if (dist > 4) score -= dist * 3;
-      else score -= 10; // 太近了不好
-    } else {
-      score -= dist * 3;
-    }
-    
-    // 士气低落的目标加分
-    if (enemy.morale === MoraleStatus.FLEEING) score += 20;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = enemy;
-    }
-  }
-  
-  if (!bestTarget) return { type: 'WAIT' };
-  
-  // 如果有投掷武器，优先远程攻击
-  if (hasThrowWeapon && throwAbility && canAttackTarget(unit, bestTarget, throwAbility)) {
-    return { type: 'ATTACK', targetUnitId: bestTarget.id, ability: throwAbility };
-  }
-  
-  // 尝试用其他可用攻击
-  for (const ability of attackAbilities) {
-    if (canAttackTarget(unit, bestTarget, ability)) {
-      return { type: 'ATTACK', targetUnitId: bestTarget.id, ability };
-    }
-  }
-  
-  // ZoC感知：游击手在 ZoC 内尝试脱离（冒险后撤）
-  if (inZoC) {
-    // 游击手会尝试逃离 ZoC，除非血量极低不敢冒险
-    if (hpPercent > 0.2) {
-      const fleePos = findFleePosition(unit, enemies, state);
-      if (fleePos) {
-        return { type: 'MOVE', targetPos: fleePos };
-      }
-    }
-    // 无法脱离，尝试攻击邻近敌人
-    const adjacentEnemies = enemies
-      .filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1)
-      .sort((a, b) => calculateThreat(b, unit, state) - calculateThreat(a, unit, state));
-    for (const adjEnemy of adjacentEnemies) {
-      for (const ability of attackAbilities) {
-        if (canAttackTarget(unit, adjEnemy, ability)) {
-          return { type: 'ATTACK', targetUnitId: adjEnemy.id, ability };
-        }
-      }
-    }
-    return { type: 'WAIT' };
-  }
-  
-  // 不在 ZoC 中：移动到适合投掷的距离（2-3格）或靠近近战
-  const preferredRange = hasThrowWeapon ? 3 : 1;
-  const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, preferredRange);
-  if (movePos) {
-    return { type: 'MOVE', targetPos: movePos };
-  }
-  
-  return { type: 'WAIT' };
-};
-
-/**
- * 寻找逃跑位置
- */
 const findFleePosition = (
   unit: CombatUnit,
   threats: CombatUnit[],
@@ -1089,131 +314,594 @@ const findFleePosition = (
 ): { q: number; r: number } | null => {
   const maxMoveDistance = Math.floor(unit.currentAP / 2);
   if (maxMoveDistance < 1) return null;
-  
+
   let bestPos: { q: number; r: number } | null = null;
   let maxDistance = 0;
-
   const searchRadius = Math.min(maxMoveDistance, 6);
-  
+
   for (let q = -searchRadius; q <= searchRadius; q++) {
     for (let r = Math.max(-searchRadius, -q - searchRadius); r <= Math.min(searchRadius, -q + searchRadius); r++) {
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
-      
       if (moveDistance === 0 || moveDistance > maxMoveDistance) continue;
       if (isHexOccupied(newPos, state)) continue;
-      
-      // 计算到所有威胁的最小距离
+
       let minThreatDist = Infinity;
       for (const threat of threats) {
-        const dist = getHexDistance(newPos, threat.combatPos);
-        minThreatDist = Math.min(minThreatDist, dist);
+        minThreatDist = Math.min(minThreatDist, getHexDistance(newPos, threat.combatPos));
       }
-      
       if (minThreatDist > maxDistance) {
         maxDistance = minThreatDist;
         bestPos = newPos;
       }
     }
   }
-  
+
   return bestPos;
 };
 
-// ==================== 主入口 ====================
-
-/**
- * 执行逃跑行为
- * 当单位处于FLEEING状态时自动执行
- */
-export const executeFleeingBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
-  const enemies = getEnemies(unit, state);
-  
-  if (enemies.length === 0) {
-    return { type: 'WAIT' };
-  }
-  
-  // 找到远离所有敌人的最佳位置
-  const fleePos = findFleePosition(unit, enemies, state);
-  if (fleePos) {
-    return { type: 'FLEE', targetPos: fleePos };
-  }
-  
-  return { type: 'WAIT' };
+const getAttackAbilities = (unit: CombatUnit): Ability[] => {
+  return getUnitAbilities(unit).filter(a => {
+    if (a.type !== 'ATTACK') return false;
+    if (a.id === 'SHOOT') {
+      const weapon = unit.equipment.mainHand;
+      const wClass = weapon?.combatClass || weapon?.weaponClass;
+      if (wClass === 'crossbow' && unit.crossbowLoaded === false) return false;
+    }
+    return true;
+  });
 };
 
-/**
- * 执行 AI 行动
- * 现在考虑士气状态
- */
-export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction => {
-  // 检查是否处于逃跑状态
-  if (unit.morale === MoraleStatus.FLEEING) {
-    return executeFleeingBehavior(unit, state);
+const canAttackTarget = (unit: CombatUnit, target: CombatUnit, ability: Ability): boolean => {
+  const dist = getHexDistance(unit.combatPos, target.combatPos);
+  if (unit.currentAP < ability.apCost) return false;
+  if (dist < ability.range[0] || dist > ability.range[1]) return false;
+
+  const weapon = unit.equipment.mainHand;
+  const isPolearm = !!weapon && (weapon.combatClass || weapon.weaponClass) === 'polearm';
+  if (isPolearm && ability.type === 'ATTACK') return isPolearmBacklineAttack(unit, ability, dist);
+
+  return true;
+};
+
+const getPreferredRange = (unit: CombatUnit): number => {
+  const wClass = unit.equipment.mainHand?.combatClass || unit.equipment.mainHand?.weaponClass;
+  if (wClass === 'bow' || wClass === 'crossbow') return 4;
+  if (wClass === 'throw') return 3;
+  return 1;
+};
+
+// ==================== Layer 3: 战术策略 ====================
+
+const formationTactics: TacticalStrategy = {
+  id: 'formation',
+  positionModifier(pos, _unit, baseScore, ctx) {
+    const adjAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, pos) === 1).length;
+    return baseScore + adjAllies * 15;
+  },
+  targetModifier(target, _unit, baseScore, ctx) {
+    const alliesEngaging = ctx.allies.filter(a => getHexDistance(a.combatPos, target.combatPos) === 1).length;
+    return alliesEngaging > 0 ? baseScore * (1 + alliesEngaging * 0.2) : baseScore;
+  },
+};
+
+const swarmTactics: TacticalStrategy = {
+  id: 'swarm',
+  positionModifier(pos, _unit, baseScore, ctx) {
+    for (const enemy of ctx.enemies) {
+      if (getHexDistance(pos, enemy.combatPos) === 1) {
+        const otherAlliesAdj = ctx.allies.filter(a => getHexDistance(a.combatPos, enemy.combatPos) === 1).length;
+        if (otherAlliesAdj >= 1) return baseScore + otherAlliesAdj * 20;
+      }
+    }
+    return baseScore;
+  },
+  targetModifier(target, _unit, baseScore, ctx) {
+    const alliesAdj = ctx.allies.filter(a => getHexDistance(a.combatPos, target.combatPos) === 1).length;
+    return baseScore * (1 + alliesAdj * 0.3);
+  },
+};
+
+const harassTactics: TacticalStrategy = {
+  id: 'harass',
+  positionModifier(pos, _unit, baseScore, ctx) {
+    if (ctx.enemies.length === 0) return baseScore;
+    let totalDist = 0;
+    for (const e of ctx.enemies) totalDist += getHexDistance(pos, e.combatPos);
+    const avgDist = totalDist / ctx.enemies.length;
+    return baseScore + avgDist * 3;
+  },
+  targetModifier(target, _unit, baseScore, ctx) {
+    const nearbyFriends = ctx.enemies.filter(e => e.id !== target.id && getHexDistance(e.combatPos, target.combatPos) <= 2);
+    return nearbyFriends.length === 0 ? baseScore * 1.25 : baseScore;
+  },
+};
+
+const aggressiveTactics: TacticalStrategy = {
+  id: 'aggressive',
+  targetModifier(target, _unit, baseScore, _ctx) {
+    const hp = target.hp / target.maxHp;
+    return hp < 0.5 ? baseScore * 1.2 : baseScore;
+  },
+};
+
+const NULL_TACTICS: TacticalStrategy = { id: 'none' };
+
+const FACTION_TACTICS_MAP: Record<string, TacticalStrategy> = {
+  BANDIT: aggressiveTactics,
+  BEAST: swarmTactics,
+  ARMY: formationTactics,
+  NOMAD: harassTactics,
+  CULT: formationTactics,
+  BOSS_BAWANG: formationTactics,
+  BOSS_HUBEN: formationTactics,
+  BOSS_JINGKE: aggressiveTactics,
+  BOSS_ARCHER: harassTactics,
+  BOSS_FORGE: formationTactics,
+  BOSS_SMITH: formationTactics,
+  BOSS_MINE: aggressiveTactics,
+  BOSS_LONGYA: aggressiveTactics,
+  BOSS_XIPI: aggressiveTactics,
+};
+
+// ==================== AI 上下文构建 ====================
+
+const buildAIContext = (unit: CombatUnit, state: CombatState): AIContext => {
+  const enemies = getEnemies(unit, state);
+  const allies = getAllies(unit, state);
+  const tacticsKey = state.factionTactics || '';
+  return {
+    enemies,
+    allies,
+    inZoC: isInEnemyZoC(unit.combatPos, unit, state),
+    hpPercent: unit.hp / unit.maxHp,
+    moraleIndex: getMoraleIndex(unit.morale),
+    riskProfile: getAIRiskProfile(unit),
+    attackAbilities: getAttackAbilities(unit),
+    allAbilities: getUnitAbilities(unit),
+    adjacentEnemies: enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) === 1),
+    tactics: FACTION_TACTICS_MAP[tacticsKey] || NULL_TACTICS,
+    _cache: new Map(),
+  };
+};
+
+// ==================== 目标评分辅助（含战术修正） ====================
+
+const scoreTargetForAttack = (
+  unit: CombatUnit,
+  target: CombatUnit,
+  state: CombatState,
+  ctx: AIContext
+): number => {
+  let score = calculateThreat(target, unit, state);
+  const dist = getHexDistance(unit.combatPos, target.combatPos);
+  score -= dist * 3;
+
+  const nearbyFriends = ctx.enemies.filter(e => e.id !== target.id && getHexDistance(e.combatPos, target.combatPos) <= 2);
+  if (nearbyFriends.length === 0) score += 25;
+
+  const nearbyAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, target.combatPos) <= 2);
+  score += nearbyAllies.length * 10;
+
+  if (ctx.tactics.targetModifier) {
+    score = ctx.tactics.targetModifier(target, unit, score, ctx);
   }
-  
-  const aiType = unit.aiType || 'BANDIT'; // 默认为匪徒行为
-  
-  // 对于非BEAST和BERSERKER类型，士气崩溃时有概率逃跑
-  if (unit.morale === MoraleStatus.BREAKING && aiType !== 'BEAST' && aiType !== 'BERSERKER') {
-    const enemies = getEnemies(unit, state);
-    const allies = getAllies(unit, state);
-    
-    // 如果数量劣势非常明显，才考虑逃跑
-    if (enemies.length > allies.length + 2) {
-      const fleeChance = 0.15 + (enemies.length - allies.length) * 0.08;
-      if (Math.random() < fleeChance) {
-        const fleePos = findFleePosition(unit, enemies, state);
-        if (fleePos) {
-          return { type: 'MOVE', targetPos: fleePos };
+
+  return score;
+};
+
+// ==================== 行为模块 ====================
+
+const behaviorAttackMelee: AIBehavior = {
+  id: 'attackMelee',
+
+  evaluate(unit, state, ctx) {
+    let bestScore = 0;
+    let bestTarget: CombatUnit | null = null;
+    let bestAbility: Ability | null = null;
+
+    for (const enemy of ctx.enemies) {
+      for (const ability of ctx.attackAbilities) {
+        if (ability.range[1] > 2) continue;
+        if (!canAttackTarget(unit, enemy, ability)) continue;
+
+        let score = 100;
+        const hitChance = estimateMeleeHitChance(unit, enemy, state);
+        score *= hitChanceMultiplier(hitChance);
+
+        const avgDmg = estimateAvgDamage(unit);
+        if (enemy.hp <= avgDmg) score *= 2.0;
+        else if (enemy.hp <= avgDmg * 1.5) score *= 1.3;
+
+        const targetScore = scoreTargetForAttack(unit, enemy, state, ctx);
+        score *= 1 + targetScore / 150;
+
+        const ehp = enemy.hp / enemy.maxHp;
+        if (ehp < 0.3) score *= 1.4;
+        else if (ehp < 0.5) score *= 1.2;
+
+        score *= 1 + getSurroundingBonus(unit, enemy, state) / 60;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestTarget = enemy;
+          bestAbility = ability;
         }
       }
     }
-  }
 
-  // 弩未装填时优先装填，避免出现“无需装填即可连续射击”。
-  const weapon = unit.equipment.mainHand;
-  const weaponClass = weapon?.combatClass || weapon?.weaponClass;
-  const isCrossbow = weaponClass === 'crossbow';
-  if (isCrossbow && unit.crossbowLoaded === false) {
-    const reloadAbility = getUnitAbilities(unit).find(a => a.id === 'RELOAD');
-    if (reloadAbility && unit.currentAP >= reloadAbility.apCost) {
-      return { type: 'SKILL', ability: reloadAbility };
-    }
-  }
-  
-  switch (aiType) {
-    case 'BANDIT':
-      return executeBanditBehavior(unit, state);
-    case 'BEAST':
-      return executeBeastBehavior(unit, state);
-    case 'ARMY':
-      return executeArmyBehavior(unit, state);
-    case 'ARCHER':
-      return executeArcherBehavior(unit, state);
-    case 'BERSERKER':
-      return executeBerserkerBehavior(unit, state);
-    case 'TANK':
-      return executeTankBehavior(unit, state);
-    case 'SKIRMISHER':
-      return executeSkirmisherBehavior(unit, state);
-    default:
-      return executeBanditBehavior(unit, state);
-  }
+    if (!bestTarget || !bestAbility) return 0;
+    ctx._cache.set('atkMelee_target', bestTarget);
+    ctx._cache.set('atkMelee_ability', bestAbility);
+    return addNoise(bestScore);
+  },
+
+  execute(_unit, _state, ctx) {
+    return {
+      type: 'ATTACK',
+      targetUnitId: (ctx._cache.get('atkMelee_target') as CombatUnit).id,
+      ability: ctx._cache.get('atkMelee_ability') as Ability,
+    };
+  },
 };
 
-/**
- * 获取 AI 类型的中文名称
- */
+const behaviorAttackRanged: AIBehavior = {
+  id: 'attackRanged',
+
+  evaluate(unit, state, ctx) {
+    let bestScore = 0;
+    let bestTarget: CombatUnit | null = null;
+    let bestAbility: Ability | null = null;
+
+    for (const enemy of ctx.enemies) {
+      for (const ability of ctx.attackAbilities) {
+        if (ability.range[1] <= 2) continue;
+        if (!canAttackTarget(unit, enemy, ability)) continue;
+
+        let score = 100;
+        const hitChance = estimateRangedHitChance(unit, enemy);
+        score *= hitChanceMultiplier(hitChance);
+
+        if (!enemy.equipment.offHand || enemy.equipment.offHand.type !== 'SHIELD') score *= 1.4;
+
+        const avgDmg = estimateAvgDamage(unit);
+        if (enemy.hp <= avgDmg) score *= 2.0;
+        else if (enemy.hp <= avgDmg * 1.5) score *= 1.3;
+
+        const targetScore = scoreTargetForAttack(unit, enemy, state, ctx);
+        score *= 1 + targetScore / 150;
+
+        const ehp = enemy.hp / enemy.maxHp;
+        if (ehp < 0.3) score *= 1.4;
+        else if (ehp < 0.5) score *= 1.2;
+
+        const dist = getHexDistance(unit.combatPos, enemy.combatPos);
+        if (dist >= 3 && dist <= ability.range[1] - 1) score *= 1.2;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestTarget = enemy;
+          bestAbility = ability;
+        }
+      }
+    }
+
+    if (!bestTarget || !bestAbility) return 0;
+    ctx._cache.set('atkRanged_target', bestTarget);
+    ctx._cache.set('atkRanged_ability', bestAbility);
+    return addNoise(bestScore);
+  },
+
+  execute(_unit, _state, ctx) {
+    return {
+      type: 'ATTACK',
+      targetUnitId: (ctx._cache.get('atkRanged_target') as CombatUnit).id,
+      ability: ctx._cache.get('atkRanged_ability') as Ability,
+    };
+  },
+};
+
+const behaviorEngage: AIBehavior = {
+  id: 'engage',
+
+  evaluate(unit, state, ctx) {
+    const preferredRange = getPreferredRange(unit);
+
+    if (preferredRange === 1 && ctx.adjacentEnemies.length > 0) return 0;
+
+    if (preferredRange > 1) {
+      const nearestDist = ctx.enemies.reduce((min, e) => Math.min(min, getHexDistance(unit.combatPos, e.combatPos)), Infinity);
+      if (nearestDist >= preferredRange - 1 && nearestDist <= preferredRange + 1) {
+        for (const ability of ctx.attackAbilities) {
+          if (ability.range[1] >= nearestDist && nearestDist >= ability.range[0]) return 0;
+        }
+      }
+    }
+
+    if (Math.floor(unit.currentAP / 2) < 1) return 0;
+
+    let score = 80;
+    if (ctx.inZoC) score *= 0.1;
+
+    let bestTarget: CombatUnit | null = null;
+    let bestTargetScore = -Infinity;
+    for (const enemy of ctx.enemies) {
+      let ts = scoreTargetForAttack(unit, enemy, state, ctx);
+      if (ts > bestTargetScore) {
+        bestTargetScore = ts;
+        bestTarget = enemy;
+      }
+    }
+    if (!bestTarget) return 0;
+
+    const movePos = findBestMovePosition(unit, bestTarget.combatPos, state, preferredRange, preferredRange === 1, ctx);
+    if (!movePos) return 0;
+
+    const currentDist = getHexDistance(unit.combatPos, bestTarget.combatPos);
+    const newDist = getHexDistance(movePos, bestTarget.combatPos);
+    if (newDist < currentDist) score *= 1 + (currentDist - newDist) * 0.15;
+    if (preferredRange === 1 && newDist <= 1) score *= 1.5;
+    if (ctx.hpPercent < 0.3) score *= 0.6;
+
+    ctx._cache.set('engage_movePos', movePos);
+    return addNoise(score);
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'MOVE', targetPos: ctx._cache.get('engage_movePos') };
+  },
+};
+
+const behaviorFlee: AIBehavior = {
+  id: 'flee',
+
+  evaluate(unit, state, ctx) {
+    if (ctx.moraleIndex < 2) return 0;
+
+    let score = 20;
+
+    if (ctx.hpPercent < 0.2) score *= 4.0;
+    else if (ctx.hpPercent < 0.35) score *= 2.5;
+    else if (ctx.hpPercent < 0.5) score *= 1.5;
+
+    if (ctx.moraleIndex >= 4) score *= 3.0;
+    else if (ctx.moraleIndex >= 3) score *= 2.5;
+    else score *= 1.5;
+
+    if (ctx.enemies.length > ctx.allies.length + 1) {
+      score *= 1 + (ctx.enemies.length - ctx.allies.length) * 0.2;
+    }
+
+    const nearbyAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, unit.combatPos) <= 3);
+    if (nearbyAllies.length === 0) score *= 1.5;
+
+    const fleePos = findFleePosition(unit, ctx.enemies, state);
+    if (!fleePos) return 0;
+
+    ctx._cache.set('flee_pos', fleePos);
+    return addNoise(score);
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'MOVE', targetPos: ctx._cache.get('flee_pos') };
+  },
+};
+
+const behaviorShieldWall: AIBehavior = {
+  id: 'shieldWall',
+
+  evaluate(unit, _state, ctx) {
+    if (unit.isShieldWall) return 0;
+    if (!unit.equipment.offHand || unit.equipment.offHand.type !== 'SHIELD') return 0;
+
+    const ability = ctx.allAbilities.find(a => a.id === 'SHIELDWALL');
+    if (!ability || unit.currentAP < ability.apCost) return 0;
+
+    const nearbyEnemies = ctx.enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) <= 3);
+    if (nearbyEnemies.length === 0) return 0;
+
+    let score = 60;
+    score *= 1 + nearbyEnemies.length * 0.2;
+    if (ctx.adjacentEnemies.length > 0) score *= 1.3;
+    if (ctx.hpPercent < 0.5) score *= 1.4;
+
+    const nearbyAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, unit.combatPos) <= 2);
+    score *= 1 + nearbyAllies.length * 0.1;
+
+    ctx._cache.set('shieldWall_ability', ability);
+    return addNoise(score);
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'SKILL', ability: ctx._cache.get('shieldWall_ability') as Ability };
+  },
+};
+
+const behaviorKite: AIBehavior = {
+  id: 'kite',
+
+  evaluate(unit, state, ctx) {
+    const tooClose = ctx.enemies.filter(e => getHexDistance(unit.combatPos, e.combatPos) <= 2);
+    if (tooClose.length === 0) return 0;
+    if (Math.floor(unit.currentAP / 2) < 1) return 0;
+
+    let score = 70;
+    score *= 1 + tooClose.length * 0.3;
+
+    if (ctx.inZoC) {
+      score *= (ctx.hpPercent < 0.3 || ctx.moraleIndex >= 3) ? 0.6 : 0.1;
+    }
+    if (ctx.hpPercent < 0.3) score *= 1.8;
+
+    const fleePos = findFleePosition(unit, tooClose, state);
+    if (!fleePos) return 0;
+
+    ctx._cache.set('kite_pos', fleePos);
+    return addNoise(score);
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'MOVE', targetPos: ctx._cache.get('kite_pos') };
+  },
+};
+
+const behaviorProtectAlly: AIBehavior = {
+  id: 'protectAlly',
+
+  evaluate(unit, state, ctx) {
+    if (Math.floor(unit.currentAP / 2) < 1) return 0;
+    if (ctx.adjacentEnemies.length > 0) return 0;
+    if (ctx.inZoC) return 0;
+
+    const allyArchers = ctx.allies.filter(a => {
+      const wClass = a.equipment.mainHand?.combatClass || a.equipment.mainHand?.weaponClass;
+      return wClass === 'bow' || wClass === 'crossbow';
+    });
+    if (allyArchers.length === 0) return 0;
+
+    let closestEnemy: CombatUnit | null = null;
+    let closestDist = Infinity;
+    for (const enemy of ctx.enemies) {
+      for (const archer of allyArchers) {
+        const d = getHexDistance(enemy.combatPos, archer.combatPos);
+        if (d < closestDist) { closestDist = d; closestEnemy = enemy; }
+      }
+    }
+    if (!closestEnemy || closestDist > 5) return 0;
+
+    let score = 50;
+    if (closestDist <= 2) score *= 2.0;
+    else if (closestDist <= 3) score *= 1.5;
+
+    const movePos = findBestMovePosition(unit, closestEnemy.combatPos, state, 1, true, ctx);
+    if (!movePos) return 0;
+
+    ctx._cache.set('protect_movePos', movePos);
+    return addNoise(score);
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'MOVE', targetPos: ctx._cache.get('protect_movePos') };
+  },
+};
+
+const behaviorReload: AIBehavior = {
+  id: 'reload',
+
+  evaluate(unit, _state, ctx) {
+    const wClass = unit.equipment.mainHand?.combatClass || unit.equipment.mainHand?.weaponClass;
+    if (wClass !== 'crossbow') return 0;
+    if (unit.crossbowLoaded !== false) return 0;
+
+    const ability = ctx.allAbilities.find(a => a.id === 'RELOAD');
+    if (!ability || unit.currentAP < ability.apCost) return 0;
+
+    ctx._cache.set('reload_ability', ability);
+    return 150;
+  },
+
+  execute(_unit, _state, ctx) {
+    return { type: 'SKILL', ability: ctx._cache.get('reload_ability') as Ability };
+  },
+};
+
+const behaviorWait: AIBehavior = {
+  id: 'wait',
+  evaluate() { return 5; },
+  execute() { return { type: 'WAIT' }; },
+};
+
+// ==================== 行为注册表 & 权重配置（Layer 1 + 2） ====================
+
+const ALL_BEHAVIORS: Record<BehaviorId, AIBehavior> = {
+  attackMelee: behaviorAttackMelee,
+  attackRanged: behaviorAttackRanged,
+  engage: behaviorEngage,
+  flee: behaviorFlee,
+  shieldWall: behaviorShieldWall,
+  kite: behaviorKite,
+  protectAlly: behaviorProtectAlly,
+  reload: behaviorReload,
+  wait: behaviorWait,
+};
+
+const AI_BEHAVIOR_REGISTRY: Record<AIType, BehaviorId[]> = {
+  BANDIT:     ['attackMelee', 'attackRanged', 'engage', 'flee', 'shieldWall', 'reload', 'wait'],
+  BEAST:      ['attackMelee', 'engage'],
+  ARMY:       ['attackMelee', 'attackRanged', 'engage', 'flee', 'shieldWall', 'protectAlly', 'reload', 'wait'],
+  ARCHER:     ['attackRanged', 'attackMelee', 'kite', 'flee', 'engage', 'reload', 'wait'],
+  BERSERKER:  ['attackMelee', 'engage', 'wait'],
+  TANK:       ['attackMelee', 'shieldWall', 'protectAlly', 'engage', 'flee', 'wait'],
+  SKIRMISHER: ['attackRanged', 'attackMelee', 'kite', 'flee', 'engage', 'reload', 'wait'],
+};
+
+const AI_WEIGHT_PROFILES: Record<AIType, Partial<Record<BehaviorId, number>>> = {
+  BANDIT:     { attackMelee: 1.0, attackRanged: 0.8, engage: 1.0, flee: 1.0, shieldWall: 0.8, reload: 1.0, wait: 1.0 },
+  BEAST:      { attackMelee: 1.3, engage: 1.4 },
+  ARMY:       { attackMelee: 1.0, attackRanged: 0.8, engage: 1.0, flee: 0.5, shieldWall: 1.0, protectAlly: 0.6, reload: 1.0, wait: 1.0 },
+  ARCHER:     { attackRanged: 1.3, attackMelee: 0.4, kite: 1.5, flee: 1.2, engage: 0.8, reload: 1.0, wait: 1.0 },
+  BERSERKER:  { attackMelee: 1.5, engage: 1.3, wait: 1.0 },
+  TANK:       { attackMelee: 0.8, shieldWall: 1.5, protectAlly: 1.5, engage: 0.7, flee: 0.3, wait: 1.0 },
+  SKIRMISHER: { attackRanged: 1.2, attackMelee: 0.6, kite: 1.3, flee: 1.1, engage: 0.8, reload: 1.0, wait: 1.0 },
+};
+
+// ==================== 战术代理 — 主决策 ====================
+
+const selectBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
+  const aiType = unit.aiType || 'BANDIT';
+  const behaviorIds = AI_BEHAVIOR_REGISTRY[aiType] || AI_BEHAVIOR_REGISTRY.BANDIT;
+  const weights = AI_WEIGHT_PROFILES[aiType] || AI_WEIGHT_PROFILES.BANDIT;
+  const ctx = buildAIContext(unit, state);
+
+  let bestScore = SCORE_THRESHOLD;
+  let bestBehavior: AIBehavior | null = null;
+
+  for (const bid of behaviorIds) {
+    const behavior = ALL_BEHAVIORS[bid];
+    const weight = weights[bid] ?? 1.0;
+    if (weight <= 0) continue;
+
+    const rawScore = behavior.evaluate(unit, state, ctx);
+    const finalScore = rawScore * weight;
+
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
+      bestBehavior = behavior;
+    }
+  }
+
+  if (bestBehavior) {
+    return bestBehavior.execute(unit, state, ctx);
+  }
+
+  return { type: 'WAIT' };
+};
+
+// ==================== 导出接口（不变） ====================
+
+export const executeFleeingBehavior = (unit: CombatUnit, state: CombatState): AIAction => {
+  const enemies = getEnemies(unit, state);
+  if (enemies.length === 0) return { type: 'WAIT' };
+  const fleePos = findFleePosition(unit, enemies, state);
+  return fleePos ? { type: 'FLEE', targetPos: fleePos } : { type: 'WAIT' };
+};
+
+export const executeAITurn = (unit: CombatUnit, state: CombatState): AIAction => {
+  if (unit.morale === MoraleStatus.FLEEING) {
+    return executeFleeingBehavior(unit, state);
+  }
+  return selectBehavior(unit, state);
+};
+
 export const getAITypeName = (aiType: AIType): string => {
   const names: Record<AIType, string> = {
-    'BANDIT': '匪徒',
-    'BEAST': '野兽',
-    'ARMY': '军士',
-    'ARCHER': '弓手',
-    'BERSERKER': '狂战士',
-    'TANK': '盾卫',
-    'SKIRMISHER': '游击'
+    BANDIT: '匪徒',
+    BEAST: '野兽',
+    ARMY: '军士',
+    ARCHER: '弓手',
+    BERSERKER: '狂战士',
+    TANK: '盾卫',
+    SKIRMISHER: '游击',
   };
   return names[aiType] || '未知';
 };
