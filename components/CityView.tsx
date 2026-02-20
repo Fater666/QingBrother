@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Party, City, Item, Character, CityFacility, Quest } from '../types.ts';
 import { BACKGROUNDS, TRAIT_TEMPLATES, getIncomeMultiplierByDifficulty } from '../constants';
 import { getReputationRewardMultiplier } from '../services/ambitionService.ts';
+import { getRecruitDifficultyMultiplier } from '../services/recruitPricing.ts';
 
 interface CityViewProps {
   city: City;
@@ -250,7 +251,14 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
   const getSellPrice = (item: Item): number =>
       Math.floor(item.value * 0.5 * (city.priceModifier || 1));
   const getRecruitCost = (merc: Character): number =>
-      Math.max(1, Math.floor(merc.hireCost * (party.recruitCostMultiplier ?? 1)));
+      Math.max(
+          1,
+          Math.floor(
+              merc.hireCost
+              * (party.recruitCostMultiplier ?? 1)
+              * getRecruitDifficultyMultiplier(party.difficulty),
+          ),
+      );
 
   // 自动跳转：进入可交付城市且任务已完成时，自动切换到酒肆
   useEffect(() => {

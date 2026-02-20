@@ -14,6 +14,7 @@ import { BattleResultView } from './components/BattleResultView.tsx';
 import { SaveLoadPanel, getSaveSlotKey, getAllSaveMetas, saveMetas, hasAnySaveData, SaveSlotMeta, getAutoSaveKey, saveAutoMeta } from './components/SaveLoadPanel.tsx';
 import { updateWorldEntityAI, generateRoadPatrolPoints, generateCityPatrolPoints } from './services/worldMapAI.ts';
 import { generateWorldMap, getBiome, BIOME_CONFIGS, generateCityMarket, rollPriceModifier, generateCityQuests } from './services/mapGenerator.ts';
+import { calculateRecruitHireCost } from './services/recruitPricing.ts';
 import { AmbitionSelect } from './components/AmbitionSelect.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
 import { ConfirmDialog } from './components/ConfirmDialog.tsx';
@@ -121,19 +122,8 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
   const armor = Math.random() > 0.4 ? ARMOR_TEMPLATES[Math.floor(Math.random() * 2)] : null;
   const helmet = Math.random() > 0.6 ? HELMET_TEMPLATES[Math.floor(Math.random() * 2)] : null;
 
-  // 计算薪资和雇佣费用
-  const salary = Math.floor(10 * bg.salaryMult);
-  const hireCostBase = salary * 25;
-  const randomFactor = 0.8 + Math.random() * 0.4;
-  let hireCost = Math.floor(hireCostBase * randomFactor);
-
-  const traitPriceMod = traits.reduce((mod, t) => {
-    const tmpl = TRAIT_TEMPLATES[t];
-    if (!tmpl) return mod;
-    return mod + (tmpl.type === 'positive' ? 0.15 : -0.10);
-  }, 1.0);
-  hireCost = Math.floor(hireCost * traitPriceMod);
-  hireCost = Math.max(10, hireCost);
+  // 计算薪资和雇佣费用（与地图生成共用同一套定价逻辑）
+  const { salary, hireCost } = calculateRecruitHireCost(bg.salaryMult, traits, TRAIT_TEMPLATES);
 
   return {
     id, name, background: bg.name, backgroundStory: bg.desc, level: 1, xp: 0, hp: baseHp, maxHp: baseHp, fatigue: 0,
