@@ -281,7 +281,10 @@ export const getUnitAbilities = (char: Character): Ability[] => {
             skills.push(ABILITIES['SLASH']);
         }
         else if (wc === 'spear') {
-            skills.push(ABILITIES['THRUST']); skills.push(ABILITIES['SPEARWALL']);
+            const thrust = ABILITIES['THRUST'];
+            const spearMaxRange = Math.max(1, Number(main.range ?? 1));
+            skills.push({ ...thrust, range: [thrust.range[0], spearMaxRange] });
+            skills.push(ABILITIES['SPEARWALL']);
         }
         else if (wc === 'hammer') {
             skills.push(ABILITIES['BASH']);
