@@ -425,7 +425,7 @@ export const GAME_DIFFICULTY_CONFIG: Record<GameDifficulty, {
   enemyCountMultiplier: number;
   enemyStatMultiplier: number;
 }> = {
-  EASY: { incomeMultiplier: 1.3, enemyCountMultiplier: 0.82, enemyStatMultiplier: 0.93 },
+  EASY: { incomeMultiplier: 1.3, enemyCountMultiplier: 0.8, enemyStatMultiplier: 0.9 },
   NORMAL: { incomeMultiplier: 1.0, enemyCountMultiplier: 1.0, enemyStatMultiplier: 1.0 },
   HARD: { incomeMultiplier: 0.85, enemyCountMultiplier: 1.2, enemyStatMultiplier: 1.08 },
   EXPERT: { incomeMultiplier: 0.7, enemyCountMultiplier: 1.35, enemyStatMultiplier: 1.15 },
