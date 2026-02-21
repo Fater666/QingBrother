@@ -375,7 +375,9 @@ const getPreferredRange = (unit: CombatUnit): number => {
 
 const formationTactics: TacticalStrategy = {
   id: 'formation',
-  positionModifier(pos, _unit, baseScore, ctx) {
+  positionModifier(pos, unit, baseScore, ctx) {
+    // 仅前排单位强吃阵型收益，避免全队（含弓手/突击手）原地“抱团犹豫”。
+    if (unit.aiType !== 'ARMY' && unit.aiType !== 'TANK') return baseScore;
     const adjAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, pos) === 1).length;
     return baseScore + adjAllies * 15;
   },
@@ -425,6 +427,21 @@ const aggressiveTactics: TacticalStrategy = {
   },
 };
 
+const cultTactics: TacticalStrategy = {
+  id: 'cult',
+  positionModifier(pos, unit, baseScore, ctx) {
+    // 邪教保留一点阵型意识，但远弱于正规军，降低“原地卡住”概率。
+    const adjAllies = ctx.allies.filter(a => getHexDistance(a.combatPos, pos) === 1).length;
+    const formationBonus = (unit.aiType === 'ARMY' || unit.aiType === 'TANK') ? 8 : 3;
+    return baseScore + adjAllies * formationBonus;
+  },
+  targetModifier(target, _unit, baseScore, _ctx) {
+    // 保持进攻倾向：优先压低血目标。
+    const hp = target.hp / target.maxHp;
+    return hp < 0.5 ? baseScore * 1.15 : baseScore;
+  },
+};
+
 const NULL_TACTICS: TacticalStrategy = { id: 'none' };
 
 const FACTION_TACTICS_MAP: Record<string, TacticalStrategy> = {
@@ -432,7 +449,7 @@ const FACTION_TACTICS_MAP: Record<string, TacticalStrategy> = {
   BEAST: swarmTactics,
   ARMY: formationTactics,
   NOMAD: harassTactics,
-  CULT: formationTactics,
+  CULT: cultTactics,
   BOSS_BAWANG: formationTactics,
   BOSS_HUBEN: formationTactics,
   BOSS_JINGKE: aggressiveTactics,

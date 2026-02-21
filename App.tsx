@@ -31,6 +31,16 @@ const DIFFICULTY_OPTIONS: { value: GameDifficulty; label: string }[] = [
   { value: 'EXPERT', label: '专家' },
 ];
 
+const ENEMY_TYPE_LABELS: Record<string, string> = {
+  BANDIT: '匪徒',
+  BEAST: '野兽',
+  ARMY: '军士',
+  NOMAD: '游骑',
+  CULT: '教团',
+  TRADER: '商队',
+  QUEST_TARGET: '任务目标',
+};
+
 // --- Character Generation ---
 const generateName = (): string => {
     const surname = SURNAMES[Math.floor(Math.random() * SURNAMES.length)];
@@ -1328,19 +1338,43 @@ export const App: React.FC = () => {
       });
   }, [party.x, party.y, gameInitialized]);
 
-  const startCombat = useCallback((entity: WorldEntity) => {
+  const getTierCompositions = useCallback((enemyType: string, tier: number): EnemyComp[] => {
+    const normalizedTier = Math.max(0, Math.min(3, Math.floor(tier)));
+    const typeComps = TIERED_ENEMY_COMPOSITIONS[enemyType];
+    const typeTierComps = typeComps?.[Math.min(normalizedTier, Math.max(0, (typeComps?.length || 1) - 1))] || [];
+    if (typeTierComps.length > 0) return typeTierComps;
+    const banditComps = TIERED_ENEMY_COMPOSITIONS['BANDIT'];
+    return banditComps?.[Math.min(normalizedTier, Math.max(0, (banditComps?.length || 1) - 1))] || [];
+  }, []);
+
+  const startCombat = useCallback((entity: WorldEntity, options?: {
+    disableScaling?: boolean;
+    forcedTier?: number;
+    customEnemyType?: string;
+    customEnemyName?: string;
+    keepWorldEntity?: boolean;
+  }) => {
     setTimeScale(0);
     // 进入战斗前自动存档（保留战前快照）
     autoSaveGame('combat');
     
     // --- 难度曲线：根据天数决定敌人强度 ---
     const day = party.day;
-    const { tier, valueLimit, statMult } = getDifficultyTier(day);
-    const enemyCountMult = getEnemyCountMultiplierByDifficulty(party.difficulty);
-    const enemyStatMult = getEnemyStatMultiplierByDifficulty(party.difficulty);
+    const disableScaling = options?.disableScaling ?? false;
+    const dayDifficulty = getDifficultyTier(day);
+    const baselineDifficulty = getDifficultyTier(1);
+    const tier = disableScaling
+      ? Math.max(0, Math.min(3, Math.floor(options?.forcedTier ?? 0)))
+      : dayDifficulty.tier;
+    const valueLimit = disableScaling ? baselineDifficulty.valueLimit : dayDifficulty.valueLimit;
+    const statMult = disableScaling ? 1 : dayDifficulty.statMult;
+    const enemyCountMult = disableScaling ? 1 : getEnemyCountMultiplierByDifficulty(party.difficulty);
+    const enemyStatMult = disableScaling ? 1 : getEnemyStatMultiplierByDifficulty(party.difficulty);
+    const encounterEnemyType = options?.customEnemyType || entity.type;
+    const encounterEnemyName = options?.customEnemyName || entity.name;
     
     // Boss实体检测：如果是Boss实体，使用Boss专属编制和掉落
-    const isBoss = !!entity.isBossEntity;
+    const isBoss = !disableScaling && !!entity.isBossEntity;
     let bossCamp: EnemyCamp | undefined;
     if (isBoss && entity.campId) {
       bossCamp = camps.find(c => c.id === entity.campId && c.isBoss);
@@ -1369,9 +1403,9 @@ export const App: React.FC = () => {
         compositions = banditFallback;
       }
     } else {
-      const tierComps = TIERED_ENEMY_COMPOSITIONS[entity.type] || TIERED_ENEMY_COMPOSITIONS['BANDIT'];
-      compositions = tierComps[Math.min(tier, tierComps.length - 1)];
+      compositions = getTierCompositions(encounterEnemyType, tier);
     }
+    if (!compositions || compositions.length === 0) return;
     
     const ENEMY_STAT_NERF = 0.95;
     const targetEnemyCount = Math.max(1, Math.round(compositions.length * enemyCountMult));
@@ -1552,20 +1586,24 @@ export const App: React.FC = () => {
     const tileIndex = Math.floor(party.y) * MAP_SIZE + Math.floor(party.x);
     const worldTerrain = tiles[tileIndex]?.type || 'PLAINS';
     
-    combatEnemyNameRef.current = entity.name;
-    combatEntityIdRef.current = entity.id;
+    combatEnemyNameRef.current = encounterEnemyName;
+    combatEntityIdRef.current = options?.keepWorldEntity ? '' : entity.id;
     setCombatState({
       units: allUnits, 
       turnOrder: sortedTurnOrder,
       currentUnitIndex: 0, 
       round: 1, 
-      combatLog: [`与 ${entity.name} 激战开始！（第${Math.floor(day)}天，${['初期', '中期', '后期', '末期'][tier]}难度）`], 
+      combatLog: [disableScaling
+        ? `GM战斗开始：${encounterEnemyName}（固定T${tier}编制）`
+        : `与 ${encounterEnemyName} 激战开始！（第${Math.floor(day)}天，${['初期', '中期', '后期', '末期'][tier]}难度）`], 
       terrainType: worldTerrain,
-      factionTactics: entity.type
+      factionTactics: encounterEnemyType
     });
-    setEntities(prev => prev.filter(e => e.id !== entity.id));
+    if (!options?.keepWorldEntity) {
+      setEntities(prev => prev.filter(e => e.id !== entity.id));
+    }
     // 巢穴计数减少
-    if (entity.campId) {
+    if (!options?.keepWorldEntity && entity.campId) {
       setCamps(prev => prev.map(c => c.id === entity.campId ? { ...c, currentAlive: Math.max(0, c.currentAlive - 1) } : c));
     }
     // 士气修正已应用到开场士气，重置为0
@@ -1573,7 +1611,7 @@ export const App: React.FC = () => {
       setParty(p => ({ ...p, moraleModifier: 0 }));
     }
     setView('COMBAT');
-  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, party.difficulty, tiles, camps, autoSaveGame]);
+  }, [party.mercenaries, party.x, party.y, party.day, party.moraleModifier, party.difficulty, tiles, camps, autoSaveGame, getTierCompositions]);
 
   // 主循环处理 AI 与位移
   useEffect(() => {
@@ -3132,6 +3170,40 @@ export const App: React.FC = () => {
             }}
             onKillAllEnemies={() => {
               setEntities((prev) => prev.filter((e) => e.faction !== 'HOSTILE'));
+            }}
+            onStartCustomBattle={(enemyType, tier) => {
+              const fallbackComps = TIERED_ENEMY_COMPOSITIONS.BANDIT?.[Math.max(0, Math.min(3, tier))] || [];
+              const chosenComps = TIERED_ENEMY_COMPOSITIONS[enemyType]?.[Math.max(0, Math.min(3, tier))] || [];
+              if (chosenComps.length === 0 && fallbackComps.length === 0) return;
+              const resolvedType = chosenComps.length > 0 ? enemyType : 'BANDIT';
+              const typeLabel = ENEMY_TYPE_LABELS[resolvedType] || resolvedType;
+              const customEnemyName = `GM-自定义-${typeLabel}-阶段${tier}`;
+              const gmEntity: WorldEntity = {
+                id: `gm-custom-${Date.now()}`,
+                name: customEnemyName,
+                type: resolvedType as WorldEntity['type'],
+                faction: 'HOSTILE',
+                x: party.x,
+                y: party.y,
+                targetX: null,
+                targetY: null,
+                speed: 0,
+                aiState: 'IDLE',
+                homeX: party.x,
+                homeY: party.y,
+                worldAIType: 'BANDIT',
+                alertRadius: 0,
+                chaseRadius: 0,
+              };
+              setPreCombatEntity(null);
+              setGmOpen(false);
+              startCombat(gmEntity, {
+                disableScaling: true,
+                forcedTier: tier,
+                customEnemyType: resolvedType,
+                customEnemyName,
+                keepWorldEntity: true,
+              });
             }}
             onCreateMercenary={(bgKey, forcedName) =>
               createMercenary(`gm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, forcedName, bgKey, null)

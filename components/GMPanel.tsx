@@ -9,6 +9,7 @@ import {
   MAX_SQUAD_SIZE,
   PERK_TREE,
   SHIELD_TEMPLATES,
+  TIERED_ENEMY_COMPOSITIONS,
   WEAPON_TEMPLATES,
   checkLevelUp,
   getXPForNextLevel,
@@ -21,6 +22,7 @@ interface GMPanelProps {
   onUpdateParty: (party: Party) => void;
   onTeleport: (x: number, y: number) => void;
   onKillAllEnemies: () => void;
+  onStartCustomBattle: (enemyType: string, tier: number) => void;
   onCreateMercenary: (bgKey?: string, forcedName?: string) => Character;
   onClose: () => void;
 }
@@ -50,6 +52,16 @@ const tabs: { id: GMTab; label: string }[] = [
   { id: 'BATTLE', label: '战场' },
 ];
 
+const ENEMY_TYPE_LABELS: Record<string, string> = {
+  BANDIT: '匪徒',
+  BEAST: '野兽',
+  ARMY: '军士',
+  NOMAD: '游骑',
+  CULT: '教团',
+  TRADER: '商队',
+  QUEST_TARGET: '任务目标',
+};
+
 export const GMPanel: React.FC<GMPanelProps> = ({
   party,
   cities,
@@ -57,6 +69,7 @@ export const GMPanel: React.FC<GMPanelProps> = ({
   onUpdateParty,
   onTeleport,
   onKillAllEnemies,
+  onStartCustomBattle,
   onCreateMercenary,
   onClose,
 }) => {
@@ -77,6 +90,8 @@ export const GMPanel: React.FC<GMPanelProps> = ({
   const [teleportY, setTeleportY] = useState(String(Math.floor(party.y)));
   const [newMercName, setNewMercName] = useState('');
   const [newMercBg, setNewMercBg] = useState<string>('random');
+  const [customEnemyType, setCustomEnemyType] = useState('BANDIT');
+  const [customEnemyTier, setCustomEnemyTier] = useState('0');
 
   const selectedMerc = useMemo(
     () => party.mercenaries.find((m) => m.id === selectedMercId) || party.mercenaries[0] || null,
@@ -98,6 +113,10 @@ export const GMPanel: React.FC<GMPanelProps> = ({
   }, [allItems, itemKeyword, itemType]);
 
   const hostileCount = useMemo(() => entities.filter((e) => e.faction === 'HOSTILE').length, [entities]);
+  const gmEnemyTypeOptions = useMemo(() => {
+    const keys = Object.keys(TIERED_ENEMY_COMPOSITIONS || {});
+    return keys.length > 0 ? keys.sort() : ['BANDIT'];
+  }, []);
 
   const updatePartyField = (key: 'gold' | 'food' | 'medicine' | 'repairSupplies' | 'reputation', delta: number) => {
     onUpdateParty({
@@ -528,6 +547,43 @@ export const GMPanel: React.FC<GMPanelProps> = ({
               <div className="border border-red-900/40 p-3 bg-black/20 space-y-3">
                 <p className="text-sm text-red-300">战场调试</p>
                 <p className="text-xs text-slate-400">当前敌对实体: {hostileCount}</p>
+                <div className="border border-red-900/30 p-2 space-y-2">
+                  <p className="text-xs text-red-300">自定义敌人开战（不受天数/难度缩放）</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select
+                      value={customEnemyType}
+                      onChange={(e) => setCustomEnemyType(e.target.value)}
+                      className="bg-black/40 border border-red-900/50 px-2 py-1 text-xs"
+                    >
+                      {gmEnemyTypeOptions.map((enemyType) => (
+                        <option key={enemyType} value={enemyType}>
+                          {ENEMY_TYPE_LABELS[enemyType] || enemyType}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={customEnemyTier}
+                      onChange={(e) => setCustomEnemyTier(e.target.value)}
+                      className="bg-black/40 border border-red-900/50 px-2 py-1 text-xs"
+                    >
+                      {[0, 1, 2, 3].map((tier) => (
+                        <option key={tier} value={String(tier)}>
+                          阶段 {tier}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        const resolvedType = gmEnemyTypeOptions.includes(customEnemyType) ? customEnemyType : gmEnemyTypeOptions[0];
+                        const tier = Math.max(0, Math.min(3, Math.floor(numberOr(customEnemyTier, 0))));
+                        onStartCustomBattle(resolvedType, tier);
+                      }}
+                      className="px-3 py-1 text-xs border border-red-700/50 text-red-100"
+                    >
+                      发起自定义战斗
+                    </button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={onKillAllEnemies} className="px-3 py-1 text-xs border border-red-700/50 text-red-200">
                     一键清除敌人
