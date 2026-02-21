@@ -22,7 +22,7 @@ export const MORALE_ORDER: MoraleStatus[] = [
 ];
 
 /** 士气检定基础难度 */
-const BASE_MORALE_CHECK_DIFFICULTY = 50;
+const BASE_MORALE_CHECK_DIFFICULTY = 40;
 
 /** 连锁恐惧影响范围（格数） */
 const CHAIN_FEAR_RADIUS = 3;
@@ -31,7 +31,7 @@ const CHAIN_FEAR_RADIUS = 3;
 const ALLY_DEATH_RADIUS = 3;
 
 /** 队伍伤亡触发全员检定的阈值（百分比） */
-const MASS_CASUALTY_THRESHOLD = 0.3;
+const MASS_CASUALTY_THRESHOLD = 0.5;
 
 /** 旗手光环范围（格数） */
 const BANNER_AURA_RADIUS = 4;
@@ -161,7 +161,7 @@ export const calculateMoraleModifier = (
   
   // 2. 伤亡比例修正
   const casualtyRate = deadAllies.length / totalAllies.length;
-  modifier += Math.floor(casualtyRate * 20);
+  modifier += Math.floor(casualtyRate * 15);
   
   // 3. 自身血量修正
   const hpPercent = unit.hp / unit.maxHp;
@@ -176,21 +176,21 @@ export const calculateMoraleModifier = (
     a.morale === MoraleStatus.FLEEING && 
     getHexDistance(unit.combatPos, a.combatPos) <= CHAIN_FEAR_RADIUS
   );
-  modifier += nearbyFleeing.length * 10;
+  modifier += nearbyFleeing.length * 5;
   
   // 5. 触发类型修正
   switch (trigger) {
     case 'ALLY_DEATH':
-      modifier += 10;
+      modifier += 5;
       break;
     case 'HEAVY_DAMAGE':
-      modifier += 15;
+      modifier += 10;
       break;
     case 'MASS_CASUALTY':
-      modifier += 15;
+      modifier += 10;
       break;
     case 'ALLY_FLEEING':
-      modifier += 15;
+      modifier += 8;
       break;
     case 'TURN_START':
       modifier -= 10; // 回合开始恢复检定更容易
@@ -210,9 +210,9 @@ export const calculateMoraleModifier = (
     getHexDistance(unit.combatPos, e.combatPos) === 1
   );
   if (adjacentEnemies.length >= 3) {
-    modifier += 15;
+    modifier += 10;
   } else if (adjacentEnemies.length >= 2) {
-    modifier += 5;
+    modifier += 3;
   }
   
   return modifier;

@@ -1816,7 +1816,7 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
                         ? 'border-amber-900/40 bg-black/30 hover:border-amber-700 cursor-pointer' 
                         : 'border-slate-800/50 bg-black/20 hover:border-slate-700 cursor-pointer'
         }`}
-        style={dense ? { height: `${Math.max(36, Math.round(44 * compactFontScale))}px` } : undefined}
+        style={dense ? { minHeight: `${Math.max(36, Math.round(44 * compactFontScale))}px` } : undefined}
     >
         {locked ? (
             <span
@@ -1829,19 +1829,19 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
             <>
                 <span
                     className={`${dense ? 'text-xs' : 'text-sm'} font-bold truncate ${
-                    item.rarity === 'UNIQUE' ? 'text-red-400' 
+                    item.rarity === 'UNIQUE' ? 'text-red-400'
                     : item.rarity === 'LEGENDARY' ? 'text-amber-300'
                     : item.rarity === 'EPIC' ? 'text-purple-300'
                     : item.rarity === 'RARE' ? 'text-sky-300'
                     : 'text-amber-400'
                 }`}
-                    style={dense ? { fontSize: `clamp(0.58rem, ${1.0 * compactFontScale}vw, 0.72rem)` } : undefined}
+                    style={dense ? { fontSize: `clamp(0.58rem, ${1.0 * compactFontScale}vw, 0.72rem)`, lineHeight: 1.2 } : undefined}
                 >
                     {item.name}
                 </span>
                 <span
-                    className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-600`}
-                    style={dense ? { fontSize: `clamp(0.5rem, ${0.86 * compactFontScale}vw, 0.6rem)` } : undefined}
+                    className={`${dense ? 'text-[9px]' : 'text-[10px]'} text-slate-600 truncate`}
+                    style={dense ? { fontSize: `clamp(0.5rem, ${0.86 * compactFontScale}vw, 0.6rem)`, lineHeight: 1.2 } : undefined}
                 >
                     {getItemBrief(item)}
                 </span>
