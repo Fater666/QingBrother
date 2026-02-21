@@ -3337,7 +3337,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         if (ability.id === 'SPEARWALL') {
           if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
-          if (activeUnit.isHalberdWall) { addToLog(`${activeUnit.name} 已处于矛墙状态。`, 'info'); return; }
+          if (activeUnit.isHalberdWall) {
+            setState(prev => ({
+              ...prev,
+              units: prev.units.map(u =>
+                u.id === activeUnit.id ? { ...u, isHalberdWall: false } : u
+              )
+            }));
+            addToLog(`🚧 ${activeUnit.name} 取消了矛墙架势。`, 'skill');
+            if (!overrideAbility) setSelectedAbility(null);
+            return;
+          }
           const enemyAdjacent = state.units.some(u =>
             !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
           );

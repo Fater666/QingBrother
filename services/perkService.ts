@@ -569,6 +569,10 @@ export const resetTurnStartStates = (unit: CombatUnit): CombatUnit => {
   if (updated.isRiposte) {
     updated.isRiposte = false;
   }
+  // 重置盾墙状态（每回合需重新架起）
+  if (updated.isShieldWall) {
+    updated.isShieldWall = false;
+  }
   return updated;
 };
 
