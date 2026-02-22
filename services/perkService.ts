@@ -85,6 +85,30 @@ export const getMovementCost = (
 };
 
 /**
+ * 计算路径总移动消耗（考虑每格地形AP消耗）
+ * 对齐战场兄弟地形系统：平原2AP, 森林/丘陵/雪原/荒漠3AP, 沼泽4AP
+ * @param tileCosts 路径中每格的 moveCost（如 [2, 3, 4] 表示平原→森林→沼泽）
+ * @param hasPathfinder 是否拥有识途天赋（所有地形降为2AP）
+ */
+export const getPathMoveCost = (
+  tileCosts: number[],
+  hasPathfinder: boolean
+): { apCost: number; fatigueCost: number } => {
+  let totalAp = 0;
+  let totalFatigue = 0;
+  for (const cost of tileCosts) {
+    if (hasPathfinder) {
+      totalAp += 2;
+      totalFatigue += 2;
+    } else {
+      totalAp += cost;
+      totalFatigue += cost * 2;
+    }
+  }
+  return { apCost: totalAp, fatigueCost: totalFatigue };
+};
+
+/**
  * 临机应变 (fast_adaptation)
  * 效果：每次攻击未命中时下一次攻击命中率叠加 +hitPerMiss%，命中后重置
  */

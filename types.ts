@@ -393,8 +393,9 @@ export interface CombatState {
   currentUnitIndex: number;
   round: number;
   combatLog: string[];
-  terrainType: string; 
+  terrainType: string;
   factionTactics?: string;
+  terrainGrid?: Map<string, { type: string; height: number }>;
 }
 
 // 战斗结算数据

@@ -125,6 +125,17 @@ const getAllies = (unit: CombatUnit, state: CombatState): CombatUnit[] =>
 const isHexOccupied = (pos: { q: number; r: number }, state: CombatState): boolean =>
   state.units.some(u => !u.isDead && u.combatPos.q === pos.q && u.combatPos.r === pos.r);
 
+// 检查格子是否被阻挡（单位占用或不可通行地形）
+const IMPASSABLE_TERRAIN = new Set(['MOUNTAIN']);
+const isHexBlocked = (pos: { q: number; r: number }, state: CombatState): boolean => {
+  if (isHexOccupied(pos, state)) return true;
+  if (state.terrainGrid) {
+    const td = state.terrainGrid.get(`${pos.q},${pos.r}`);
+    if (td && IMPASSABLE_TERRAIN.has(td.type)) return true;
+  }
+  return false;
+};
+
 const getMoraleIndex = (morale: MoraleStatus): number => MORALE_ORDER.indexOf(morale);
 
 const addNoise = (score: number): number =>
@@ -275,7 +286,7 @@ const findBestMovePosition = (
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
       if (moveDistance > maxMoveDistance) continue;
-      if (isHexOccupied(newPos, state)) continue;
+      if (isHexBlocked(newPos, state)) continue;
 
       let score = calculatePositionScore(unit, newPos, targetPos, state, preferredRange, ctx);
       score -= moveDistance * 2;
@@ -324,7 +335,7 @@ const findFleePosition = (
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
       if (moveDistance === 0 || moveDistance > maxMoveDistance) continue;
-      if (isHexOccupied(newPos, state)) continue;
+      if (isHexBlocked(newPos, state)) continue;
 
       let minThreatDist = Infinity;
       for (const threat of threats) {

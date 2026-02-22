@@ -937,6 +937,8 @@ export interface HitChanceBreakdown {
   adaptationBonus: number;
   /** 额外命中修正（如长柄贴脸惩罚） */
   extraHitMod: number;
+  /** 地形修正 */
+  terrainMod: number;
 }
 
 /**
@@ -955,7 +957,8 @@ export const calculateHitChance = (
   state: CombatState,
   heightDiff: number = 0,
   ability?: Ability,
-  extraHitMod: number = 0
+  extraHitMod: number = 0,
+  terrainMods?: { atkMeleeAtkMod?: number; defRangedDefMod?: number; defMeleeDefMod?: number }
 ): HitChanceBreakdown => {
   const isRanged = attacker.equipment.mainHand?.range
     ? attacker.equipment.mainHand.range > 1
@@ -1052,8 +1055,19 @@ export const calculateHitChance = (
   // 临机应变(fast_adaptation)命中加成
   const adaptationBonus = getFastAdaptationBonus(attacker);
 
+  // 地形修正：攻击者/目标所处地形的战斗属性修正
+  let terrainMod = 0;
+  if (terrainMods) {
+    if (isRangedByName) {
+      terrainMod -= terrainMods.defRangedDefMod || 0;  // 目标地形远程防御修正
+    } else {
+      terrainMod -= terrainMods.defMeleeDefMod || 0;   // 目标地形近战防御修正
+      terrainMod += terrainMods.atkMeleeAtkMod || 0;   // 攻击者地形近战攻击修正
+    }
+  }
+
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty + extraHitMod;
+  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty + extraHitMod + terrainMod;
   final = Math.max(5, Math.min(95, final));
 
   return {
@@ -1069,6 +1083,7 @@ export const calculateHitChance = (
     dodgeDef,
     adaptationBonus,
     extraHitMod,
+    terrainMod,
   };
 };
 

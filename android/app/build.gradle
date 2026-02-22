@@ -11,7 +11,7 @@ android {
         applicationId "com.qingbrother.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 22
+        versionCode 24
         versionName "1.1"
         // Android 实机分发建议同时保留 32/64 位 ARM，避免机型因 ABI 不匹配在启动时崩溃。
         // 注意：Unity 导出产物中必须真实包含 arm64-v8a/libil2cpp.so。

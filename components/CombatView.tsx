@@ -3,7 +3,7 @@ import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.t
 import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus } from '../constants';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {
-  getMovementCost, checkNineLives, hasPerk,
+  getPathMoveCost, checkNineLives, hasPerk,
   getBerserkAPRecovery, hasHeadHunter, getKillingFrenzyMultiplier,
   getOverwhelmStacks, getReachAdvantageBonus, hasFearsome,
   resetTurnStartStates, applyAdrenalineTurnOrder,
@@ -669,26 +669,204 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const movePreviewHex = pendingMoveHex ?? hoveredHex;
   const movePreviewHexKey = movePreviewHex ? `${movePreviewHex.q},${movePreviewHex.r}` : null;
 
-  const buildBlockedHexSet = useCallback((units: CombatUnit[], movingUnitId: string): Set<string> => {
+  // 地形类型定义 - 带高度、颜色、移动消耗和战斗修正（对齐战场兄弟）
+  const TERRAIN_TYPES = {
+    PLAINS: {
+      baseColor: '#4a6b30',
+      lightColor: '#5c8040',
+      darkColor: '#385220',
+      height: 0,
+      name: '平原',
+      moveCost: 2, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '',
+    },
+    FOREST: {
+      baseColor: '#1a4a20',
+      lightColor: '#2a5c2a',
+      darkColor: '#0f3510',
+      height: 1,
+      name: '森林',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+    MOUNTAIN: {
+      baseColor: '#606068',
+      lightColor: '#75757e',
+      darkColor: '#404048',
+      height: 3,
+      name: '山地',
+      moveCost: 0, passable: false,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '不可通行',
+    },
+    HILLS: {
+      baseColor: '#7a6842',
+      lightColor: '#8d7d55',
+      darkColor: '#5a4c2a',
+      height: 2,
+      name: '丘陵',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+    SWAMP: {
+      baseColor: '#2a4540',
+      lightColor: '#3a5855',
+      darkColor: '#1a3530',
+      height: -1,
+      name: '沼泽',
+      moveCost: 4, passable: true,
+      rangedDefMod: -10, meleeDefMod: -15, meleeAtkMod: -10,
+      description: '近战攻击-10, 近战防御-15, 远程防御-10',
+    },
+    SNOW: {
+      baseColor: '#c8d5e0',
+      lightColor: '#dce6ef',
+      darkColor: '#9aabb8',
+      height: 0,
+      name: '雪原',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+    DESERT: {
+      baseColor: '#c09050',
+      lightColor: '#d4a868',
+      darkColor: '#906830',
+      height: 0,
+      name: '荒漠',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+  };
+
+  // 预生成地形数据 - 基于世界地形类型和随机种子
+  const gridRange = 15;
+
+  // 每次战斗使用随机种子
+  const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
+
+  // 根据世界地形确定战斗地图的生物群落配置
+  type CombatTerrainType = keyof typeof TERRAIN_TYPES;
+  interface BiomeConfig {
+    primary: CombatTerrainType;
+    secondary: CombatTerrainType;
+    tertiary: CombatTerrainType;
+    rare: CombatTerrainType;
+    thresholds: [number, number, number];
+    lowTerrain?: CombatTerrainType;
+    lowThreshold?: number;
+  }
+
+  const biomeConfig = useMemo((): BiomeConfig => {
+    const t = initialState.terrainType;
+    switch (t) {
+      case 'FOREST':
+        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+      case 'MOUNTAIN':
+        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5 };
+      case 'SWAMP':
+        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3 };
+      case 'SNOW':
+        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3 };
+      case 'DESERT':
+        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6 };
+      case 'ROAD':
+      case 'PLAINS':
+      default:
+        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+    }
+  }, [initialState.terrainType]);
+
+  const terrainData = useMemo(() => {
+    const data = new Map<string, {
+      type: CombatTerrainType,
+      height: number,
+    }>();
+
+    const hash = (x: number, y: number, seed: number): number => {
+      let h = seed + x * 374761393 + y * 668265263;
+      h = (h ^ (h >> 13)) * 1274126177;
+      h = h ^ (h >> 16);
+      return (h & 0x7fffffff) / 0x7fffffff;
+    };
+
+    const smoothNoise = (q: number, r: number, scale: number, seed: number): number => {
+      const sq = q * scale, sr = r * scale;
+      const q0 = Math.floor(sq), r0 = Math.floor(sr);
+      const fq = sq - q0, fr = sr - r0;
+      const v00 = hash(q0, r0, seed);
+      const v10 = hash(q0 + 1, r0, seed);
+      const v01 = hash(q0, r0 + 1, seed);
+      const v11 = hash(q0 + 1, r0 + 1, seed);
+      const top = v00 * (1 - fq) + v10 * fq;
+      const bot = v01 * (1 - fq) + v11 * fq;
+      return top * (1 - fr) + bot * fr;
+    };
+
+    const combinedNoise = (q: number, r: number): number => {
+      const n1 = smoothNoise(q, r, 0.15, combatSeed) * 0.5;
+      const n2 = smoothNoise(q, r, 0.3, combatSeed + 1000) * 0.3;
+      const n3 = smoothNoise(q, r, 0.6, combatSeed + 2000) * 0.2;
+      return (n1 + n2 + n3) * 2 - 1;
+    };
+
+    const [t1, t2, t3] = biomeConfig.thresholds;
+
+    for (let q = -gridRange; q <= gridRange; q++) {
+      for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
+        const n = combinedNoise(q, r);
+        let type: CombatTerrainType;
+
+        if (n > t1) type = biomeConfig.rare;
+        else if (n > t2) type = biomeConfig.tertiary;
+        else if (n > t3) type = biomeConfig.secondary;
+        else if (biomeConfig.lowTerrain && biomeConfig.lowThreshold !== undefined && n < biomeConfig.lowThreshold) type = biomeConfig.lowTerrain;
+        else type = biomeConfig.primary;
+
+        // 部署区域保护：部署区域内不生成不可通行地形
+        if (!TERRAIN_TYPES[type].passable) {
+          const inPlayerZone = q >= -6 && q <= -1 && r >= -5 && r <= 5;
+          const inEnemyZone = q >= 3 && q <= 8 && r >= -5 && r <= 5;
+          if (inPlayerZone || inEnemyZone) {
+            type = biomeConfig.primary;
+          }
+        }
+
+        data.set(`${q},${r}`, {
+          type,
+          height: TERRAIN_TYPES[type].height
+        });
+      }
+    }
+    return data;
+  }, [combatSeed, biomeConfig]);
+
+  const buildBlockedHexSet = useCallback((units: CombatUnit[], movingUnitId: string, tData?: Map<string, { type: CombatTerrainType; height: number }>): Set<string> => {
     const blocked = new Set<string>();
     units.forEach(u => {
       if (u.isDead || u.hasEscaped || u.id === movingUnitId) return;
       blocked.add(`${u.combatPos.q},${u.combatPos.r}`);
     });
+    // 不可通行地形也加入阻挡集合
+    if (tData) {
+      tData.forEach((data, key) => {
+        if (!TERRAIN_TYPES[data.type as CombatTerrainType].passable) {
+          blocked.add(key);
+        }
+      });
+    }
     return blocked;
   }, []);
 
   const getMaxMoveSteps = useCallback((unit: CombatUnit, currentAP: number, currentFatigue: number): number => {
     const remainingFatigue = unit.maxFatigue - currentFatigue;
     if (currentAP < 2 || remainingFatigue <= 0) return 0;
-
-    let maxSteps = 0;
-    for (let steps = 1; steps <= 40; steps++) {
-      const cost = getMovementCost(steps, hasPerk(unit, 'pathfinder'));
-      if (cost.apCost > currentAP || cost.fatigueCost > remainingFatigue) break;
-      maxSteps = steps;
-    }
-    return maxSteps;
+    // 返回 AP 作为移动预算，Dijkstra 按地形消耗扣减
+    return currentAP;
   }, []);
 
   const isPathHexInBounds = useCallback((pos: HexPos) => {
@@ -704,48 +882,74 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     start: HexPos,
     target: HexPos,
     blockedHexes: Set<string>,
-    maxSteps: number
+    maxAP: number,
+    tData?: Map<string, { type: string; height: number }>,
+    pathfinderPerk: boolean = false
   ): HexPos[] | null => {
-    if (maxSteps <= 0) return null;
+    if (maxAP < 2) return null;
     const startKey = `${start.q},${start.r}`;
     const targetKey = `${target.q},${target.r}`;
     if (startKey === targetKey) return [];
     if (blockedHexes.has(targetKey)) return null;
     if (!isPathHexInBounds(target)) return null;
 
-    const visited = new Set<string>([startKey]);
+    // Dijkstra：按累计 AP 成本寻路
+    const costMap = new Map<string, number>();
+    costMap.set(startKey, 0);
     const parent = new Map<string, string>();
-    const queue: Array<{ pos: HexPos; steps: number }> = [{ pos: start, steps: 0 }];
+    // 简单优先队列（数组+排序，格子数量有限足够高效）
+    const queue: Array<{ pos: HexPos; cost: number }> = [{ pos: start, cost: 0 }];
 
     while (queue.length > 0) {
+      queue.sort((a, b) => a.cost - b.cost);
       const current = queue.shift()!;
-      if (current.steps >= maxSteps) continue;
+      const currentKey = `${current.pos.q},${current.pos.r}`;
+
+      // 如果当前成本已超过记录的最优，跳过
+      if (current.cost > (costMap.get(currentKey) ?? Infinity)) continue;
+
+      if (currentKey === targetKey) {
+        // 回溯路径
+        const path: HexPos[] = [];
+        let traceKey = targetKey;
+        while (traceKey !== startKey) {
+          const [q, r] = traceKey.split(',').map(Number);
+          path.push({ q, r });
+          const prevKey = parent.get(traceKey);
+          if (!prevKey) break;
+          traceKey = prevKey;
+        }
+        path.reverse();
+        return path;
+      }
 
       const neighbors = getHexNeighbors(current.pos.q, current.pos.r);
       for (const next of neighbors) {
         const nextKey = `${next.q},${next.r}`;
-        if (visited.has(nextKey)) continue;
-        if (!isPathHexInBounds(next)) continue;
         if (blockedHexes.has(nextKey)) continue;
+        if (!isPathHexInBounds(next)) continue;
 
-        visited.add(nextKey);
-        parent.set(nextKey, `${current.pos.q},${current.pos.r}`);
-
-        if (nextKey === targetKey) {
-          const path: HexPos[] = [];
-          let traceKey = targetKey;
-          while (traceKey !== startKey) {
-            const [q, r] = traceKey.split(',').map(Number);
-            path.push({ q, r });
-            const prevKey = parent.get(traceKey);
-            if (!prevKey) break;
-            traceKey = prevKey;
+        // 获取目标格的移动消耗
+        let tileCost = 2; // 默认平原消耗
+        if (tData) {
+          const td = tData.get(nextKey);
+          if (td) {
+            const terrainDef = (TERRAIN_TYPES as Record<string, { moveCost: number; passable: boolean }>)[td.type];
+            if (terrainDef && !terrainDef.passable) continue;
+            if (terrainDef) tileCost = terrainDef.moveCost;
           }
-          path.reverse();
-          return path;
         }
+        if (pathfinderPerk) tileCost = 2; // 识途天赋：所有地形2AP
 
-        queue.push({ pos: next, steps: current.steps + 1 });
+        const newCost = current.cost + tileCost;
+        if (newCost > maxAP) continue;
+
+        const prevCost = costMap.get(nextKey);
+        if (prevCost === undefined || newCost < prevCost) {
+          costMap.set(nextKey, newCost);
+          parent.set(nextKey, currentKey);
+          queue.push({ pos: next, cost: newCost });
+        }
       }
     }
 
@@ -778,12 +982,41 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     };
   }, [state]);
 
+  // 从路径提取每格地形移动消耗
+  const getPathTerrainCosts = useCallback((path: HexPos[], tData: Map<string, { type: string; height: number }>): number[] => {
+    return path.map(p => {
+      const td = tData.get(`${p.q},${p.r}`);
+      if (td) {
+        const terrainDef = (TERRAIN_TYPES as Record<string, { moveCost: number }>)[td.type];
+        if (terrainDef) return terrainDef.moveCost;
+      }
+      return 2; // 默认平原
+    });
+  }, []);
+
+  // 获取攻击者和目标位置的地形战斗修正
+  const getTerrainCombatMods = useCallback((
+    atkPos: { q: number; r: number },
+    defPos: { q: number; r: number },
+    tData: Map<string, { type: string; height: number }>
+  ) => {
+    const atkTd = tData.get(`${atkPos.q},${atkPos.r}`);
+    const defTd = tData.get(`${defPos.q},${defPos.r}`);
+    const atkTerrain = atkTd ? (TERRAIN_TYPES as Record<string, { meleeAtkMod: number; meleeDefMod: number; rangedDefMod: number }>)[atkTd.type] : null;
+    const defTerrain = defTd ? (TERRAIN_TYPES as Record<string, { meleeAtkMod: number; meleeDefMod: number; rangedDefMod: number }>)[defTd.type] : null;
+    return {
+      atkMeleeAtkMod: atkTerrain?.meleeAtkMod || 0,
+      defRangedDefMod: defTerrain?.rangedDefMod || 0,
+      defMeleeDefMod: defTerrain?.meleeDefMod || 0,
+    };
+  }, []);
+
   const movePreviewPath = useMemo(() => {
     if (!activeUnit || !isPlayerTurn || selectedAbility || !movePreviewHex || !movePreviewHexKey) return null;
 
-    const blocked = buildBlockedHexSet(state.units, activeUnit.id);
+    const blocked = buildBlockedHexSet(state.units, activeUnit.id, terrainData);
     const maxSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
-    return findPathWithinSteps(activeUnit.combatPos, movePreviewHex, blocked, maxSteps);
+    return findPathWithinSteps(activeUnit.combatPos, movePreviewHex, blocked, maxSteps, terrainData, hasPerk(activeUnit, 'pathfinder'));
   }, [
     activeUnit,
     isPlayerTurn,
@@ -835,14 +1068,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return { apCost, fatigueCost };
     }
 
-    // 未选技能时显示移动消耗（基于预览路径的实际可移动步数）
-    if (movePreviewOutcome && movePreviewOutcome.stepsMoved > 0) {
-        const moveCost = getMovementCost(movePreviewOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
+    // 未选技能时显示移动消耗（基于预览路径的实际可移动步数和地形消耗）
+    if (movePreviewOutcome && movePreviewOutcome.stepsMoved > 0 && effectiveMovePreviewPath) {
+        const tileCosts = getPathTerrainCosts(effectiveMovePreviewPath, terrainData);
+        const moveCost = getPathMoveCost(tileCosts, hasPerk(activeUnit, 'pathfinder'));
         return { apCost: moveCost.apCost, fatigueCost: moveCost.fatigueCost };
     }
 
     return null;
-  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewOutcome]);
+  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewOutcome, effectiveMovePreviewPath, getPathTerrainCosts]);
 
   useEffect(() => {
     // 回合切换/模式切换时清空待确认移动，避免误触二次确认。
@@ -1023,58 +1257,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const HEX_GAP = 2;
   const HEIGHT_MULTIPLIER = 8; // 高度差乘数，增加立体感
 
-  // 地形类型定义 - 带高度和颜色
-  const TERRAIN_TYPES = {
-    PLAINS: { 
-      baseColor: '#3d4a2f', 
-      lightColor: '#4a5a3a', 
-      darkColor: '#2a3520',
-      height: 0, 
-      name: '平原' 
-    },
-    FOREST: { 
-      baseColor: '#1f3320', 
-      lightColor: '#2a4429', 
-      darkColor: '#152215',
-      height: 1, 
-      name: '森林' 
-    },
-    MOUNTAIN: { 
-      baseColor: '#4a4a4a', 
-      lightColor: '#5a5a5a', 
-      darkColor: '#333333',
-      height: 3, 
-      name: '山地' 
-    },
-    HILLS: { 
-      baseColor: '#5a4a32', 
-      lightColor: '#6a5a42', 
-      darkColor: '#3a3022',
-      height: 2, 
-      name: '丘陵' 
-    },
-    SWAMP: { 
-      baseColor: '#2a3a35', 
-      lightColor: '#3a4a45', 
-      darkColor: '#1a2a25',
-      height: -1, 
-      name: '沼泽' 
-    },
-    SNOW: { 
-      baseColor: '#b8c4d0', 
-      lightColor: '#d0d8e2', 
-      darkColor: '#8a96a4',
-      height: 0, 
-      name: '雪原' 
-    },
-    DESERT: { 
-      baseColor: '#9a7b4f', 
-      lightColor: '#b08f60', 
-      darkColor: '#7a6040',
-      height: 0, 
-      name: '荒漠' 
-    },
-  };
   const COLOR_FOG = "#080808";
 
   const getPixelPos = (q: number, r: number) => {
@@ -1083,8 +1265,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return { x, y };
   };
 
-  // 预生成地形数据 - 基于世界地形类型和随机种子
-  const gridRange = 15;
   const isHexInBounds = useCallback((pos: { q: number; r: number }) => {
     const { q, r } = pos;
     if (q < -gridRange || q > gridRange) return false;
@@ -1100,102 +1280,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const maxR = Math.min(gridRange, -q + gridRange);
     return q === -gridRange || q === gridRange || r === minR || r === maxR;
   }, [isHexInBounds]);
-
-  // 每次战斗使用随机种子
-  const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
-
-  // 根据世界地形确定战斗地图的生物群落配置
-  type CombatTerrainType = keyof typeof TERRAIN_TYPES;
-  interface BiomeConfig {
-    primary: CombatTerrainType;     // 主要地形（占比最大）
-    secondary: CombatTerrainType;   // 次要地形
-    tertiary: CombatTerrainType;    // 第三地形
-    rare: CombatTerrainType;        // 稀有地形
-    // 阈值：noise > t1 → rare, > t2 → tertiary, > t3 → secondary, else → primary
-    thresholds: [number, number, number];
-    // 额外低洼地形阈值 (noise < lowThreshold → lowTerrain)
-    lowTerrain?: CombatTerrainType;
-    lowThreshold?: number;
-  }
-
-  const biomeConfig = useMemo((): BiomeConfig => {
-    const t = initialState.terrainType;
-    switch (t) {
-      case 'FOREST':
-        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
-      case 'MOUNTAIN':
-        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5 };
-      case 'SWAMP':
-        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3 };
-      case 'SNOW':
-        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3 };
-      case 'DESERT':
-        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6 };
-      case 'ROAD':
-      case 'PLAINS':
-      default:
-        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
-    }
-  }, [initialState.terrainType]);
-
-  const terrainData = useMemo(() => {
-    const data = new Map<string, { 
-      type: CombatTerrainType,
-      height: number,
-    }>();
-    
-    // 简易 hash 伪随机数生成器（基于种子）
-    const hash = (x: number, y: number, seed: number): number => {
-      let h = seed + x * 374761393 + y * 668265263;
-      h = (h ^ (h >> 13)) * 1274126177;
-      h = h ^ (h >> 16);
-      return (h & 0x7fffffff) / 0x7fffffff; // 归一化到 [0, 1]
-    };
-
-    // 多层噪声，使用 hash 实现类似 value noise 的效果
-    const smoothNoise = (q: number, r: number, scale: number, seed: number): number => {
-      const sq = q * scale, sr = r * scale;
-      const q0 = Math.floor(sq), r0 = Math.floor(sr);
-      const fq = sq - q0, fr = sr - r0;
-      // 双线性插值
-      const v00 = hash(q0, r0, seed);
-      const v10 = hash(q0 + 1, r0, seed);
-      const v01 = hash(q0, r0 + 1, seed);
-      const v11 = hash(q0 + 1, r0 + 1, seed);
-      const top = v00 * (1 - fq) + v10 * fq;
-      const bot = v01 * (1 - fq) + v11 * fq;
-      return top * (1 - fr) + bot * fr;
-    };
-
-    const combinedNoise = (q: number, r: number): number => {
-      // 多层叠加，频率递增、振幅递减
-      const n1 = smoothNoise(q, r, 0.15, combatSeed) * 0.5;
-      const n2 = smoothNoise(q, r, 0.3, combatSeed + 1000) * 0.3;
-      const n3 = smoothNoise(q, r, 0.6, combatSeed + 2000) * 0.2;
-      return (n1 + n2 + n3) * 2 - 1; // 映射到 [-1, 1]
-    };
-    
-    const [t1, t2, t3] = biomeConfig.thresholds;
-    
-    for (let q = -gridRange; q <= gridRange; q++) {
-      for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
-        const n = combinedNoise(q, r);
-        let type: CombatTerrainType;
-        
-        if (n > t1) type = biomeConfig.rare;
-        else if (n > t2) type = biomeConfig.tertiary;
-        else if (n > t3) type = biomeConfig.secondary;
-        else if (biomeConfig.lowTerrain && biomeConfig.lowThreshold !== undefined && n < biomeConfig.lowThreshold) type = biomeConfig.lowTerrain;
-        else type = biomeConfig.primary;
-        
-        data.set(`${q},${r}`, { 
-          type, 
-          height: TERRAIN_TYPES[type].height 
-        });
-      }
-    }
-    return data;
-  }, [combatSeed, biomeConfig]);
 
   // 视野计算 - 战斗中使用更大的视野范围
   const visibleSet = useMemo(() => {
@@ -1222,6 +1306,262 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     }
     return points;
   }, []);
+
+  // --- 预渲染地形纹理到离屏 canvas ---
+  const VARIANT_COUNT = 3;
+  const terrainTextures = useMemo(() => {
+    const textures = new Map<string, HTMLCanvasElement>();
+    const hexEffectiveSize = HEX_SIZE - HEX_GAP;
+    const texW = Math.ceil(hexEffectiveSize * 2) + 4;
+    const texH = Math.ceil(hexEffectiveSize * 2) + 4;
+
+    // 确定性伪随机
+    const seededRandom = (seed: number) => {
+      let s = seed;
+      return () => {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        return s / 0x7fffffff;
+      };
+    };
+
+    // 在离屏 canvas 上绘制六边形 clip 路径
+    const drawHexClip = (c: CanvasRenderingContext2D, cx: number, cy: number, size: number) => {
+      c.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 180) * (60 * i + 30);
+        const px = cx + Math.cos(angle) * size;
+        const py = cy + Math.sin(angle) * size;
+        if (i === 0) c.moveTo(px, py);
+        else c.lineTo(px, py);
+      }
+      c.closePath();
+    };
+
+    const terrainKeys = ['PLAINS', 'FOREST', 'HILLS', 'MOUNTAIN', 'SWAMP', 'SNOW', 'DESERT'] as const;
+
+    terrainKeys.forEach((type, typeIdx) => {
+      for (let v = 0; v < VARIANT_COUNT; v++) {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = texW;
+        offCanvas.height = texH;
+        const c = offCanvas.getContext('2d')!;
+        const cx = texW / 2;
+        const cy = texH / 2;
+
+        // 先 clip 六边形区域
+        c.save();
+        drawHexClip(c, cx, cy, hexEffectiveSize);
+        c.clip();
+
+        const rand = seededRandom(combatSeed + typeIdx * 999 + v * 77);
+
+        switch (type) {
+          case 'PLAINS': {
+            // 草叶纹理
+            for (let i = 0; i < 12; i++) {
+              const gx = cx + (rand() - 0.5) * hexEffectiveSize * 1.4;
+              const gy = cy + (rand() - 0.5) * hexEffectiveSize * 1.2;
+              const bladeCount = 2 + Math.floor(rand() * 2);
+              for (let b = 0; b < bladeCount; b++) {
+                c.strokeStyle = `rgba(80, 145, 50, ${0.3 + rand() * 0.25})`;
+                c.lineWidth = 1;
+                c.beginPath();
+                c.moveTo(gx + (rand() - 0.5) * 3, gy);
+                c.quadraticCurveTo(
+                  gx + (rand() - 0.5) * 6, gy - 5 - rand() * 4,
+                  gx + (rand() - 0.5) * 5, gy - 9 - rand() * 5
+                );
+                c.stroke();
+              }
+            }
+            break;
+          }
+          case 'FOREST': {
+            // 树冠纹理
+            const trees = [
+              { tx: cx, ty: cy + 2, scale: 1.0 },
+              { tx: cx - 11 + rand() * 4, ty: cy + 6, scale: 0.7 },
+              { tx: cx + 9 + rand() * 4, ty: cy + 5, scale: 0.8 },
+            ];
+            trees.forEach(({ tx, ty, scale }) => {
+              // 树冠
+              c.fillStyle = `rgba(30, 105, 40, ${0.45 + rand() * 0.2})`;
+              c.beginPath();
+              c.moveTo(tx, ty - 13 * scale);
+              c.lineTo(tx - 7 * scale, ty + 1);
+              c.lineTo(tx + 7 * scale, ty + 1);
+              c.closePath();
+              c.fill();
+              // 高光侧
+              c.fillStyle = `rgba(60, 145, 65, 0.25)`;
+              c.beginPath();
+              c.moveTo(tx, ty - 13 * scale);
+              c.lineTo(tx + 3.5 * scale, ty - 5 * scale);
+              c.lineTo(tx + 7 * scale, ty + 1);
+              c.closePath();
+              c.fill();
+              // 树干
+              c.fillStyle = `rgba(85, 60, 30, 0.45)`;
+              c.fillRect(tx - 1.5 * scale, ty + 1, 3 * scale, 4 * scale);
+            });
+            break;
+          }
+          case 'HILLS': {
+            // 等高线弧形
+            for (let i = 0; i < 3; i++) {
+              const offsetY = -8 + i * 8;
+              c.strokeStyle = `rgba(120, 100, 60, ${0.3 + rand() * 0.15})`;
+              c.lineWidth = 1.5;
+              c.beginPath();
+              c.arc(cx + (i % 2 === 0 ? -3 : 3), cy + offsetY + 10, 17 - i * 3, Math.PI * 1.1, Math.PI * 1.9);
+              c.stroke();
+            }
+            // 顶部山丘轮廓
+            c.strokeStyle = 'rgba(140, 115, 70, 0.3)';
+            c.lineWidth = 2;
+            c.beginPath();
+            c.arc(cx, cy + 8, 14, Math.PI * 1.15, Math.PI * 1.85);
+            c.stroke();
+            break;
+          }
+          case 'MOUNTAIN': {
+            // 主峰
+            c.fillStyle = 'rgba(100, 100, 115, 0.55)';
+            c.beginPath();
+            c.moveTo(cx, cy - 14);
+            c.lineTo(cx - 13, cy + 8);
+            c.lineTo(cx + 13, cy + 8);
+            c.closePath();
+            c.fill();
+            // 雪顶
+            c.fillStyle = 'rgba(225, 235, 245, 0.5)';
+            c.beginPath();
+            c.moveTo(cx, cy - 14);
+            c.lineTo(cx - 5, cy - 5);
+            c.lineTo(cx + 5, cy - 5);
+            c.closePath();
+            c.fill();
+            // 副峰
+            c.fillStyle = 'rgba(85, 85, 100, 0.4)';
+            c.beginPath();
+            c.moveTo(cx - 9, cy - 5);
+            c.lineTo(cx - 18, cy + 8);
+            c.lineTo(cx, cy + 8);
+            c.closePath();
+            c.fill();
+            break;
+          }
+          case 'SWAMP': {
+            // 水波纹
+            c.strokeStyle = 'rgba(70, 145, 125, 0.3)';
+            c.lineWidth = 1.2;
+            for (let row = 0; row < 3; row++) {
+              const baseY = cy - 6 + row * 8;
+              c.beginPath();
+              for (let px = -18; px <= 18; px += 2) {
+                const py = baseY + Math.sin(px * 0.4 + row + v) * 2.5;
+                if (px === -18) c.moveTo(cx + px, py);
+                else c.lineTo(cx + px, py);
+              }
+              c.stroke();
+            }
+            // 芦苇
+            const reeds = [-7 + rand() * 2, 3 + rand() * 2, 11 + rand() * 2];
+            reeds.forEach(rx => {
+              c.strokeStyle = 'rgba(65, 110, 85, 0.4)';
+              c.lineWidth = 1.5;
+              c.beginPath();
+              c.moveTo(cx + rx, cy + 8);
+              c.lineTo(cx + rx, cy - 3);
+              c.stroke();
+              // 芦苇头
+              c.fillStyle = 'rgba(95, 75, 50, 0.4)';
+              c.beginPath();
+              c.ellipse(cx + rx, cy - 5, 1.5, 3.5, 0, 0, Math.PI * 2);
+              c.fill();
+            });
+            break;
+          }
+          case 'SNOW': {
+            // 雪花图案
+            const snowflakes = [
+              { sx: cx, sy: cy - 2, r: 8 },
+              { sx: cx - 11 + rand() * 4, sy: cy + 7, r: 5 },
+              { sx: cx + 10 + rand() * 3, sy: cy + 5, r: 6 },
+            ];
+            snowflakes.forEach(({ sx, sy, r }) => {
+              c.strokeStyle = `rgba(160, 185, 220, ${0.3 + rand() * 0.15})`;
+              c.lineWidth = 1;
+              for (let a = 0; a < 3; a++) {
+                const angle = (a * Math.PI) / 3;
+                const dx = Math.cos(angle) * r;
+                const dy = Math.sin(angle) * r;
+                c.beginPath();
+                c.moveTo(sx - dx, sy - dy);
+                c.lineTo(sx + dx, sy + dy);
+                c.stroke();
+                // 分支
+                const bx = Math.cos(angle) * r * 0.55;
+                const by = Math.sin(angle) * r * 0.55;
+                const branchAngle = angle + Math.PI / 4;
+                const br = r * 0.35;
+                c.beginPath();
+                c.moveTo(sx + bx, sy + by);
+                c.lineTo(sx + bx + Math.cos(branchAngle) * br, sy + by + Math.sin(branchAngle) * br);
+                c.stroke();
+              }
+            });
+            break;
+          }
+          case 'DESERT': {
+            // 沙丘弧线
+            c.strokeStyle = 'rgba(165, 125, 65, 0.3)';
+            c.lineWidth = 1.5;
+            for (let row = 0; row < 3; row++) {
+              const baseY = cy - 8 + row * 9;
+              c.beginPath();
+              c.arc(cx + (row % 2 === 0 ? -5 : 5), baseY + 12, 20, Math.PI * 1.2, Math.PI * 1.8);
+              c.stroke();
+            }
+            // 仙人掌
+            c.strokeStyle = 'rgba(80, 135, 60, 0.4)';
+            c.lineWidth = 2;
+            c.lineCap = 'round';
+            // 主干
+            c.beginPath();
+            c.moveTo(cx, cy + 6);
+            c.lineTo(cx, cy - 6);
+            c.stroke();
+            // 左臂
+            c.beginPath();
+            c.moveTo(cx, cy);
+            c.lineTo(cx - 4, cy - 1);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx - 4, cy - 1);
+            c.lineTo(cx - 4, cy - 5);
+            c.stroke();
+            // 右臂
+            c.beginPath();
+            c.moveTo(cx, cy + 2);
+            c.lineTo(cx + 4, cy + 1);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx + 4, cy + 1);
+            c.lineTo(cx + 4, cy - 3);
+            c.stroke();
+            c.lineCap = 'butt';
+            break;
+          }
+        }
+
+        c.restore();
+        textures.set(`${type}_${v}`, offCanvas);
+      }
+    });
+
+    return textures;
+  }, [combatSeed]);
 
   // --- 渲染系统（优化版）---
   useEffect(() => {
@@ -1364,29 +1704,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             ctx.stroke();
           }
 
-          // 地形图标（简化）
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          if (data.type === 'FOREST') {
-            ctx.fillStyle = 'rgba(100,180,100,0.3)';
-            ctx.font = '14px serif';
-            ctx.fillText('🌲', x, topY);
-          } else if (data.type === 'MOUNTAIN') {
-            ctx.fillStyle = 'rgba(180,180,180,0.3)';
-            ctx.font = '12px serif';
-            ctx.fillText('⛰', x, topY);
-          } else if (data.type === 'SWAMP') {
-            ctx.fillStyle = 'rgba(100,150,130,0.2)';
-            ctx.font = '12px serif';
-            ctx.fillText('〰', x, topY);
-          } else if (data.type === 'SNOW') {
-            ctx.fillStyle = 'rgba(200,220,240,0.25)';
-            ctx.font = '12px serif';
-            ctx.fillText('❄', x, topY);
-          } else if (data.type === 'DESERT') {
-            ctx.fillStyle = 'rgba(200,170,100,0.25)';
-            ctx.font = '12px serif';
-            ctx.fillText('🏜', x, topY);
+          // 地形纹理贴图（替代 emoji）
+          const variantIdx = ((q % VARIANT_COUNT) + VARIANT_COUNT) % VARIANT_COUNT;
+          const texture = terrainTextures.get(`${data.type}_${variantIdx}`);
+          if (texture) {
+            ctx.drawImage(texture, x - texture.width / 2, topY - texture.height / 2);
+          }
+          // MOUNTAIN 不可通行标记
+          if (data.type === 'MOUNTAIN') {
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            drawHex(x, topY, HEX_SIZE - HEX_GAP - 2);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(200,60,60,0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([3, 3]);
+            const sz = (HEX_SIZE - HEX_GAP) * 0.35;
+            ctx.beginPath();
+            ctx.moveTo(x - sz, topY - sz);
+            ctx.lineTo(x + sz, topY + sz);
+            ctx.moveTo(x + sz, topY - sz);
+            ctx.lineTo(x - sz, topY + sz);
+            ctx.stroke();
+            ctx.setLineDash([]);
           }
 
           // 技能范围高亮（简化，无shadowBlur）
@@ -1486,7 +1825,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const heightOffset = targetHeight * HEIGHT_MULTIPLIER;
           const atkHeightDiff = attackerHeight - targetHeight;
           const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility, polearmHitMod);
+          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, enemy.combatPos, terrainData));
           const hitChance = breakdown.final;
 
           const { x, y: baseY } = getPixelPos(enemy.combatPos.q, enemy.combatPos.r);
@@ -1622,7 +1961,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [terrainData, visibleSet, hoveredHex, pendingMoveHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile, movePreviewPathSet]);
+  }, [terrainData, visibleSet, hoveredHex, pendingMoveHex, activeUnit, selectedAbility, zoom, hexPoints, isMobile, movePreviewPathSet, terrainTextures]);
 
   // DOM 图层同步 - 考虑地形高度 + 平滑移动动画 + 活动单位z-index
   const activeUnitId = state.turnOrder[state.currentUnitIndex];
@@ -2484,8 +2823,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         console.log(`[AI决策前] 装备武器: ${unitForAI.equipment?.mainHand?.name || '无'}`);
         console.log(`[AI决策前] state.units 数量: ${state.units.length}, 玩家单位: ${state.units.filter(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped).length}`);
         
-        // 获取 AI 决策
-        const action = executeAITurn(unitForAI, state);
+        // 获取 AI 决策（传入地形数据）
+        const stateWithTerrain = { ...state, terrainGrid: terrainData };
+        const action = executeAITurn(unitForAI, stateWithTerrain);
         console.log(`[AI决策] ${activeUnit.name}: ${action.type}`, JSON.stringify(action));
         
         if (action.type === 'WAIT') {
@@ -2497,9 +2837,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const aiUnit = state.units.find(u => u.id === activeUnit.id);
           if (!aiUnit) break;
 
-          const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id);
+          const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id, terrainData);
           const maxMoveSteps = getMaxMoveSteps(aiUnit, currentAP, currentFatigue);
-          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps);
+          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'));
           if (!movePath || movePath.length === 0) break;
 
           const aiMoveUnit = {
@@ -2511,7 +2851,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const moveOutcome = evaluateMovePathOutcome(aiMoveUnit, movePath);
           if (moveOutcome.stepsMoved <= 0) break;
 
-          const moveCost = getMovementCost(moveOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
+          const actualPath = movePath.slice(0, moveOutcome.stepsMoved);
+          const tileCosts = getPathTerrainCosts(actualPath, terrainData);
+          const moveCost = getPathMoveCost(tileCosts, hasPerk(aiUnit, 'pathfinder'));
           if (currentAP < moveCost.apCost) break;
           if (getRemainingFatigue({ ...activeUnit, fatigue: currentFatigue }) < moveCost.fatigueCost) break;
           currentAP -= moveCost.apCost;
@@ -2747,7 +3089,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiHeightDiff = (aiAttackerTerrain?.height || 0) - (aiTargetTerrain?.height || 0);
             const aiDist = getHexDistance(currentPos, target.combatPos);
             const aiPolearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, action.ability, aiDist);
-            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod);
+            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod, getTerrainCombatMods(currentPos, target.combatPos, terrainData));
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             const aiFatigueCost = getEffectiveFatigueCost(activeUnit, action.ability);
             if (currentAP < action.ability.apCost) break;
@@ -3045,7 +3387,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const targetHeight = terrainData.get(`${q},${r}`)?.height || 0;
           const atkHeightDiff = attackerHeight - targetHeight;
           const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod);
+          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData));
           setMobileAttackTarget({ unit: targetUnit, hitBreakdown, ability: selectedAbility });
           return;
         }
@@ -3169,7 +3511,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const defenderTerrain = terrainData.get(`${defender.combatPos.q},${defender.combatPos.r}`);
     const attackerTerrain = terrainData.get(`${attacker.combatPos.q},${attacker.combatPos.r}`);
     const heightDiff = (defenderTerrain?.height || 0) - (attackerTerrain?.height || 0);
-    const baseHitInfo = calculateHitChance(defender, attacker, state, heightDiff);
+    const baseHitInfo = calculateHitChance(defender, attacker, state, heightDiff, undefined, 0, getTerrainCombatMods(defender.combatPos, attacker.combatPos, terrainData));
     const ripostePenalty = hasPerk(defender, 'sword_mastery') ? 0 : 20;
     const finalHitChance = Math.max(5, Math.min(95, baseHitInfo.final - ripostePenalty));
     const isHit = rollHitCheck(finalHitChance);
@@ -3657,7 +3999,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const targetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const heightDiff = (attackerTerrain?.height || 0) - (targetTerrain?.height || 0);
             const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, ability, dist);
-            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability, polearmHitMod);
+            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, target.combatPos, terrainData));
             const isHit = rollHitCheck(hitInfo.final);
             
             // 先扣除 AP 和疲劳（无论命中与否）
@@ -3959,15 +4301,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
 
-    const blockedHexes = buildBlockedHexSet(state.units, activeUnit.id);
+    const blockedHexes = buildBlockedHexSet(state.units, activeUnit.id, terrainData);
     const maxMoveSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
-    const movePath = findPathWithinSteps(activeUnit.combatPos, hoveredHex, blockedHexes, maxMoveSteps);
+    const movePath = findPathWithinSteps(activeUnit.combatPos, hoveredHex, blockedHexes, maxMoveSteps, terrainData, hasPerk(activeUnit, 'pathfinder'));
     if (!movePath || movePath.length === 0) return;
 
     const moveOutcome = evaluateMovePathOutcome(activeUnit, movePath);
     if (moveOutcome.stepsMoved <= 0) return;
 
-    const moveCost = getMovementCost(moveOutcome.stepsMoved, hasPerk(activeUnit, 'pathfinder'));
+    const actualPath = movePath.slice(0, moveOutcome.stepsMoved);
+    const tileCosts = getPathTerrainCosts(actualPath, terrainData);
+    const moveCost = getPathMoveCost(tileCosts, hasPerk(activeUnit, 'pathfinder'));
     const apCost = moveCost.apCost;
     const fatigueCost = moveCost.fatigueCost;
     
@@ -4766,7 +5110,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const targetHeight = terrainAtHover?.height || 0;
             const atkHeightDiff = attackerHeight - targetHeight;
             const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod);
+            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData));
             hitChance = hitBreakdown.final;
           }
 
@@ -4794,6 +5138,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     {hitBreakdown.shieldDef ? ` - 盾牌 ${hitBreakdown.shieldDef}` : ''}
                     {hitBreakdown.shieldWallDef ? ` - 盾墙 ${hitBreakdown.shieldWallDef}` : ''}
                     {hitBreakdown.heightMod ? ` + 高地 ${hitBreakdown.heightMod > 0 ? '+' : ''}${hitBreakdown.heightMod}` : ''}
+                    {hitBreakdown.terrainMod ? ` + 地形 ${hitBreakdown.terrainMod > 0 ? '+' : ''}${hitBreakdown.terrainMod}` : ''}
                   </div>
                   <div className="text-[8px] text-slate-400 mt-0.5">
                     敌方武器: {targetUnit.equipment.mainHand?.name || '徒手'}
@@ -4814,17 +5159,24 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
               {/* 地形信息 */}
               {terrainInfo && (
-                <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-white/10">
-                  <span className="text-slate-300 font-bold">{terrainInfo.name}</span>
-                  {heightDiff > 0 && <span className="text-green-400 text-[9px]">↑高地+{heightDiff}</span>}
-                  {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
+                <div className="mb-1.5 pb-1.5 border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-300 font-bold">{terrainInfo.name}</span>
+                    {heightDiff > 0 && <span className="text-green-400 text-[9px]">↑高地+{heightDiff}</span>}
+                    {heightDiff < 0 && <span className="text-red-400 text-[9px]">↓低地{heightDiff}</span>}
+                    {!terrainInfo.passable && <span className="text-red-500 text-[9px] font-bold">🚫不可通行</span>}
+                  </div>
+                  {terrainInfo.description && terrainInfo.passable && (
+                    <div className="text-amber-400 text-[8px] mt-0.5">{terrainInfo.description}</div>
+                  )}
                 </div>
               )}
               <div className="font-bold">
                 {(() => {
                   const moveSteps = movePreviewOutcome?.stepsMoved ?? 0;
-                  if (moveSteps <= 0) return '移动消耗: -';
-                  const moveCost = getMovementCost(moveSteps, hasPerk(activeUnit, 'pathfinder'));
+                  if (moveSteps <= 0 || !effectiveMovePreviewPath) return '移动消耗: -';
+                  const tileCosts = getPathTerrainCosts(effectiveMovePreviewPath, terrainData);
+                  const moveCost = getPathMoveCost(tileCosts, hasPerk(activeUnit, 'pathfinder'));
                   return `移动消耗: ${moveCost.apCost} 行动点 / ${moveCost.fatigueCost} 疲劳${hasPerk(activeUnit, 'pathfinder') ? ' 🧭' : ''}`;
                 })()}
               </div>
