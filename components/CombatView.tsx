@@ -152,19 +152,12 @@ const getWeaponIcon = (w: Item | null): string => {
   if (n.includes('鞭') || n.includes('锏') || n.includes('铁链')) return '/assets/icons/mace.png';
   return '/assets/icons/sword.png';
 };
-
 // 技能图标兜底，避免个别平台 emoji 缺字导致显示为空
 const getAbilityIcon = (ability: Ability | null | undefined): string => {
   if (!ability) return '✦';
-  const id = ability.id;
-  if (id === 'CHOP' || id === 'SPLIT_SHIELD') return '/assets/icons/axe.png';
-  if (id === 'SLASH' || id === 'RIPOSTE') return '/assets/icons/sword.png';
-  if (id === 'THRUST' || id === 'IMPALE' || id === 'SPEARWALL') return '/assets/icons/spear.png';
-  if (id === 'BASH' || id === 'CRUSH_ARMOR') return '/assets/icons/mace.png';
-  if (id === 'SHOOT' || id === 'AIMED_SHOT') return '/assets/icons/bow.png';
-  if (id === 'PUNCTURE' || id === 'STAB') return '/assets/icons/dagger.png';
-  if (id === 'SHIELDWALL') return '/assets/icons/shield.png';
-  if (id === 'KNOCK_BACK') return '/assets/icons/fist.png';
+  // 保持技能图标原始配置（CSV/常量中的 emoji），避免不同技能共用同一素材图
+  // 推撞在部分平台 emoji 可能缺字，给一个稳定兜底
+  if (ability.id === 'KNOCK_BACK') return '👊';
   return ability.icon || '✦';
 };
 
@@ -548,7 +541,7 @@ const UnitCard: React.FC<{
               </div>
             )}
             <div className={showDetail ? 'text-[10px] leading-none' : 'text-[8px] leading-none'}>
-              <RenderIcon icon={weaponIcon} style={{ width: showDetail ? '20px' : '16px', height: showDetail ? '20px' : '16px' }} />
+              <RenderIcon icon={weaponIcon} style={{ width: showDetail ? '30px' : '24px', height: showDetail ? '30px' : '24px' }} />
             </div>
             {showDetail && (
               <>
@@ -3461,18 +3454,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       performMove();
       return;
     }
-    // C) 点击己方单位 → 居中镜头
-    const targetAlly = state.units.find(
-      u => !u.isDead && !u.hasEscaped && u.team === 'PLAYER' && u.id !== activeUnit.id &&
-        u.combatPos.q === q && u.combatPos.r === r
-    );
-    if (targetAlly) {
-      setPendingMoveHex(null);
-      setMobileAttackTarget(null);
-      const pos = getPixelPos(targetAlly.combatPos.q, targetAlly.combatPos.r);
-      cameraRef.current.x = -pos.x;
-      cameraRef.current.y = -pos.y;
-    }
+    // C) 点击地图上的单位不再触发居中；仅保留顶部行动顺序条的聚焦入口
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -5241,7 +5223,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               <div 
                 key={u.id} 
                 ref={el => { if(el) unitRefs.current.set(u.id, el); else unitRefs.current.delete(u.id); }} 
-                className={`absolute ${showUnitDetail ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                // 单位详情卡仅作展示，避免拦截画布点击（否则会影响点击单位居中/移动/攻击）
+                className="absolute pointer-events-none"
                 style={{ width: `${Math.max(104, Math.round((showUnitDetail ? 152 : 112) * compactFontScale))}px`, height: 'auto' }}
               >
                 <UnitCard
