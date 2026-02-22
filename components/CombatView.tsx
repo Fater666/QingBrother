@@ -864,10 +864,17 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return data;
   }, [combatSeed, biomeConfig]);
 
-  const buildBlockedHexSet = useCallback((units: CombatUnit[], movingUnitId: string, tData?: Map<string, { type: CombatTerrainType; height: number }>): Set<string> => {
+  const buildBlockedHexSet = useCallback((
+    units: CombatUnit[],
+    movingUnitId: string,
+    movingTeam: CombatUnit['team'],
+    tData?: Map<string, { type: CombatTerrainType; height: number }>
+  ): Set<string> => {
     const blocked = new Set<string>();
     units.forEach(u => {
       if (u.isDead || u.hasEscaped || u.id === movingUnitId) return;
+      // 允许穿过己方单位，但不能穿过敌方单位。
+      if (u.team === movingTeam) return;
       blocked.add(`${u.combatPos.q},${u.combatPos.r}`);
     });
     // 不可通行地形也加入阻挡集合
@@ -1062,7 +1069,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const movePreviewPath = useMemo(() => {
     if (!activeUnit || !isPlayerTurn || selectedAbility || !movePreviewHex || !movePreviewHexKey) return null;
 
-    const blocked = buildBlockedHexSet(state.units, activeUnit.id, terrainData);
+    const blocked = buildBlockedHexSet(state.units, activeUnit.id, activeUnit.team, terrainData);
     const maxSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
     return findPathWithinSteps(activeUnit.combatPos, movePreviewHex, blocked, maxSteps, terrainData, hasPerk(activeUnit, 'pathfinder'));
   }, [
@@ -2889,7 +2896,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const aiUnit = state.units.find(u => u.id === activeUnit.id);
           if (!aiUnit) break;
 
-          const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id, terrainData);
+          const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id, aiUnit.team, terrainData);
           const maxMoveSteps = getMaxMoveSteps(aiUnit, currentAP, currentFatigue);
           const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'), true);
           if (!movePath || movePath.length === 0) break;
@@ -4353,7 +4360,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     
     if (!visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) return;
 
-    const blockedHexes = buildBlockedHexSet(state.units, activeUnit.id, terrainData);
+    const blockedHexes = buildBlockedHexSet(state.units, activeUnit.id, activeUnit.team, terrainData);
+    const isDestinationOccupied = state.units.some(
+      u => !u.isDead && !u.hasEscaped && u.id !== activeUnit.id &&
+        u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r
+    );
+    if (isDestinationOccupied) return;
     const maxMoveSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
     const movePath = findPathWithinSteps(activeUnit.combatPos, hoveredHex, blockedHexes, maxMoveSteps, terrainData, hasPerk(activeUnit, 'pathfinder'));
     if (!movePath || movePath.length === 0) return;
