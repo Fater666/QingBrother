@@ -43,6 +43,15 @@ import {
   HitLocation
 } from '../services/damageService.ts';
 
+// --- HELPER COMPONENTS ---
+
+const RenderIcon: React.FC<{ icon: string; className?: string; style?: React.CSSProperties }> = ({ icon, className, style }) => {
+  if (icon.startsWith('/assets/')) {
+    return <img src={icon} alt="" className={className} style={{ ...style, display: 'inline-block', verticalAlign: 'middle' }} />;
+  }
+  return <span className={className} style={style}>{icon}</span>;
+};
+
 interface CombatViewProps {
   initialState: CombatState;
   onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number, isRetreat?: boolean) => void;
@@ -128,28 +137,34 @@ const TYPE_STYLES: Record<string, { bg: string; accent: string }> = {
 
 // 武器图标映射
 const getWeaponIcon = (w: Item | null): string => {
-  if (!w) return '✊';
+  if (!w) return '/assets/icons/fist.png';
   const n = w.name;
   if (n.includes('爪') || n.includes('牙') || n.includes('獠')) return '🐺';
-  if (n.includes('弓')) return '🏹';
-  if (n.includes('弩')) return '🏹';
-  if (n.includes('斧') || n.includes('飞斧')) return '🪓';
-  if (n.includes('矛') || n.includes('枪') || n.includes('标枪') || n.includes('投矛')) return '🔱';
-  if (n.includes('锤') || n.includes('骨朵')) return '🔨';
-  if (n.includes('棒') || n.includes('殳')) return '🔨';
-  if (n.includes('戈') || n.includes('戟')) return '⚔️';
-  if (n.includes('匕')) return '🔪';
+  if (n.includes('弓')) return '/assets/icons/bow.png';
+  if (n.includes('弩')) return '/assets/icons/bow.png';
+  if (n.includes('斧') || n.includes('飞斧')) return '/assets/icons/axe.png';
+  if (n.includes('矛') || n.includes('枪') || n.includes('标枪') || n.includes('投矛')) return '/assets/icons/spear.png';
+  if (n.includes('锤') || n.includes('骨朵')) return '/assets/icons/mace.png';
+  if (n.includes('棒') || n.includes('殳')) return '/assets/icons/mace.png';
+  if (n.includes('戈') || n.includes('戟')) return '/assets/icons/spear.png';
+  if (n.includes('匕')) return '/assets/icons/dagger.png';
   if (n.includes('飞石') || n.includes('飞蝗')) return '🪨';
-  if (n.includes('鞭') || n.includes('锏') || n.includes('铁链')) return '⛓️';
-  return '🗡️';
+  if (n.includes('鞭') || n.includes('锏') || n.includes('铁链')) return '/assets/icons/mace.png';
+  return '/assets/icons/sword.png';
 };
 
 // 技能图标兜底，避免个别平台 emoji 缺字导致显示为空
 const getAbilityIcon = (ability: Ability | null | undefined): string => {
   if (!ability) return '✦';
-  if (ability.id === 'CHOP') return '⚒️';
-  // Android/WebView 上 🤚 兼容性较差，给推撞固定一个更稳定的图标
-  if (ability.id === 'KNOCK_BACK') return '👊';
+  const id = ability.id;
+  if (id === 'CHOP' || id === 'SPLIT_SHIELD') return '/assets/icons/axe.png';
+  if (id === 'SLASH' || id === 'RIPOSTE') return '/assets/icons/sword.png';
+  if (id === 'THRUST' || id === 'IMPALE' || id === 'SPEARWALL') return '/assets/icons/spear.png';
+  if (id === 'BASH' || id === 'CRUSH_ARMOR') return '/assets/icons/mace.png';
+  if (id === 'SHOOT' || id === 'AIMED_SHOT') return '/assets/icons/bow.png';
+  if (id === 'PUNCTURE' || id === 'STAB') return '/assets/icons/dagger.png';
+  if (id === 'SHIELDWALL') return '/assets/icons/shield.png';
+  if (id === 'KNOCK_BACK') return '/assets/icons/fist.png';
   return ability.icon || '✦';
 };
 
@@ -436,7 +451,7 @@ const UnitCard: React.FC<{
                   className={`relative px-0.5 rounded border ${toneClass}`}
                   title={status.label}
                 >
-                  <span className={showDetail ? 'text-[9px] leading-none' : 'text-[8px] leading-none'}>{status.icon}</span>
+                  <RenderIcon icon={status.icon} className={showDetail ? 'text-[9px] leading-none' : 'text-[8px] leading-none'} />
                   {status.badge && (
                     <span className="absolute -top-1 -right-1 min-w-[10px] h-[10px] px-[1px] rounded-full bg-black/90 border border-amber-500/70 text-[6px] leading-[8px] text-amber-300 text-center font-bold">
                       {status.badge}
@@ -532,7 +547,9 @@ const UnitCard: React.FC<{
                 {crossbowLoaded ? '🟢' : '🔴'}
               </div>
             )}
-            <div className={showDetail ? 'text-[10px] leading-none' : 'text-[8px] leading-none'}>{weaponIcon}</div>
+            <div className={showDetail ? 'text-[10px] leading-none' : 'text-[8px] leading-none'}>
+              <RenderIcon icon={weaponIcon} style={{ width: showDetail ? '20px' : '16px', height: showDetail ? '20px' : '16px' }} />
+            </div>
             {showDetail && (
               <>
                 <div className="text-[7px] text-amber-300 font-bold mt-0.5 leading-none break-words">{weaponName}</div>
@@ -560,7 +577,9 @@ const UnitCard: React.FC<{
                 maxWidth: iconCardMaxWidth,
               }}
             >
-              <div className="text-[10px] leading-none">🛡️</div>
+              <div className="text-[10px] leading-none">
+                <RenderIcon icon="/assets/icons/shield.png" style={{ width: '20px', height: '20px' }} />
+              </div>
               <div className="text-[6px] text-sky-300/90 leading-none mt-0.5">格挡 {shieldDefenseText}</div>
               <div className="text-[6px] text-sky-300/90 leading-none mt-0.5">耐久 {shieldDurabilityText}</div>
             </div>
@@ -884,14 +903,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     blockedHexes: Set<string>,
     maxAP: number,
     tData?: Map<string, { type: string; height: number }>,
-    pathfinderPerk: boolean = false
+    pathfinderPerk: boolean = false,
+    allowPartial: boolean = false
   ): HexPos[] | null => {
     if (maxAP < 2) return null;
     const startKey = `${start.q},${start.r}`;
     const targetKey = `${target.q},${target.r}`;
     if (startKey === targetKey) return [];
-    if (blockedHexes.has(targetKey)) return null;
-    if (!isPathHexInBounds(target)) return null;
+    if (blockedHexes.has(targetKey) && !allowPartial) return null;
+    if (!isPathHexInBounds(target) && !allowPartial) return null;
 
     // Dijkstra：按累计 AP 成本寻路
     const costMap = new Map<string, number>();
@@ -950,6 +970,34 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           parent.set(nextKey, currentKey);
           queue.push({ pos: next, cost: newCost });
         }
+      }
+    }
+
+    // 部分路径模式：无法到达目标时，寻找 AP 预算内离目标最近的可达格
+    if (allowPartial && costMap.size > 1) {
+      let bestKey = '';
+      let bestDist = Infinity;
+      for (const [key] of costMap) {
+        if (key === startKey) continue;
+        const [q, r] = key.split(',').map(Number);
+        const dist = getHexDistance({ q, r }, target);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestKey = key;
+        }
+      }
+      if (bestKey) {
+        const path: HexPos[] = [];
+        let traceKey = bestKey;
+        while (traceKey !== startKey) {
+          const [q, r] = traceKey.split(',').map(Number);
+          path.push({ q, r });
+          const prevKey = parent.get(traceKey);
+          if (!prevKey) break;
+          traceKey = prevKey;
+        }
+        path.reverse();
+        if (path.length > 0) return path;
       }
     }
 
@@ -1219,6 +1267,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     setCenterBanner(banner);
     setTimeout(() => setCenterBanner(prev => prev?.id === banner.id ? null : prev), 2200);
   }, []);
+
+  const renderBannerIcon = (icon: string) => {
+    return <RenderIcon icon={icon} style={{ fontSize: '1.5rem', width: '32px', height: '32px' }} />;
+  };
 
   /** 统一处理“行动点不足”提示：日志 + 横幅（无震屏） */
   const showInsufficientActionPoints = useCallback((ability: Ability, unit = activeUnit) => {
@@ -2839,7 +2891,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
           const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id, terrainData);
           const maxMoveSteps = getMaxMoveSteps(aiUnit, currentAP, currentFatigue);
-          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'));
+          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'), true);
           if (!movePath || movePath.length === 0) break;
 
           const aiMoveUnit = {
@@ -4949,7 +5001,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <button onClick={() => { setMobileAttackTarget(null); setSelectedAbility(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
                 : <>
-                    <span className="text-base">{getAbilityIcon(selectedAbility)}</span>
+                    <RenderIcon icon={getAbilityIcon(selectedAbility)} className="text-base" style={{ width: '20px', height: '20px' }} />
                     <span>{selectedAbility.name} - 点击目标</span>
                     <button onClick={() => { setSelectedAbility(null); setMobileAttackTarget(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
@@ -4980,52 +5032,189 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           </div>
         )}
 
-        {/* 移动端攻击确认提示（与桌面端 tooltip 一致） */}
-        {isMobile && mobileAttackTarget && isPlayerTurn && activeUnit && (() => {
-          const bd = mobileAttackTarget.hitBreakdown;
-          const mobileAbilityFatCost = getEffectiveFatigueCost(activeUnit, mobileAttackTarget.ability);
-          const hitColor = bd.final >= 70 ? '#4ade80' : bd.final >= 40 ? '#facc15' : '#ef4444';
-          return (
-            <div
-              className={`${isCompactLandscape ? 'right-2 top-2' : 'right-4 top-4'} absolute pointer-events-none bg-[#0f0f0f] border border-amber-900/50 text-[10px] text-amber-500 z-50 rounded shadow-xl`}
-              style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)', ...compactPanelStyle }}
-            >
-              <div className="mb-2 pb-2 border-b border-red-500/30">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-red-300 font-bold">⚔ {mobileAttackTarget.ability.name} → {mobileAttackTarget.unit.name}</span>
-                </div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-slate-400 text-[9px]">命中率:</span>
-                  <span className="text-lg font-bold" style={{ color: hitColor }}>{bd.final}%</span>
-                </div>
-                <div className="text-[8px] text-slate-500 mt-0.5">
-                  技能 {bd.baseSkill} - 防御 {bd.targetDefense}
-                  {bd.weaponMod ? ` + 武器 ${bd.weaponMod > 0 ? '+' : ''}${bd.weaponMod}` : ''}
-                  {bd.moraleMod ? ` + 士气 ${bd.moraleMod > 0 ? '+' : ''}${bd.moraleMod}` : ''}
-                  {bd.shieldDef ? ` - 盾牌 ${bd.shieldDef}` : ''}
-                  {bd.shieldWallDef ? ` - 盾墙 ${bd.shieldWallDef}` : ''}
-                  {bd.heightMod ? ` + 高地 ${bd.heightMod > 0 ? '+' : ''}${bd.heightMod}` : ''}
-                </div>
-                <div className="text-[8px] text-slate-400 mt-0.5">
-                  敌方武器: {mobileAttackTarget.unit.equipment.mainHand?.name || '徒手'}
-                </div>
-                {bd.surroundBonus > 0 && (
-                  <div className="text-[8px] text-amber-400 mt-0.5 font-bold">
-                    + 合围 +{bd.surroundBonus}%
+        {/* 移动端信息面板 - 攻击确认 / 地块+单位信息（互斥） */}
+        {isMobile && (mobileAttackTarget || hoveredHex) && (() => {
+          // 攻击确认模式
+          if (mobileAttackTarget && isPlayerTurn && activeUnit) {
+            const bd = mobileAttackTarget.hitBreakdown;
+            const mobileAbilityFatCost = getEffectiveFatigueCost(activeUnit, mobileAttackTarget.ability);
+            const hitColor = bd.final >= 70 ? '#4ade80' : bd.final >= 40 ? '#facc15' : '#ef4444';
+            return (
+              <div
+                className={`${isCompactLandscape ? 'right-1 top-8' : 'right-2 top-10'} absolute pointer-events-none bg-[#0f0f0f]/95 border border-amber-900/50 text-[10px] text-amber-500 z-50 rounded shadow-xl max-w-[180px]`}
+                style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.6)', ...compactPanelStyle }}
+              >
+                <div className="mb-2 pb-2 border-b border-red-500/30">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-red-300 font-bold">⚔ {mobileAttackTarget.ability.name} → {mobileAttackTarget.unit.name}</span>
                   </div>
-                )}
-                {activeUnit.currentAP < mobileAttackTarget.ability.apCost && (
-                  <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
-                )}
-                {getRemainingFatigue(activeUnit) < mobileAbilityFatCost && (
-                  <div className="text-blue-400 text-[9px] mt-1 font-bold">疲劳不足!</div>
-                )}
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-slate-400 text-[9px]">命中率:</span>
+                    <span className="text-lg font-bold" style={{ color: hitColor }}>{bd.final}%</span>
+                  </div>
+                  <div className="text-[8px] text-slate-500 mt-0.5">
+                    技能 {bd.baseSkill} - 防御 {bd.targetDefense}
+                    {bd.weaponMod ? ` + 武器 ${bd.weaponMod > 0 ? '+' : ''}${bd.weaponMod}` : ''}
+                    {bd.moraleMod ? ` + 士气 ${bd.moraleMod > 0 ? '+' : ''}${bd.moraleMod}` : ''}
+                    {bd.shieldDef ? ` - 盾牌 ${bd.shieldDef}` : ''}
+                    {bd.shieldWallDef ? ` - 盾墙 ${bd.shieldWallDef}` : ''}
+                    {bd.heightMod ? ` + 高地 ${bd.heightMod > 0 ? '+' : ''}${bd.heightMod}` : ''}
+                  </div>
+                  <div className="text-[8px] text-slate-400 mt-0.5">
+                    敌方武器: {mobileAttackTarget.unit.equipment.mainHand?.name || '徒手'}
+                  </div>
+                  {bd.surroundBonus > 0 && (
+                    <div className="text-[8px] text-amber-400 mt-0.5 font-bold">
+                      + 合围 +{bd.surroundBonus}%
+                    </div>
+                  )}
+                  {activeUnit.currentAP < mobileAttackTarget.ability.apCost && (
+                    <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
+                  )}
+                  {getRemainingFatigue(activeUnit) < mobileAbilityFatCost && (
+                    <div className="text-blue-400 text-[9px] mt-1 font-bold">疲劳不足!</div>
+                  )}
+                </div>
+                <div className="text-slate-400 text-[9px]">
+                  再次点击该目标执行攻击
+                </div>
               </div>
-              <div className="text-slate-400 text-[9px]">
-                再次点击该目标执行攻击
+            );
+          }
+
+          // 地块信息模式
+          if (hoveredHex && !mobileAttackTarget && visibleSet.has(`${hoveredHex.q},${hoveredHex.r}`)) {
+            const hexKey = `${hoveredHex.q},${hoveredHex.r}`;
+            const terrainAtHex = terrainData.get(hexKey);
+            const terrainInfo = terrainAtHex ? TERRAIN_TYPES[terrainAtHex.type as keyof typeof TERRAIN_TYPES] : null;
+            if (!terrainInfo) return null;
+
+            const unitOnHex = state.units.find(
+              u => !u.isDead && !u.hasEscaped && u.combatPos.q === hoveredHex.q && u.combatPos.r === hoveredHex.r
+            );
+
+            return (
+              <div
+                className={`${isCompactLandscape ? 'right-1 top-8' : 'right-2 top-10'} absolute pointer-events-none bg-[#0f0f0f]/95 border border-amber-900/50 text-[10px] text-amber-400 z-50 rounded shadow-xl max-w-[180px]`}
+                style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.6)', ...compactPanelStyle }}
+              >
+                {/* 地形信息 */}
+                <div className={unitOnHex ? 'pb-1.5 mb-1.5 border-b border-white/10' : ''}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-200 font-bold">{terrainInfo.name}</span>
+                    <span className="text-[8px] text-slate-500">高度 {terrainAtHex!.height}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 text-[9px]">
+                    {terrainInfo.passable ? (
+                      <span className="text-slate-400">移动消耗 {terrainInfo.moveCost} AP</span>
+                    ) : (
+                      <span className="text-red-400 font-bold">不可通行</span>
+                    )}
+                  </div>
+                  {(terrainInfo.meleeAtkMod !== 0 || terrainInfo.meleeDefMod !== 0 || terrainInfo.rangedDefMod !== 0) && (
+                    <div className="text-[8px] text-amber-300/80 mt-0.5">
+                      {terrainInfo.meleeAtkMod !== 0 && <span>近攻{terrainInfo.meleeAtkMod > 0 ? '+' : ''}{terrainInfo.meleeAtkMod} </span>}
+                      {terrainInfo.meleeDefMod !== 0 && <span>近防{terrainInfo.meleeDefMod > 0 ? '+' : ''}{terrainInfo.meleeDefMod} </span>}
+                      {terrainInfo.rangedDefMod !== 0 && <span>远防{terrainInfo.rangedDefMod > 0 ? '+' : ''}{terrainInfo.rangedDefMod}</span>}
+                    </div>
+                  )}
+                  {terrainInfo.description && terrainInfo.passable && (
+                    <div className="text-[8px] text-slate-500 mt-0.5">{terrainInfo.description}</div>
+                  )}
+                </div>
+
+                {/* 单位信息 */}
+                {unitOnHex && (() => {
+                  const u = unitOnHex;
+                  const isEnemy = u.team === 'ENEMY';
+                  const hpPct = (u.hp / u.maxHp) * 100;
+                  const hpColor = hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#eab308' : '#dc2626';
+                  const helmet = u.equipment.helmet;
+                  const helmetPct = helmet ? (helmet.durability / helmet.maxDurability) * 100 : 0;
+                  const armor = u.equipment.armor;
+                  const armorPct = armor ? (armor.durability / armor.maxDurability) * 100 : 0;
+                  const weapon = u.equipment.mainHand;
+                  const shield = u.equipment.offHand;
+                  const hasShield = shield?.type === 'SHIELD';
+                  const unitTypeName = isEnemy
+                    ? (u.aiType === 'BEAST' ? '野兽' : u.aiType === 'ARMY' ? '军士' : u.aiType === 'ARCHER' ? '弓手' : '贼寇')
+                    : (BACKGROUNDS[u.background]?.name || u.background);
+                  const statuses = getUnitDisplayStatuses(u);
+                  const moraleIcon = MORALE_ICONS[u.morale];
+                  const moraleColor = MORALE_COLORS[u.morale];
+
+                  return (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`font-bold ${isEnemy ? 'text-red-300' : 'text-blue-300'}`}>
+                          {u.name}
+                        </span>
+                        <span className="text-[8px] text-slate-500">{unitTypeName}</span>
+                        <span className="text-[9px]" style={{ color: moraleColor }}>{moraleIcon}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <span className="text-[8px] w-2 flex-shrink-0" style={{ color: hpColor }}>♥</span>
+                        <div className="flex-1 h-[6px] rounded-sm overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.7)', border: '1px solid rgba(0,0,0,0.5)' }}>
+                          <div className="h-full" style={{ width: `${hpPct}%`, backgroundColor: hpColor }} />
+                        </div>
+                        <span className="text-[7px] font-bold w-10 text-right" style={{ color: hpColor }}>{u.hp}/{u.maxHp}</span>
+                      </div>
+
+                      {helmet && (
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="text-[8px] w-2 flex-shrink-0 text-cyan-400">⛑</span>
+                          <div className="flex-1 h-[5px] rounded-sm overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.7)', border: '1px solid rgba(0,0,0,0.5)' }}>
+                            <div className="h-full" style={{ width: `${helmetPct}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }} />
+                          </div>
+                          <span className="text-[7px] text-cyan-300 font-bold w-10 text-right">{helmet.durability}/{helmet.maxDurability}</span>
+                        </div>
+                      )}
+
+                      {armor && (
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="text-[8px] w-2 flex-shrink-0 text-slate-400">🛡</span>
+                          <div className="flex-1 h-[5px] rounded-sm overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.7)', border: '1px solid rgba(0,0,0,0.5)' }}>
+                            <div className="h-full" style={{ width: `${armorPct}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }} />
+                          </div>
+                          <span className="text-[7px] text-slate-300 font-bold w-10 text-right">{armor.durability}/{armor.maxDurability}</span>
+                        </div>
+                      )}
+
+                      <div className="text-[8px] text-amber-300/80 mt-0.5">
+                        ⚔ {weapon?.name || '徒手'}{weapon?.damage ? ` ${weapon.damage[0]}-${weapon.damage[1]}` : ''}
+                      </div>
+
+                      {hasShield && shield && (
+                        <div className="text-[8px] text-sky-300/80 mt-0.5">
+                          🛡 格挡 {shield.defenseBonus || 0} 耐久 {shield.durability}/{shield.maxDurability}
+                        </div>
+                      )}
+
+                      {statuses.length > 0 && (
+                        <div className="flex flex-wrap gap-0.5 mt-1">
+                          {statuses.map(s => (
+                            <span
+                              key={s.id}
+                              className={`px-0.5 rounded border text-[8px] flex items-center gap-0.5 ${
+                                s.tone === 'debuff' ? 'border-rose-600/60 bg-rose-950/50' : 'border-emerald-600/60 bg-emerald-950/50'
+                              }`}
+                              title={s.label}
+                            >
+                              <RenderIcon icon={s.icon} style={{ width: '10px', height: '10px' }} />
+                              {s.badge && <span>{s.badge}</span>}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-            </div>
-          );
+            );
+          }
+
+          return null;
         })()}
 
         <div className="absolute inset-0 pointer-events-none">
@@ -5125,7 +5314,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               {canAttack && targetUnit && hitBreakdown && (
                 <div className="mb-2 pb-2 border-b border-red-500/30">
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-red-300 font-bold">⚔ {selectedAbility!.name} → {targetUnit.name}</span>
+                    <div className="flex items-center gap-1">
+                  <RenderIcon icon={getAbilityIcon(selectedAbility!)} style={{ width: '14px', height: '14px' }} />
+                  <span className="text-red-300 font-bold">{selectedAbility!.name} → {targetUnit.name}</span>
+                </div>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-slate-400 text-[9px]">命中率:</span>
@@ -5445,7 +5637,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                             {index + 1}
                           </span>
                         )}
-                        <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`}>{getAbilityIcon(skill)}</span>
+                        <RenderIcon 
+                          icon={getAbilityIcon(skill)} 
+                          className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`} 
+                          style={{ width: isCompactLandscape ? '16px' : '24px', height: isCompactLandscape ? '16px' : '24px' }}
+                        />
                         <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
                         <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-slate-200 truncate leading-none`}>
                           {skill.name}
@@ -5536,7 +5732,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       backgroundColor: i === 0 ? `${style.color}10` : 'transparent',
                     }}
                   >
-                    <span className="flex-shrink-0 mt-0.5" style={{ color: style.color }}>{style.icon}</span>
+                    <span className="flex-shrink-0 mt-0.5" style={{ color: style.color }}>
+                      <RenderIcon icon={style.icon} style={{ width: '12px', height: '12px' }} />
+                    </span>
                     <span style={{ color: i === 0 ? style.color : '#94a3b8' }}>{entry.text}</span>
                   </div>
                 );
@@ -5564,7 +5762,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               boxShadow: `0 0 30px ${centerBanner.color}40, 0 0 60px ${centerBanner.color}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
             }}
           >
-            <span className="text-2xl">{centerBanner.icon}</span>
+            <span className="text-2xl">{renderBannerIcon(centerBanner.icon)}</span>
             <span 
               className="text-xl font-bold tracking-wider"
               style={{ color: centerBanner.color, textShadow: `0 0 10px ${centerBanner.color}60` }}
