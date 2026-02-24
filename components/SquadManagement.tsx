@@ -152,7 +152,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [selectedTraitId, setSelectedTraitId] = useState<string | null>(null);
   const [selectedEquipSlot, setSelectedEquipSlot] = useState<keyof Character['equipment'] | null>(null);
   const [inspectedItem, setInspectedItem] = useState<Item | null>(null);
-  const [levelUpRolls, setLevelUpRolls] = useState<LevelUpRolls | null>(null);
+  const [levelUpRollsByMercId, setLevelUpRollsByMercId] = useState<Record<string, LevelUpRolls>>({});
   const [selectedLevelUpStats, setSelectedLevelUpStats] = useState<LevelUpStatKey[]>([]);
   const [levelUpBatchTotal, setLevelUpBatchTotal] = useState(0);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
@@ -169,6 +169,7 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
   const [compactFontScale, setCompactFontScale] = useState(1);
   const [touchFormationDrag, setTouchFormationDrag] = useState<TouchFormationDragState | null>(null);
   const selectedTrait: Trait | null = selectedTraitId ? (TRAIT_TEMPLATES[selectedTraitId] || null) : null;
+  const levelUpRolls = selectedMerc ? (levelUpRollsByMercId[selectedMerc.id] ?? null) : null;
 
   // 分离出战阵中和后备队伍的人员
   const activeRoster = useMemo(() => party.mercenaries.filter(m => m.formationIndex !== null), [party.mercenaries]);
@@ -209,7 +210,6 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       setSelectedEquipSlot(null);
       setInspectedItem(null);
       setSelectedLevelUpStats([]);
-      setLevelUpRolls(null);
       setLevelUpBatchTotal(selectedMerc?.pendingLevelUps ?? 0);
       if ((selectedMerc?.pendingLevelUps ?? 0) > 0) {
           setRightTab('LEVELUP');
@@ -220,11 +220,19 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       if (!selectedMerc || rightTab !== 'LEVELUP') return;
       if (selectedMerc.pendingLevelUps <= 0) {
           setSelectedLevelUpStats([]);
-          setLevelUpRolls(null);
+          setLevelUpRollsByMercId(prev => {
+              if (!(selectedMerc.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[selectedMerc.id];
+              return next;
+          });
           return;
       }
       if (!levelUpRolls) {
-          setLevelUpRolls(generateLevelUpRolls(selectedMerc.stars));
+          setLevelUpRollsByMercId(prev => ({
+              ...prev,
+              [selectedMerc.id]: generateLevelUpRolls(selectedMerc.stars),
+          }));
           setSelectedLevelUpStats([]);
       }
   }, [rightTab, selectedMerc, levelUpRolls]);
@@ -276,9 +284,18 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
       setSelectedMerc(nextSelectedMerc);
       setSelectedLevelUpStats([]);
       if (nextSelectedMerc && nextSelectedMerc.pendingLevelUps > 0) {
-          setLevelUpRolls(generateLevelUpRolls(nextSelectedMerc.stars));
+          setLevelUpRollsByMercId(prev => ({
+              ...prev,
+              [nextSelectedMerc.id]: generateLevelUpRolls(nextSelectedMerc.stars),
+          }));
       } else {
-          setLevelUpRolls(null);
+          setLevelUpRollsByMercId(prev => {
+              if (!selectedMerc) return prev;
+              if (!(selectedMerc.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[selectedMerc.id];
+              return next;
+          });
       }
   };
 
