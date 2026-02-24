@@ -1,21 +1,12 @@
 import { GameDifficulty, Trait } from '../types.ts';
+import { getRecruitMultiplierByDifficulty } from '../constants.ts';
 
 const BASE_SALARY = 10;
 const HIRE_COST_SALARY_FACTOR = 25;
 const MIN_HIRE_COST = 10;
 
 export const getRecruitDifficultyMultiplier = (difficulty: GameDifficulty): number => {
-  switch (difficulty) {
-    case 'EASY':
-      return 0.9;
-    case 'HARD':
-      return 1.15;
-    case 'EXPERT':
-      return 1.3;
-    case 'NORMAL':
-    default:
-      return 1.0;
-  }
+  return getRecruitMultiplierByDifficulty(difficulty);
 };
 
 export const calculateRecruitSalary = (salaryMult: number): number => {

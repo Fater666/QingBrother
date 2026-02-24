@@ -11,6 +11,7 @@ import {
     type LevelUpRolls,
     type LevelUpStatKey,
 } from '../constants';
+import { getUniqueWeaponEffect } from '../services/uniqueWeaponService';
 
 interface SquadManagementProps {
   party: Party;
@@ -51,6 +52,28 @@ const getItemTypeName = (type: Item['type']): string => {
         'ACCESSORY': '饰品'
     };
     return typeNames[type] || type;
+};
+
+const getWeaponCategoryName = (item: Item): string | null => {
+    if (item.type !== 'WEAPON') return null;
+    const category = item.combatClass || item.weaponClass;
+    if (!category) return null;
+
+    const categoryNames: Record<string, string> = {
+        sword: '剑',
+        axe: '斧',
+        mace: '锤',
+        flail: '连枷',
+        cleaver: '刀',
+        spear: '矛',
+        polearm: '长柄',
+        dagger: '匕首',
+        bow: '弓',
+        crossbow: '弩',
+        throw: '投掷',
+        hammer: '重锤',
+    };
+    return categoryNames[category] || category;
 };
 
 const getItemRarityName = (rarity?: Item['rarity']): string => {
@@ -1700,6 +1723,12 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                   </div>
               </div>
               <p className="text-xs text-slate-500 italic mb-3 leading-relaxed">「{hoveredItem.description}」</p>
+              {hoveredItem.rarity === 'UNIQUE' && getUniqueWeaponEffect(hoveredItem.id) && (
+                  <div className="mb-3 px-2 py-1.5 border border-red-800/40 bg-red-950/20 rounded">
+                      <span className="text-red-400 font-bold text-xs">【{getUniqueWeaponEffect(hoveredItem.id)!.name}】</span>
+                      <span className="text-red-300/80 text-xs">{getUniqueWeaponEffect(hoveredItem.id)!.description}</span>
+                  </div>
+              )}
               <div className="space-y-1.5 text-xs">
                   {hoveredItem.damage && (
                       <div className="flex justify-between">
@@ -1886,6 +1915,8 @@ const ItemDetailPanel: React.FC<ItemDetailPanelProps> = ({ item, dense = false, 
         );
     }
 
+    const weaponCategoryName = getWeaponCategoryName(item);
+
     return (
         <div className={`${dense ? 'px-2 py-1.5' : 'px-3 py-2'} border border-amber-900/40 bg-black/40 space-y-1.5`}>
             <div className="flex justify-between items-center gap-2">
@@ -1907,12 +1938,24 @@ const ItemDetailPanel: React.FC<ItemDetailPanelProps> = ({ item, dense = false, 
             </div>
             <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
                 <span>{getItemTypeName(item.type)}</span>
+                {weaponCategoryName && (
+                    <>
+                        <span>·</span>
+                        <span>类别 {weaponCategoryName}</span>
+                    </>
+                )}
                 <span>·</span>
                 <span>价值 {item.value}</span>
                 <span>·</span>
                 <span>负重 {item.weight}</span>
             </div>
             <div className={`${dense ? 'text-[10px]' : 'text-[11px]'} text-slate-400 leading-relaxed italic`}>「{item.description}」</div>
+            {item.rarity === 'UNIQUE' && getUniqueWeaponEffect(item.id) && (
+                <div className={`${dense ? 'text-[9px]' : 'text-[10px]'} px-1.5 py-1 border border-red-800/40 bg-red-950/20 rounded my-0.5`}>
+                    <span className="text-red-400 font-bold">【{getUniqueWeaponEffect(item.id)!.name}】</span>
+                    <span className="text-red-300/80">{getUniqueWeaponEffect(item.id)!.description}</span>
+                </div>
+            )}
             <div className={`${dense ? 'text-[10px]' : 'text-[11px]'} text-slate-300 space-y-0.5`}>
                 {item.damage && <div>基础杀伤：<span className="text-red-400 font-mono">{item.damage[0]}-{item.damage[1]}</span></div>}
                 {item.armorPen !== undefined && <div>穿甲能力：<span className="text-sky-400 font-mono">{Math.round(item.armorPen * 100)}%</span></div>}

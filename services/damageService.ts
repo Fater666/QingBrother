@@ -161,6 +161,10 @@ export const calculateDamage = (
     skipMorale?: boolean;
     /** 额外伤害加成（固定值，如狂战士） */
     bonusDamage?: number;
+    /** 是否为反击（纯钧反击伤害+25%） */
+    isRiposte?: boolean;
+    /** 使用的技能ID（用于红武被动判断） */
+    abilityId?: string;
   }
 ): DamageResult => {
   const weapon = attacker.equipment.mainHand;
@@ -212,6 +216,43 @@ export const calculateDamage = (
   if (throwMult > 1) {
     baseDamage = Math.floor(baseDamage * throwMult);
   }
+
+  // === 红武被动效果：伤害修正 ===
+  const weaponId = weapon?.id;
+  // 项羽戟「破釜沉舟」（被动）：HP<50%时伤害+25%，穿甲+10%
+  if (weaponId === 'w_unique_xiangyu' && attacker.hp < attacker.maxHp * 0.5) {
+    baseDamage = Math.floor(baseDamage * 1.25);
+  }
+  // 纯钧「百发百中」（被动）：反击伤害+25%
+  if (weaponId === 'w_unique_chunjun' && options?.isRiposte) {
+    baseDamage = Math.floor(baseDamage * 1.25);
+  }
+
+  // === 红武主动技能：伤害修正 ===
+  const abilityId = options?.abilityId;
+  // 干将「焚剑」：伤害×1.5，对HP>50%目标额外+15%
+  if (abilityId === 'GANJIANG_FLAME') {
+    baseDamage = Math.floor(baseDamage * 1.5);
+    if (target.hp > target.maxHp * 0.5) baseDamage = Math.floor(baseDamage * 1.15);
+  }
+  // 莫邪「影刺」：伤害×1.3，对HP≤50%目标额外+20%
+  if (abilityId === 'MOYE_SHADOW') {
+    baseDamage = Math.floor(baseDamage * 1.3);
+    if (target.hp <= target.maxHp * 0.5) baseDamage = Math.floor(baseDamage * 1.2);
+  }
+  // 雷公鞭「雷霆万钧」：伤害×1.3
+  if (abilityId === 'LEIGONG_THUNDER') {
+    baseDamage = Math.floor(baseDamage * 1.3);
+  }
+  // 荆轲匕「见血封喉」：HP<30%伤害×3，否则×1.5
+  if (abilityId === 'JINGKE_EXECUTE') {
+    if (target.hp < target.maxHp * 0.3) baseDamage = baseDamage * 3;
+    else baseDamage = Math.floor(baseDamage * 1.5);
+  }
+  // 养由基弓「百步穿杨」：伤害×1.5
+  if (abilityId === 'YANGYOUJI_SNIPE') {
+    baseDamage = Math.floor(baseDamage * 1.5);
+  }
   
   // 确保最低1点伤害
   baseDamage = Math.max(1, baseDamage);
@@ -252,7 +293,18 @@ export const calculateDamage = (
   if (masteryEffects.hammerArmorDmgBonus) {
     armorDmgMult += masteryEffects.hammerArmorDmgBonus;
   }
-  
+
+  // === 红武被动效果：护甲相关修正 ===
+  // 项羽戟「破釜沉舟」（被动）：HP<50%时穿甲+10%
+  if (weaponId === 'w_unique_xiangyu' && attacker.hp < attacker.maxHp * 0.5) {
+    armorPen += 0.10;
+  }
+  // === 红武主动技能：护甲相关修正 ===
+  // 龙牙刀「斩铁」：护甲伤害×3
+  if (abilityId === 'LONGYA_IRONCUT') {
+    armorDmgMult *= 3;
+  }
+
   let armorDamageDealt = 0;
   let hpDamageDealt = 0;
   let armorDestroyed = false;

@@ -37,6 +37,7 @@ import QUEST_DIFFICULTY_POOLS_CSV from './csv/quest_difficulty_pools.csv?raw';
 import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
 import QUEST_GENERATION_RULES_CSV from './csv/quest_generation_rules.csv?raw';
 import BACKGROUND_TRAIT_WEIGHTS_CSV from './csv/background_trait_weights.csv?raw';
+import GAME_DIFFICULTY_CONFIG_CSV from './csv/game_difficulty_config.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -272,7 +273,8 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         }
         else if (wc === 'sword') {
             skills.push(ABILITIES['SLASH']);
-            if (main.value > 200) skills.push(ABILITIES['RIPOSTE']);
+            // 纯钧「百发百中」：无条件获得反击；其他剑价值>200也获得反击
+            if (main.id === 'w_unique_chunjun' || main.value > 200) skills.push(ABILITIES['RIPOSTE']);
         }
         else if (wc === 'axe') {
             skills.push(ABILITIES['CHOP']); skills.push(ABILITIES['SPLIT_SHIELD']);
@@ -310,7 +312,10 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         }
         else if (wc === 'crossbow') {
             skills.push({ ...ABILITIES['SHOOT'], apCost: CROSSBOW_SHOOT_AP_COST });
-            skills.push({ ...ABILITIES['RELOAD'], apCost: CROSSBOW_RELOAD_AP_COST });
+            // 连弩「机关连发」：不需要装填
+            if (main.id !== 'w_unique_liannu') {
+                skills.push({ ...ABILITIES['RELOAD'], apCost: CROSSBOW_RELOAD_AP_COST });
+            }
         }
         // 默认近战攻击
         else { skills.push(ABILITIES['SLASH']); }
@@ -324,6 +329,20 @@ export const getUnitAbilities = (char: Character): Ability[] => {
         if (char.perks.includes('rally')) skills.push({ id: 'RALLY_SKILL', name: '振军', description: '提高范围内盟友的士气。', apCost: 4, fatCost: 25, range: [0,0], icon: '📢', type: 'SKILL', targetType: 'SELF' });
         if (char.perks.includes('taunt')) skills.push({ id: 'TAUNT_SKILL', name: '挑衅', description: '迫使周围敌人优先攻击自己（1回合）。', apCost: 3, fatCost: 15, range: [0,0], icon: '🤬', type: 'SKILL', targetType: 'SELF' });
         if (char.perks.includes('indomitable')) skills.push({ id: 'INDOMITABLE_SKILL', name: '不屈', description: '受到伤害减半，持续1回合。', apCost: 5, fatCost: 25, range: [0,0], icon: '🗿', type: 'SKILL', targetType: 'SELF' });
+    }
+    // === 红武主动技能：根据武器ID分配专属技能 ===
+    if (main) {
+        const _uwId = main.id;
+        if (_uwId === 'w_unique_ganjiang') skills.push({ id: 'GANJIANG_FLAME', name: '焚剑', description: '阳气全力一击，造成150%伤害。对HP>50%的目标额外+15%。', apCost: 6, fatCost: 25, range: [1,1], icon: '🔥', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_moye') skills.push({ id: 'MOYE_SHADOW', name: '影刺', description: '阴影突袭，命中+25%，伤害×1.3。对HP≤50%目标额外+20%。', apCost: 5, fatCost: 20, range: [1,1], icon: '🌑', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_taie') skills.push({ id: 'TAIE_MAJESTY', name: '天子之威', description: '释放天子剑意，周围4格所有敌人进行士气检定。', apCost: 5, fatCost: 30, range: [0,0], icon: '👑', type: 'SKILL', targetType: 'SELF' });
+        if (_uwId === 'w_unique_pangu') skills.push({ id: 'PANGU_CLEAVE', name: '开天辟地', description: '全力一斧，攻击目标并对其相邻1名敌人造成50%溅射伤害。', apCost: 7, fatCost: 30, range: [1,1], icon: '⚡', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_jingang') skills.push({ id: 'JINGANG_SHATTER', name: '金刚碎', description: '碎甲重击，额外破坏目标护甲最大耐久25%，击晕概率+25%。', apCost: 6, fatCost: 25, range: [1,1], icon: '💎', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_leigong') skills.push({ id: 'LEIGONG_THUNDER', name: '雷霆万钧', description: '雷神之击，伤害×1.3，必定击晕1回合，无视盾牌。', apCost: 6, fatCost: 25, range: [1,1], icon: '⛈', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_longya') skills.push({ id: 'LONGYA_IRONCUT', name: '斩铁', description: '斩铁式，护甲伤害×3。', apCost: 6, fatCost: 22, range: [1,1], icon: '⚔', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_bawang') skills.push({ id: 'BAWANG_SWEEP', name: '横扫千军', description: '横扫攻击，对目标及其相邻1名敌人造成伤害（溅射60%）。击杀回复4AP。', apCost: 7, fatCost: 30, range: [1,2], icon: '🌀', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_jingke') skills.push({ id: 'JINGKE_EXECUTE', name: '见血封喉', description: '刺向要害（强制头部）。目标HP<30%时伤害×3，否则伤害×1.5。', apCost: 5, fatCost: 20, range: [1,1], icon: '☠', type: 'ATTACK', targetType: 'ENEMY' });
+        if (_uwId === 'w_unique_yangyouji') skills.push({ id: 'YANGYOUJI_SNIPE', name: '百步穿杨', description: '神射，无距离惩罚，命中+25%，伤害×1.5。', apCost: 7, fatCost: 25, range: [2,7], icon: '🎯', type: 'ATTACK', targetType: 'ENEMY' });
     }
     skills.push(ABILITIES['WAIT']);
     return skills;
@@ -420,16 +439,45 @@ export const getDifficultyTier = (day: number) => {
     return { tier: last.tier, valueLimit: last.valueLimit, statMult: last.statMult };
 };
 
-export const GAME_DIFFICULTY_CONFIG: Record<GameDifficulty, {
+type GameDifficultyConfig = {
   incomeMultiplier: number;
   enemyCountMultiplier: number;
   enemyStatMultiplier: number;
-}> = {
-  EASY: { incomeMultiplier: 1.3, enemyCountMultiplier: 0.7, enemyStatMultiplier: 0.9 },
-  NORMAL: { incomeMultiplier: 1.0, enemyCountMultiplier: 1.0, enemyStatMultiplier: 1.0 },
-  HARD: { incomeMultiplier: 0.85, enemyCountMultiplier: 1.2, enemyStatMultiplier: 1.08 },
-  EXPERT: { incomeMultiplier: 0.7, enemyCountMultiplier: 1.4, enemyStatMultiplier: 1.17 },
+  recruitMultiplier: number;
 };
+
+const DEFAULT_GAME_DIFFICULTY_CONFIG: Record<GameDifficulty, GameDifficultyConfig> = {
+  EASY: { incomeMultiplier: 1.3, enemyCountMultiplier: 0.7, enemyStatMultiplier: 0.9, recruitMultiplier: 0.9 },
+  NORMAL: { incomeMultiplier: 1.0, enemyCountMultiplier: 1.0, enemyStatMultiplier: 1.0, recruitMultiplier: 1.0 },
+  HARD: { incomeMultiplier: 0.85, enemyCountMultiplier: 1.2, enemyStatMultiplier: 1.08, recruitMultiplier: 1.15 },
+  EXPERT: { incomeMultiplier: 0.6, enemyCountMultiplier: 1.5, enemyStatMultiplier: 1.22, recruitMultiplier: 1.4 },
+};
+
+const _difficultyRows = parseCSV(GAME_DIFFICULTY_CONFIG_CSV) as Array<{
+  difficulty: string;
+  incomeMultiplier: number;
+  enemyCountMultiplier: number;
+  enemyStatMultiplier: number;
+  recruitMultiplier: number;
+}>;
+
+export const GAME_DIFFICULTY_CONFIG: Record<GameDifficulty, GameDifficultyConfig> = {
+  EASY: { ...DEFAULT_GAME_DIFFICULTY_CONFIG.EASY },
+  NORMAL: { ...DEFAULT_GAME_DIFFICULTY_CONFIG.NORMAL },
+  HARD: { ...DEFAULT_GAME_DIFFICULTY_CONFIG.HARD },
+  EXPERT: { ...DEFAULT_GAME_DIFFICULTY_CONFIG.EXPERT },
+};
+
+_difficultyRows.forEach((row) => {
+  const difficulty = String(row.difficulty || '').toUpperCase() as GameDifficulty;
+  if (!GAME_DIFFICULTY_CONFIG[difficulty]) return;
+  GAME_DIFFICULTY_CONFIG[difficulty] = {
+    incomeMultiplier: Number(row.incomeMultiplier ?? DEFAULT_GAME_DIFFICULTY_CONFIG[difficulty].incomeMultiplier),
+    enemyCountMultiplier: Number(row.enemyCountMultiplier ?? DEFAULT_GAME_DIFFICULTY_CONFIG[difficulty].enemyCountMultiplier),
+    enemyStatMultiplier: Number(row.enemyStatMultiplier ?? DEFAULT_GAME_DIFFICULTY_CONFIG[difficulty].enemyStatMultiplier),
+    recruitMultiplier: Number(row.recruitMultiplier ?? DEFAULT_GAME_DIFFICULTY_CONFIG[difficulty].recruitMultiplier),
+  };
+});
 
 export const getIncomeMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
   GAME_DIFFICULTY_CONFIG[difficulty]?.incomeMultiplier ?? 1.0;
@@ -439,6 +487,9 @@ export const getEnemyCountMultiplierByDifficulty = (difficulty: GameDifficulty):
 
 export const getEnemyStatMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
   GAME_DIFFICULTY_CONFIG[difficulty]?.enemyStatMultiplier ?? 1.0;
+
+export const getRecruitMultiplierByDifficulty = (difficulty: GameDifficulty): number =>
+  GAME_DIFFICULTY_CONFIG[difficulty]?.recruitMultiplier ?? 1.0;
 
 // --- ENEMY COMPOSITIONS (from enemy_compositions.csv) ---
 export const TIERED_ENEMY_COMPOSITIONS: Record<string, {
@@ -1066,9 +1117,36 @@ export const calculateHitChance = (
     }
   }
 
+  // === 红武被动效果：命中率修正 ===
+  const atkWeaponId = weapon?.id;
+  const defWeaponId = target.equipment.mainHand?.id;
+  // 湛卢「仁者守护」：被近战攻击时防御+10，满血额外+5
+  let uniqueDefBonus = 0;
+  if (defWeaponId === 'w_unique_zhanlu' && !isRangedByName) {
+    uniqueDefBonus = target.hp >= target.maxHp ? 15 : 10;
+  }
+  // 养由基弓「百步穿杨」（主动技能）：无距离命中惩罚
+  let effectiveDistancePenalty = distancePenalty;
+  if (ability?.id === 'YANGYOUJI_SNIPE') {
+    effectiveDistancePenalty = 0;
+  }
+  // 雷公鞭「雷霆万钧」（主动技能）：无视盾牌防御
+  let effectiveShieldDef = shieldDef;
+  if (ability?.id === 'LEIGONG_THUNDER') {
+    effectiveShieldDef = 0;
+  }
+
   // 最终命中率
-  let final = baseSkill - targetDefense + weaponMod + moraleMod - shieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - distancePenalty + extraHitMod + terrainMod;
+  // === 红武主动技能命中加成 ===
+  let uniqueHitBonus = 0;
+  if (ability?.id === 'MOYE_SHADOW') uniqueHitBonus = 25;
+  if (ability?.id === 'YANGYOUJI_SNIPE') uniqueHitBonus = 25;
+  let final = baseSkill - targetDefense - uniqueDefBonus + weaponMod + moraleMod - effectiveShieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - effectiveDistancePenalty + extraHitMod + terrainMod + uniqueHitBonus;
   final = Math.max(5, Math.min(95, final));
+  // 纯钧「百发百中」：命中率下限75%
+  if (atkWeaponId === 'w_unique_chunjun') {
+    final = Math.max(75, final);
+  }
 
   return {
     final,

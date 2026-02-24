@@ -116,14 +116,16 @@ export const calculateFreeAttackHitChance = (
  * 计算截击攻击的伤害（使用护甲系统）
  * @param attacker 攻击者
  * @param target 目标
+ * @param extraDamageMult 额外伤害倍率（如霸王枪矛墙×1.5）
  * @returns DamageResult 结构化伤害结果
  */
 export const calculateFreeAttackDamageWithArmor = (
   attacker: CombatUnit,
-  target: CombatUnit
+  target: CombatUnit,
+  extraDamageMult?: number
 ): DamageResult => {
   return calculateDamage(attacker, target, {
-    damageMult: FREE_ATTACK_DAMAGE_MULT,
+    damageMult: FREE_ATTACK_DAMAGE_MULT * (extraDamageMult ?? 1),
   });
 };
 
@@ -188,12 +190,13 @@ export const calculateMovementBlockChance = (
 export const executeFreeAttack = (
   attacker: CombatUnit,
   target: CombatUnit,
-  state?: CombatState
+  state?: CombatState,
+  extraDamageMult?: number
 ): FreeAttackResult => {
   const hitChance = calculateFreeAttackHitChance(attacker, target, state);
   const roll = Math.random() * 100;
   const hit = roll <= hitChance;
-  
+
   let damage = 0;
   let hpDamage = 0;
   let movementBlocked = false;
@@ -203,7 +206,7 @@ export const executeFreeAttack = (
   
   if (hit) {
     // 使用护甲伤害系统计算截击伤害
-    dmgResult = calculateFreeAttackDamageWithArmor(attacker, target);
+    dmgResult = calculateFreeAttackDamageWithArmor(attacker, target, extraDamageMult);
     damage = dmgResult.totalEffectiveDamage;
     hpDamage = dmgResult.hpDamageDealt;
     

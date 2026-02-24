@@ -155,9 +155,7 @@ const getWeaponIcon = (w: Item | null): string => {
 // 技能图标兜底，避免个别平台 emoji 缺字导致显示为空
 const getAbilityIcon = (ability: Ability | null | undefined): string => {
   if (!ability) return '✦';
-  // 保持技能图标原始配置（CSV/常量中的 emoji），避免不同技能共用同一素材图
-  // 推撞在部分平台 emoji 可能缺字，给一个稳定兜底
-  if (ability.id === 'KNOCK_BACK') return '👊';
+  // 保持技能图标原始配置（CSV/常量中的 emoji）
   return ability.icon || '✦';
 };
 
@@ -199,13 +197,16 @@ const getHammerBashStunChance = (
   hitLocation: HitLocation
 ): number => {
   const weapon = attacker.equipment.mainHand;
-  const baseChance = weapon?.twoHanded
-    ? HAMMER_BASH_STUN_CHANCE_TWO_HANDED
-    : HAMMER_BASH_STUN_CHANCE_ONE_HANDED;
+  const weaponId = weapon?.id;
+  const baseChance = weapon?.twoHanded ? HAMMER_BASH_STUN_CHANCE_TWO_HANDED : HAMMER_BASH_STUN_CHANCE_ONE_HANDED;
   const headBonus = hitLocation === 'HEAD' ? HAMMER_BASH_STUN_HEADSHOT_BONUS : 0;
   const masteryBonus = hasPerk(attacker, 'hammer_mastery') ? 10 : 0;
-  const resolveReduction = Math.max(0, Math.floor((target.stats.resolve - 40) / 5));
-  return clampPercent(baseChance + headBonus + masteryBonus - resolveReduction, 15, 75);
+  // 破军锤「震慑」（被动）：击晕+20%，忽略50%胆识
+  let uniqueBonus = 0;
+  let resolveReductionMult = 1;
+  if (weaponId === 'w_unique_pojun') { uniqueBonus = 20; resolveReductionMult = 0.5; }
+  const resolveReduction = Math.max(0, Math.floor((target.stats.resolve - 40) / 5)) * resolveReductionMult;
+  return clampPercent(baseChance + headBonus + masteryBonus + uniqueBonus - resolveReduction, 15, 75);
 };
 
 interface DisplayStatus {
@@ -3575,7 +3576,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       return;
     }
 
-    const dmgResult = calculateDamage(defender, attacker, { damageMult: 0.8 });
+    const dmgResult = calculateDamage(defender, attacker, { damageMult: 0.8, isRiposte: true });
     const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
     if (dmgResult.armorDamageDealt > 0) {
       floatTexts.push({
@@ -3767,6 +3768,40 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             )
           }));
           addToLog(`🔄 ${activeUnit.name} 进入反击姿态：受到近战攻击时将自动反击！`, 'skill');
+          if (!overrideAbility) setSelectedAbility(null);
+          return;
+        }
+        // === 太阿「天子之威」：周围4格所有敌人进行士气检定 ===
+        if (ability.id === 'TAIE_MAJESTY') {
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
+          setState(prev => ({
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === activeUnit.id
+                ? {
+                    ...u,
+                    currentAP: u.currentAP - ability.apCost,
+                    fatigue: Math.min(u.maxFatigue, u.fatigue + abilityFatCost),
+                  }
+                : u
+            )
+          }));
+          // 找周围4格内所有敌人
+          const nearbyEnemies = state.units.filter(u =>
+            !u.isDead && !u.hasEscaped &&
+            u.team !== activeUnit.team &&
+            getHexDistance(activeUnit.combatPos, u.combatPos) <= 4
+          );
+          if (nearbyEnemies.length > 0) {
+            nearbyEnemies.forEach(enemy => {
+              processDamageWithMorale(enemy.id, 0, activeUnit.id);
+            });
+            addToLog(`👑 天子之威！${activeUnit.name}释放天子剑意，周围敌军士气动摇！`, 'morale');
+            showCenterBanner('天子之威！敌军胆寒！', '#fbbf24', '👑');
+            triggerScreenShake('heavy');
+          } else {
+            addToLog(`👑 ${activeUnit.name} 释放天子之威，但附近没有敌人。`, 'info');
+          }
           if (!overrideAbility) setSelectedAbility(null);
           return;
         }
@@ -4051,7 +4086,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       ...u,
                       currentAP: u.currentAP - apCost,
                       fatigue: Math.min(u.maxFatigue, u.fatigue + abilityFatCost),
-                      crossbowLoaded: ability.id === 'SHOOT' && isCrossbowUnit(u) ? false : u.crossbowLoaded,
+                      // 连弩「机关连发」：射击后自动装填
+                      crossbowLoaded: ability.id === 'SHOOT' && isCrossbowUnit(u) && u.equipment.mainHand?.id !== 'w_unique_liannu' ? false : u.crossbowLoaded,
                     };
                     return u;
                 })
@@ -4148,11 +4184,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               tryTriggerRiposte(target.id, activeUnit.id);
               return;
             }
-            const dmgResult = calculateDamage(activeUnit, target, ability.id === 'AIMED_SHOT' ? { damageMult: AIMED_SHOT_DAMAGE_MULT } : undefined);
+            const dmgOptions: Parameters<typeof calculateDamage>[2] = { abilityId: ability.id };
+            if (ability.id === 'AIMED_SHOT') dmgOptions!.damageMult = AIMED_SHOT_DAMAGE_MULT;
+            // 荆轲匕「见血封喉」：强制命中头部
+            if (ability.id === 'JINGKE_EXECUTE') dmgOptions!.forceHitLocation = 'HEAD';
+            const dmgResult = calculateDamage(activeUnit, target, dmgOptions);
             const weaponName = activeUnit.equipment.mainHand?.name || '徒手';
             const shouldTryStun = isHammerBashStunAttack(ability, activeUnit) && !dmgResult.willKill;
             const stunChance = shouldTryStun ? getHammerBashStunChance(activeUnit, target, dmgResult.hitLocation) : 0;
-            const didStun = shouldTryStun && Math.random() * 100 < stunChance;
+            let didStun = shouldTryStun && Math.random() * 100 < stunChance;
+            // 雷公鞭「雷霆万钧」：必定击晕1回合（无视胆识）
+            if (ability.id === 'LEIGONG_THUNDER' && !dmgResult.willKill) didStun = true;
+            // 金刚锤「金刚碎」：额外击晕概率+25%
+            if (ability.id === 'JINGANG_SHATTER' && !dmgResult.willKill && !didStun) {
+              didStun = Math.random() * 100 < 25;
+            }
             
             // === 命中后的专精效果 ===
             setState(prev => ({
@@ -4217,6 +4263,28 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               }
             }
 
+            // === 红武主动技能命中后效果 ===
+            // 金刚锤「金刚碎」：破坏被击中部位护甲最大耐久25%
+            if (ability.id === 'JINGANG_SHATTER' && !dmgResult.willKill) {
+              setState(prev => ({
+                ...prev,
+                units: prev.units.map(u => {
+                  if (u.id !== target.id) return u;
+                  const equipment = { ...u.equipment };
+                  if (dmgResult.hitLocation === 'HEAD' && equipment.helmet && equipment.helmet.maxDurability > 0) {
+                    const loss = Math.max(1, Math.floor(equipment.helmet.maxDurability * 0.25));
+                    equipment.helmet = { ...equipment.helmet, maxDurability: equipment.helmet.maxDurability - loss, durability: Math.min(equipment.helmet.durability, equipment.helmet.maxDurability - loss) };
+                  } else if (dmgResult.hitLocation === 'BODY' && equipment.armor && equipment.armor.maxDurability > 0) {
+                    const loss = Math.max(1, Math.floor(equipment.armor.maxDurability * 0.25));
+                    equipment.armor = { ...equipment.armor, maxDurability: equipment.armor.maxDurability - loss, durability: Math.min(equipment.armor.durability, equipment.armor.maxDurability - loss) };
+                  }
+                  return { ...u, equipment };
+                })
+              }));
+              const shatterArmorName = dmgResult.hitLocation === 'HEAD' ? '头盔' : '护甲';
+              addToLog(`🔨 金刚碎！${target.name} 的${shatterArmorName}最大耐久被永久破坏25%！`, 'skill');
+            }
+
             // 构建浮动伤害文字（护甲伤害+HP伤害）
             const floatTexts: { id: number; text: string; x: number; y: number; color: string; type: FloatingTextType; size: 'sm' | 'md' | 'lg' }[] = [];
             
@@ -4264,6 +4332,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             // 详细播报（含护甲信息）
             const logMsg = getDamageLogText(activeUnit.name, target.name, weaponName, ability.name, dmgResult);
             addToLog(logMsg, 'attack');
+            // === 红武主动技能命中日志 ===
+            if (ability.id === 'JINGKE_EXECUTE' && target.hp < target.maxHp * 0.3) {
+              addToLog(`☠️ 见血封喉！荆轲匕的致命一击！`, 'skill');
+            }
             if (didStun) {
               addToLog(`😵 ${target.name} 被${weaponName}击晕！（${Math.round(stunChance)}%）`, 'skill');
             }
@@ -4310,8 +4382,84 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 }));
                 addToLog(`🩸 ${activeUnit.name} 杀意激发！伤害提升25%，持续${duration}回合！`, 'skill');
               }
+
+              // === 红武主动技能击杀效果 ===
+              // 霸王枪「横扫千军」（主动技能）：击杀回4AP
+              if (ability.id === 'BAWANG_SWEEP') {
+                setState(prev => ({
+                  ...prev,
+                  units: prev.units.map(u => u.id === activeUnit.id
+                    ? { ...u, currentAP: Math.min(9, u.currentAP + 4) }
+                    : u)
+                }));
+                addToLog(`⚡ 所向披靡！${activeUnit.name} 击杀后回复4点行动点！`, 'skill');
+              }
             }
-            
+
+            // === 红武主动技能：溅射效果 ===
+            // 盘古斧「开天辟地」：对目标相邻1名敌人造成50%溅射伤害
+            if (ability.id === 'PANGU_CLEAVE') {
+              const targetNeighbors = getHexNeighbors(hoveredHex.q, hoveredHex.r);
+              const splashTarget = state.units.find(u =>
+                !u.isDead && !u.hasEscaped && u.team !== activeUnit.team && u.id !== target.id &&
+                targetNeighbors.some((n: { q: number; r: number }) => n.q === u.combatPos.q && n.r === u.combatPos.r)
+              );
+              if (splashTarget) {
+                const splashDmg = calculateDamage(activeUnit, splashTarget, { damageMult: 0.5 });
+                setFloatingTexts(prev => [...prev, {
+                  id: Date.now() + 20,
+                  text: `-${splashDmg.hpDamageDealt}`,
+                  x: splashTarget.combatPos.q,
+                  y: splashTarget.combatPos.r,
+                  color: '#f97316',
+                  type: 'damage' as FloatingTextType,
+                  size: 'sm' as const,
+                }]);
+                triggerHitEffect(splashTarget.id);
+                addToLog(`💥 开天辟地！溅射波及 ${splashTarget.name}，造成 ${splashDmg.hpDamageDealt} 点伤害！`, 'skill');
+                processDamageWithMorale(splashTarget.id, splashDmg.hpDamageDealt, activeUnit.id, splashDmg);
+                if (splashDmg.willKill) {
+                  triggerDeathEffect(splashTarget.combatPos.q, splashTarget.combatPos.r);
+                  addToLog(`💀 ${splashTarget.name} 被溅射击杀！`, 'kill');
+                }
+              }
+            }
+            // 霸王枪「横扫千军」：对目标相邻1名敌人造成60%溅射伤害
+            if (ability.id === 'BAWANG_SWEEP') {
+              const targetNeighbors = getHexNeighbors(hoveredHex.q, hoveredHex.r);
+              const splashTarget = state.units.find(u =>
+                !u.isDead && !u.hasEscaped && u.team !== activeUnit.team && u.id !== target.id &&
+                targetNeighbors.some((n: { q: number; r: number }) => n.q === u.combatPos.q && n.r === u.combatPos.r)
+              );
+              if (splashTarget) {
+                const splashDmg = calculateDamage(activeUnit, splashTarget, { damageMult: 0.6 });
+                setFloatingTexts(prev => [...prev, {
+                  id: Date.now() + 21,
+                  text: `-${splashDmg.hpDamageDealt}`,
+                  x: splashTarget.combatPos.q,
+                  y: splashTarget.combatPos.r,
+                  color: '#f97316',
+                  type: 'damage' as FloatingTextType,
+                  size: 'sm' as const,
+                }]);
+                triggerHitEffect(splashTarget.id);
+                addToLog(`💥 横扫千军！波及 ${splashTarget.name}，造成 ${splashDmg.hpDamageDealt} 点伤害！`, 'skill');
+                processDamageWithMorale(splashTarget.id, splashDmg.hpDamageDealt, activeUnit.id, splashDmg);
+                if (splashDmg.willKill) {
+                  triggerDeathEffect(splashTarget.combatPos.q, splashTarget.combatPos.r);
+                  addToLog(`💀 ${splashTarget.name} 被横扫击杀！`, 'kill');
+                  // 横扫千军溅射击杀也回4AP
+                  setState(prev => ({
+                    ...prev,
+                    units: prev.units.map(u => u.id === activeUnit.id
+                      ? { ...u, currentAP: Math.min(9, u.currentAP + 4) }
+                      : u)
+                  }));
+                  addToLog(`⚡ 所向披靡！${activeUnit.name} 击杀后回复4点行动点！`, 'skill');
+                }
+              }
+            }
+
             // === 威压 (fearsome): 任何造成伤害的攻击触发士气检定 ===
             if (hasFearsome(activeUnit) && dmgResult.hpDamageDealt >= 1 && !dmgResult.willKill) {
               // 士气检定已在 processDamageWithMorale 中处理（handleHeavyDamage）
@@ -4995,7 +5143,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     <button onClick={() => { setMobileAttackTarget(null); setSelectedAbility(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
                 : <>
-                    <RenderIcon icon={getAbilityIcon(selectedAbility)} className="text-base" style={{ width: '20px', height: '20px' }} />
+                    <span className="text-base">{getAbilityIcon(selectedAbility)}</span>
                     <span>{selectedAbility.name} - 点击目标</span>
                     <button onClick={() => { setSelectedAbility(null); setMobileAttackTarget(null); }} className="ml-2 bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-[10px]">取消</button>
                   </>
@@ -5310,9 +5458,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                 <div className="mb-2 pb-2 border-b border-red-500/30">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-1">
-                  <RenderIcon icon={getAbilityIcon(selectedAbility!)} style={{ width: '14px', height: '14px' }} />
-                  <span className="text-red-300 font-bold">{selectedAbility!.name} → {targetUnit.name}</span>
-                </div>
+                      <span className="text-red-300 font-bold">{getAbilityIcon(selectedAbility!)} {selectedAbility!.name} → {targetUnit.name}</span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-slate-400 text-[9px]">命中率:</span>
@@ -5632,11 +5779,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                             {index + 1}
                           </span>
                         )}
-                        <RenderIcon 
-                          icon={getAbilityIcon(skill)} 
-                          className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`} 
-                          style={{ width: isCompactLandscape ? '16px' : '24px', height: isCompactLandscape ? '16px' : '24px' }}
-                        />
+                        <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`}>{getAbilityIcon(skill)}</span>
                         <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
                         <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-slate-200 truncate leading-none`}>
                           {skill.name}

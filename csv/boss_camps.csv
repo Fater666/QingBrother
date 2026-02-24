@@ -8,3 +8,4 @@ boss_archer|养由基射猎场|SOUTH|FOREST,PLAINS|0.5|0.75|w_unique_yangyouji,w
 boss_longya|龙牙山寨|CENTRAL|FOREST,MOUNTAIN|0.3|0.55|w_unique_longya|BOSS_LONGYA
 boss_xipi|犀皮工坊遗址|SOUTH|SWAMP,FOREST|0.55|0.8|a_unique_xipi,s_unique_xuanwu|BOSS_XIPI
 boss_huben|虎贲将军墓|NORTH|SNOW,PLAINS|0.05|0.2|h_unique_huben,a_unique_jinlv|BOSS_HUBEN
+boss_pojun|蚩尤古战场|CENTRAL|RUINS,PLAINS|0.3|0.55|w_unique_pojun|BOSS_POJUN
