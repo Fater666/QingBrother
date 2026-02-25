@@ -905,7 +905,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     maxAP: number,
     tData?: Map<string, { type: string; height: number }>,
     pathfinderPerk: boolean = false,
-    allowPartial: boolean = false
+    allowPartial: boolean = false,
+    allyOccupiedHexes?: Set<string>
   ): HexPos[] | null => {
     if (maxAP < 2) return null;
     const startKey = `${start.q},${start.r}`;
@@ -980,6 +981,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       let bestDist = Infinity;
       for (const [key] of costMap) {
         if (key === startKey) continue;
+        // 跳过被友方单位占据的格子（可以途经但不能作为终点）
+        if (allyOccupiedHexes && allyOccupiedHexes.has(key)) continue;
         const [q, r] = key.split(',').map(Number);
         const dist = getHexDistance({ q, r }, target);
         if (dist < bestDist) {
@@ -1005,20 +1008,22 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return null;
   }, [isPathHexInBounds]);
 
-  const evaluateMovePathOutcome = useCallback((unit: CombatUnit, path: HexPos[]) => {
+  const evaluateMovePathOutcome = useCallback((unit: CombatUnit, path: HexPos[], liveUnits?: CombatUnit[]) => {
     let cursor = unit.combatPos;
     let stepsMoved = 0;
     let enteredEnemyZoC = false;
     let threateningEnemies: CombatUnit[] = [];
 
-    // 检查某个位置是否被友方单位占据（不能停留在友方单位的格子上）
-    const isOccupiedByAlly = (pos: HexPos) => state.units.some(u =>
+    // 使用传入的最新单位列表（AI回合内state可能过期），否则使用state中的单位
+    const unitsSnapshot = liveUnits || state.units;
+
+    // 检查某个位置是否被任何其他活着的单位占据（不能停留在已有单位的格子上）
+    const isOccupiedByOther = (pos: HexPos) => unitsSnapshot.some(u =>
       !u.isDead && !u.hasEscaped && u.id !== unit.id &&
-      u.team === unit.team &&
       u.combatPos.q === pos.q && u.combatPos.r === pos.r
     );
 
-    // 记录最后一个未被友方占据的安全停留位置
+    // 记录最后一个未被占据的安全停留位置
     let lastSafePos = unit.combatPos;
     let lastSafeSteps = 0;
 
@@ -1027,7 +1032,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       cursor = step;
       stepsMoved += 1;
 
-      if (!isOccupiedByAlly(step)) {
+      if (!isOccupiedByOther(step)) {
         lastSafePos = step;
         lastSafeSteps = stepsMoved;
       }
@@ -1039,8 +1044,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       }
     }
 
-    // 如果最终停留位置被友方单位占据，回退到最后一个安全位置
-    if (stepsMoved > 0 && isOccupiedByAlly(cursor)) {
+    // 如果最终停留位置被其他单位占据，回退到最后一个安全位置
+    if (stepsMoved > 0 && isOccupiedByOther(cursor)) {
       cursor = lastSafePos;
       stepsMoved = lastSafeSteps;
       // 回退后已不在原ZoC进入点，取消ZoC进入状态
@@ -2916,8 +2921,16 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           if (!aiUnit) break;
 
           const blockedHexes = buildBlockedHexSet(state.units, aiUnit.id, aiUnit.team, terrainData);
+          // 构建友方单位占位集合（可以途经但不能作为停留终点）
+          const allyOccupied = new Set<string>();
+          state.units.forEach(u => {
+            if (u.isDead || u.hasEscaped || u.id === aiUnit.id) return;
+            if (u.team === aiUnit.team) {
+              allyOccupied.add(`${u.combatPos.q},${u.combatPos.r}`);
+            }
+          });
           const maxMoveSteps = getMaxMoveSteps(aiUnit, currentAP, currentFatigue);
-          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'), true);
+          const movePath = findPathWithinSteps(currentPos, action.targetPos, blockedHexes, maxMoveSteps, terrainData, hasPerk(aiUnit, 'pathfinder'), true, allyOccupied);
           if (!movePath || movePath.length === 0) break;
 
           const aiMoveUnit = {
