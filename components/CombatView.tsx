@@ -1011,16 +1011,41 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     let enteredEnemyZoC = false;
     let threateningEnemies: CombatUnit[] = [];
 
+    // 检查某个位置是否被友方单位占据（不能停留在友方单位的格子上）
+    const isOccupiedByAlly = (pos: HexPos) => state.units.some(u =>
+      !u.isDead && !u.hasEscaped && u.id !== unit.id &&
+      u.team === unit.team &&
+      u.combatPos.q === pos.q && u.combatPos.r === pos.r
+    );
+
+    // 记录最后一个未被友方占据的安全停留位置
+    let lastSafePos = unit.combatPos;
+    let lastSafeSteps = 0;
+
     for (const step of path) {
       const enterCheck = checkZoCEnterOnStep(unit, cursor, step, state);
       cursor = step;
       stepsMoved += 1;
+
+      if (!isOccupiedByAlly(step)) {
+        lastSafePos = step;
+        lastSafeSteps = stepsMoved;
+      }
 
       if (enterCheck.enteringEnemyZoC) {
         enteredEnemyZoC = true;
         threateningEnemies = enterCheck.threateningEnemies;
         break;
       }
+    }
+
+    // 如果最终停留位置被友方单位占据，回退到最后一个安全位置
+    if (stepsMoved > 0 && isOccupiedByAlly(cursor)) {
+      cursor = lastSafePos;
+      stepsMoved = lastSafeSteps;
+      // 回退后已不在原ZoC进入点，取消ZoC进入状态
+      enteredEnemyZoC = false;
+      threateningEnemies = [];
     }
 
     return {
