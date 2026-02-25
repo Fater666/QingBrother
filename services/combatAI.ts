@@ -286,6 +286,7 @@ const findBestMovePosition = (
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
       if (moveDistance > maxMoveDistance) continue;
+      if (!isCombatHexInBounds(newPos)) continue;
       if (isHexBlocked(newPos, state)) continue;
 
       let score = calculatePositionScore(unit, newPos, targetPos, state, preferredRange, ctx);
@@ -318,6 +319,16 @@ const findBestMovePosition = (
   return null;
 };
 
+const COMBAT_GRID_RANGE = 15;
+
+const isCombatHexInBounds = (pos: { q: number; r: number }): boolean => {
+  const { q, r } = pos;
+  if (q < -COMBAT_GRID_RANGE || q > COMBAT_GRID_RANGE) return false;
+  const minR = Math.max(-COMBAT_GRID_RANGE, -q - COMBAT_GRID_RANGE);
+  const maxR = Math.min(COMBAT_GRID_RANGE, -q + COMBAT_GRID_RANGE);
+  return r >= minR && r <= maxR;
+};
+
 const findFleePosition = (
   unit: CombatUnit,
   threats: CombatUnit[],
@@ -335,6 +346,7 @@ const findFleePosition = (
       const newPos = { q: unit.combatPos.q + q, r: unit.combatPos.r + r };
       const moveDistance = getHexDistance(unit.combatPos, newPos);
       if (moveDistance === 0 || moveDistance > maxMoveDistance) continue;
+      if (!isCombatHexInBounds(newPos)) continue;
       if (isHexBlocked(newPos, state)) continue;
 
       let minThreatDist = Infinity;

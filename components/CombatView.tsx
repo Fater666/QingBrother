@@ -890,7 +890,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   }, []);
 
   const isPathHexInBounds = useCallback((pos: HexPos) => {
-    const range = 21;
+    const range = gridRange;
     const { q, r } = pos;
     if (q < -range || q > range) return false;
     const minR = Math.max(-range, -q - range);
