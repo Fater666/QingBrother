@@ -127,7 +127,7 @@ export const getCritThresholdMult = (perks: string[]): number => {
   if (perks?.includes('crippling_strikes')) {
     return getPerkEffect('crippling_strikes', 'critThreshold', 0.53);
   }
-  return 0.8;
+  return 0.85;
 };
 
 /**
