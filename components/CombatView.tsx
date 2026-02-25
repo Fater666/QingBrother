@@ -3745,7 +3745,6 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           return;
         }
         if (ability.id === 'SPEARWALL') {
-          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           if (activeUnit.isHalberdWall) {
             setState(prev => ({
               ...prev,
@@ -3757,6 +3756,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             if (!overrideAbility) setSelectedAbility(null);
             return;
           }
+          if (activeUnit.currentAP < ability.apCost) { showInsufficientActionPoints(ability); return; }
           const enemyAdjacent = state.units.some(u =>
             !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
           );
@@ -5741,24 +5741,29 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               {isPlayerTurn && activeUnit ? (
                 <div className={`${isCompactLandscape ? 'p-1.5 gap-1.5 grid-cols-3' : isMobile ? 'p-2 gap-2 grid-cols-4' : 'p-3 gap-2 grid-cols-6'} grid`}>
                   {getUnitAbilities(activeUnit).filter(a => a.id !== 'MOVE' && !isWaitAbility(a)).map((skill, index) => {
-                    const isSpearwallDisabled = skill.id === 'SPEARWALL' && state.units.some(u =>
+                    const isSpearwallActive = skill.id === 'SPEARWALL' && !!activeUnit.isHalberdWall;
+                    const isSpearwallDisabled = skill.id === 'SPEARWALL' && !isSpearwallActive && state.units.some(u =>
                       !u.isDead && !u.hasEscaped && u.team === 'ENEMY' && getHexDistance(activeUnit.combatPos, u.combatPos) === 1
                     );
                     const isReloadSkillDisabled = skill.id === 'RELOAD' && (!isCrossbowUnit(activeUnit) || isCrossbowLoaded(activeUnit));
                     const isCrossbowShootDisabled = skill.id === 'SHOOT' && isCrossbowUnit(activeUnit) && !isCrossbowLoaded(activeUnit);
                     const isAlreadyActiveBuff =
                       (skill.id === 'SHIELDWALL' && !!activeUnit.isShieldWall) ||
-                      (skill.id === 'SPEARWALL' && !!activeUnit.isHalberdWall) ||
                       (skill.id === 'RIPOSTE' && !!activeUnit.isRiposte);
                     const skillFatigueCost = getEffectiveFatigueCost(activeUnit, skill);
-                    const isAPDisabled = activeUnit.currentAP < skill.apCost;
-                    const isFatigueDisabled = getRemainingFatigue(activeUnit) < skillFatigueCost;
+                    const isAPDisabled = !isSpearwallActive && activeUnit.currentAP < skill.apCost;
+                    const isFatigueDisabled = !isSpearwallActive && getRemainingFatigue(activeUnit) < skillFatigueCost;
                     const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff || isReloadSkillDisabled || isCrossbowShootDisabled || isAPDisabled || isFatigueDisabled;
                     return (
                       <button
                         key={skill.id}
                         onClick={() => {
                           if (isSkillDisabled) return;
+                          // 矛墙已激活时，单击直接取消
+                          if (skill.id === 'SPEARWALL' && activeUnit.isHalberdWall) {
+                            performAttack(skill);
+                            return;
+                          }
                           if (skill.targetType === 'SELF' && skill.range[0] === 0 && skill.range[1] === 0) {
                             const now = Date.now();
                             const last = lastSelfSkillClickRef.current;
