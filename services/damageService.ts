@@ -375,7 +375,10 @@ export const calculateDamage = (
   const maxDmg = weapon?.damage ? weapon.damage[1] : UNARMED_DAMAGE[1];
   // === 致残击 (crippling_strikes): 降低暴击阈值 ===
   const critThreshold = getCritThresholdMult(attacker.perks || []);
-  const isCritical = baseDamage >= maxDmg * critThreshold;
+  // === 铁额 (steel_brow): 头部命中时不触发暴击 ===
+  const isCritical = (hitLocation === 'HEAD' && hasSteelBrow(target))
+    ? false
+    : baseDamage >= maxDmg * critThreshold;
   
   // 判定是否击杀
   const willKill = target.hp - hpDamageDealt <= 0;
