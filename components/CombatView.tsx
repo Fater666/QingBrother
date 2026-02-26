@@ -1316,6 +1316,18 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return Math.max(0, unit.maxFatigue - unit.fatigue);
   }, []);
 
+  const getEffectiveApCost = useCallback((unit: CombatUnit, ability: Ability): number => {
+    let apCost = ability.apCost || 4;
+    const masteryEffects = getWeaponMasteryEffects(unit);
+    if (masteryEffects.reducedApCost) {
+      apCost = Math.min(apCost, masteryEffects.reducedApCost);
+    }
+    if (masteryEffects.daggerReducedAp && ability.type === 'ATTACK') {
+      apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
+    }
+    return apCost;
+  }, []);
+
   const getEffectiveFatigueCost = useCallback((unit: CombatUnit, ability: Ability): number => {
     const baseFatigue = ability.fatCost || 0;
     if (baseFatigue <= 0) return 0;
@@ -3183,9 +3195,10 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod, getTerrainCombatMods(currentPos, target.combatPos, terrainData));
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             const aiFatigueCost = getEffectiveFatigueCost(activeUnit, action.ability);
-            if (currentAP < action.ability.apCost) break;
+            const aiApCost = getEffectiveApCost(activeUnit, action.ability);
+            if (currentAP < aiApCost) break;
             if (getRemainingFatigue({ ...activeUnit, fatigue: currentFatigue }) < aiFatigueCost) break;
-            currentAP -= action.ability.apCost;
+            currentAP -= aiApCost;
             currentFatigue = Math.min(activeUnit.maxFatigue, currentFatigue + aiFatigueCost);
             if (action.ability.id === 'SHOOT' && isCrossbowUnit(activeUnit)) {
               currentCrossbowLoaded = false;
@@ -3327,7 +3340,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             if (currentAP < action.ability.apCost) break;
             const skillFatigueCost = getEffectiveFatigueCost(activeUnit, action.ability);
             if (getRemainingFatigue({ ...activeUnit, fatigue: currentFatigue }) < skillFatigueCost) break;
-            currentAP -= action.ability.apCost;
+            const skillApCost = action.ability.apCost;
+            currentAP -= skillApCost;
             currentFatigue = Math.min(activeUnit.maxFatigue, currentFatigue + skillFatigueCost);
             currentCrossbowLoaded = true;
             setState(prev => ({
@@ -5199,8 +5213,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             <div className="flex items-center justify-between mb-2 gap-2">
               <div className="text-amber-400 font-bold text-sm truncate">{selectedAbility.name}</div>
               <div className="flex gap-1.5 text-[9px] shrink-0">
-                <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">行动点 {selectedAbility.apCost}</span>
-                <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {selectedAbility.fatCost}</span>
+                <span className="bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded">行动点 {getEffectiveApCost(activeUnit, selectedAbility)}</span>
+                <span className="bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">疲劳 {getEffectiveFatigueCost(activeUnit, selectedAbility)}</span>
               </div>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed break-words">"{selectedAbility.description}"</p>
@@ -5248,7 +5262,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       + 合围 +{bd.surroundBonus}%
                     </div>
                   )}
-                  {activeUnit.currentAP < mobileAttackTarget.ability.apCost && (
+                  {activeUnit.currentAP < getEffectiveApCost(activeUnit, mobileAttackTarget.ability) && (
                     <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
                   )}
                   {getRemainingFatigue(activeUnit) < mobileAbilityFatCost && (
@@ -5469,7 +5483,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const dist = getHexDistance(activeUnit.combatPos, infoHex);
           const canAttack = isAttackLikeAbility(selectedAbility) && targetUnit && 
             dist >= selectedAbility.range[0] && dist <= selectedAbility.range[1] &&
-            activeUnit.currentAP >= selectedAbility.apCost &&
+            activeUnit.currentAP >= getEffectiveApCost(activeUnit, selectedAbility) &&
             getRemainingFatigue(activeUnit) >= getEffectiveFatigueCost(activeUnit, selectedAbility);
           
           let hitChance = 0;
@@ -5520,7 +5534,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       + 合围 +{hitBreakdown.surroundBonus}%
                     </div>
                   )}
-                  {activeUnit.currentAP < (selectedAbility!.apCost || 4) && (
+                  {activeUnit.currentAP < getEffectiveApCost(activeUnit, selectedAbility!) && (
                     <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
                   )}
                   {getRemainingFatigue(activeUnit) < getEffectiveFatigueCost(activeUnit, selectedAbility!) && (
@@ -5763,8 +5777,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                     const isAlreadyActiveBuff =
                       (skill.id === 'SHIELDWALL' && !!activeUnit.isShieldWall) ||
                       (skill.id === 'RIPOSTE' && !!activeUnit.isRiposte);
+                    const skillApCost = getEffectiveApCost(activeUnit, skill);
                     const skillFatigueCost = getEffectiveFatigueCost(activeUnit, skill);
-                    const isAPDisabled = !isSpearwallActive && activeUnit.currentAP < skill.apCost;
+                    const isAPDisabled = !isSpearwallActive && activeUnit.currentAP < skillApCost;
                     const isFatigueDisabled = !isSpearwallActive && getRemainingFatigue(activeUnit) < skillFatigueCost;
                     const isSkillDisabled = isSpearwallDisabled || isAlreadyActiveBuff || isReloadSkillDisabled || isCrossbowShootDisabled || isAPDisabled || isFatigueDisabled;
                     return (
@@ -5803,7 +5818,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                                 : isCrossbowShootDisabled
                                   ? '弩未装填，先使用装填'
                               : isAPDisabled
-                                  ? `行动点不足（需要 ${skill.apCost}）`
+                                  ? `行动点不足（需要 ${skillApCost}）`
                               : isFatigueDisabled
                                   ? `疲劳不足（需要 ${skillFatigueCost}）`
                               : skill.name
@@ -5823,7 +5838,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                           </span>
                         )}
                         <span className={`${isCompactLandscape ? 'text-base' : 'text-xl'} drop-shadow-md leading-none`}>{getAbilityIcon(skill)}</span>
-                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skill.apCost}</span>
+                        <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} absolute top-1 right-1 font-mono text-amber-500`}>{skillApCost}</span>
                         <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[9px]'} mt-1 max-w-full px-1 text-slate-200 truncate leading-none`}>
                           {skill.name}
                         </span>
