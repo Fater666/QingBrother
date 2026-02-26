@@ -2929,6 +2929,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         }
         
         if (action.type === 'MOVE' && action.targetPos) {
+          // 安全检查：确保AI目标位置在边界内
+          if (!isHexInBounds(action.targetPos)) {
+            console.warn(`[AI安全] ${activeUnit.name} 目标位置越界 (${action.targetPos.q}, ${action.targetPos.r})，跳过移动`);
+            break;
+          }
           const aiUnit = state.units.find(u => u.id === activeUnit.id);
           if (!aiUnit) break;
 

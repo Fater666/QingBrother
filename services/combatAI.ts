@@ -257,6 +257,12 @@ const calculatePositionScore = (
     score = ctx.tactics.positionModifier(pos, unit, score, ctx);
   }
 
+  // 边缘惩罚：远程单位避免跑到地图极端边缘
+  if (preferredRange > 1) {
+    const edgeDist = getEdgeDistance(pos);
+    if (edgeDist <= 2) score -= (3 - edgeDist) * 5;
+  }
+
   return score;
 };
 
@@ -329,6 +335,16 @@ const isCombatHexInBounds = (pos: { q: number; r: number }): boolean => {
   return r >= minR && r <= maxR;
 };
 
+const getEdgeDistance = (pos: { q: number; r: number }): number => {
+  const { q, r } = pos;
+  const s = -q - r;
+  return Math.min(
+    COMBAT_GRID_RANGE - Math.abs(q),
+    COMBAT_GRID_RANGE - Math.abs(r),
+    COMBAT_GRID_RANGE - Math.abs(s)
+  );
+};
+
 const findFleePosition = (
   unit: CombatUnit,
   threats: CombatUnit[],
@@ -338,7 +354,7 @@ const findFleePosition = (
   if (maxMoveDistance < 1) return null;
 
   let bestPos: { q: number; r: number } | null = null;
-  let maxDistance = 0;
+  let bestScore = -Infinity;
   const searchRadius = Math.min(maxMoveDistance, 6);
 
   for (let q = -searchRadius; q <= searchRadius; q++) {
@@ -353,8 +369,15 @@ const findFleePosition = (
       for (const threat of threats) {
         minThreatDist = Math.min(minThreatDist, getHexDistance(newPos, threat.combatPos));
       }
-      if (minThreatDist > maxDistance) {
-        maxDistance = minThreatDist;
+
+      // 边缘惩罚：距边界越近惩罚越大，防止单位跑到地图极端边缘
+      const edgeDist = getEdgeDistance(newPos);
+      let edgePenalty = 0;
+      if (edgeDist <= 2) edgePenalty = (3 - edgeDist) * 3;
+
+      const score = minThreatDist * 10 - edgePenalty;
+      if (score > bestScore) {
+        bestScore = score;
         bestPos = newPos;
       }
     }

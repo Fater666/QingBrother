@@ -511,6 +511,18 @@ export const applyMoraleResults = (
 
 // ==================== 逃跑行为 ====================
 
+const MORALE_GRID_RANGE = 15;
+
+/** 将坐标钳制到战场边界内 */
+const clampToGrid = (pos: { q: number; r: number }): { q: number; r: number } => {
+  let { q, r } = pos;
+  q = Math.max(-MORALE_GRID_RANGE, Math.min(MORALE_GRID_RANGE, q));
+  const minR = Math.max(-MORALE_GRID_RANGE, -q - MORALE_GRID_RANGE);
+  const maxR = Math.min(MORALE_GRID_RANGE, -q + MORALE_GRID_RANGE);
+  r = Math.max(minR, Math.min(maxR, r));
+  return { q, r };
+};
+
 /**
  * 获取逃跑单位的移动目标位置
  * 逃跑单位会尝试远离所有敌人
@@ -521,7 +533,7 @@ export const getFleeTargetPosition = (
 ): { q: number; r: number } | null => {
   const enemies = state.units.filter(u => u.team !== unit.team && !u.isDead);
   if (enemies.length === 0) return null;
-  
+
   // 计算所有敌人的平均位置
   const avgEnemyPos = enemies.reduce(
     (acc, e) => ({ q: acc.q + e.combatPos.q, r: acc.r + e.combatPos.r }),
@@ -529,26 +541,26 @@ export const getFleeTargetPosition = (
   );
   avgEnemyPos.q /= enemies.length;
   avgEnemyPos.r /= enemies.length;
-  
+
   // 计算远离敌人的方向
   const dirQ = unit.combatPos.q - avgEnemyPos.q;
   const dirR = unit.combatPos.r - avgEnemyPos.r;
-  
+
   // 归一化方向并计算目标位置（移动2-3格）
   const length = Math.sqrt(dirQ * dirQ + dirR * dirR);
   if (length < 0.1) {
     // 如果在敌人中心，随机选一个方向
-    return {
+    return clampToGrid({
       q: unit.combatPos.q + Math.floor(Math.random() * 3) - 1,
       r: unit.combatPos.r + Math.floor(Math.random() * 3) - 1
-    };
+    });
   }
-  
+
   const moveDistance = 2;
-  return {
+  return clampToGrid({
     q: Math.round(unit.combatPos.q + (dirQ / length) * moveDistance),
     r: Math.round(unit.combatPos.r + (dirR / length) * moveDistance)
-  };
+  });
 };
 
 /**
@@ -572,17 +584,17 @@ export const getRetreatTargetPosition = (
       { q: 0, r: 1 },
     ];
     const randomDirection = retreatDirections[Math.floor(Math.random() * retreatDirections.length)];
-    return {
+    return clampToGrid({
       q: unit.combatPos.q + randomDirection.q * 2,
       r: unit.combatPos.r + randomDirection.r * 2,
-    };
+    });
   }
 
   const moveDistance = 2;
-  return {
+  return clampToGrid({
     q: Math.round(unit.combatPos.q + (dirQ / length) * moveDistance),
     r: Math.round(unit.combatPos.r + (dirR / length) * moveDistance),
-  };
+  });
 };
 
 /**
