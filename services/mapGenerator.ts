@@ -4,7 +4,7 @@
  */
 
 import { WorldTile, City, Quest, Character, Item, QuestType } from '../types';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, QUEST_TEMPLATE_ROWS, ELITE_QUEST_TEMPLATE_ROWS, QUEST_CITY_COUNT_RULES, QUEST_DIFFICULTY_POOL_RULES, QUEST_REWARD_RULES, QUEST_GENERATION_RULES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG, isBannerWeapon } from '../constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, HELMET_TEMPLATES, SHIELD_TEMPLATES, CONSUMABLE_TEMPLATES, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, QUEST_NPC_NAMES, QUEST_PLACE_NAMES, QUEST_TEMPLATE_ROWS, ELITE_QUEST_TEMPLATE_ROWS, QUEST_CITY_COUNT_RULES, QUEST_DIFFICULTY_POOL_RULES, QUEST_REWARD_RULES, QUEST_GENERATION_RULES, BIOME_CONFIGS_DATA, RARITY_WEIGHTS as CSV_RARITY_WEIGHTS, MARKET_STOCK_CONFIG as CSV_MARKET_STOCK_CONFIG, isBannerWeapon, rollLegendaryHero } from '../constants';
 import { calculateRecruitHireCost } from './recruitPricing';
 
 // ============================================================================
@@ -273,16 +273,19 @@ const generateName = (): string => {
 /**
  * 辅助函数：创建雇佣兵
  */
-const createMercenary = (id: string): Character => {
+const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, forcedTraits?: string[], forcedStars?: Character['stars'], legendaryStory?: string): Character => {
   const bgKeys = Object.keys(BACKGROUNDS);
-  const bgKey = bgKeys[Math.floor(Math.random() * bgKeys.length)];
+  let bgKey = forcedBgKey;
+  if (!bgKey || !BACKGROUNDS[bgKey]) {
+    bgKey = bgKeys[Math.floor(Math.random() * bgKeys.length)];
+  }
   const bg: BackgroundTemplate = BACKGROUNDS[bgKey];
-  const name = generateName();
+  const name = fixedName || generateName();
   const roll = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
   const rollMod = (range: [number, number]) => roll(range[0], range[1]);
 
   // 分配特质并计算属性修正
-  const traits = assignTraits(bgKey);
+  const traits = forcedTraits || assignTraits(bgKey);
   const traitMods = getTraitStatMods(traits);
 
   const baseHp = roll(50, 70) + rollMod(bg.hpMod) + traitMods.hpMod;
@@ -295,54 +298,59 @@ const createMercenary = (id: string): Character => {
   const baseRDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.rangedDefMod;
 
   type StarKey = 'meleeSkill' | 'rangedSkill' | 'meleeDefense' | 'rangedDefense' | 'resolve' | 'initiative' | 'hp' | 'fatigue';
-  const starKeys: StarKey[] = [
-    'meleeSkill', 'rangedSkill', 'meleeDefense', 'rangedDefense',
-    'resolve', 'initiative', 'hp', 'fatigue',
-  ];
-  const bgModMap: Record<string, [number, number]> = {
-    meleeSkill: bg.meleeSkillMod, rangedSkill: bg.rangedSkillMod,
-    meleeDefense: bg.defMod, rangedDefense: bg.defMod,
-    resolve: bg.resolveMod, initiative: bg.initMod,
-    hp: bg.hpMod, fatigue: bg.fatigueMod,
-  };
+  let stars: Record<StarKey, number>;
+  if (forcedStars) {
+    stars = { ...forcedStars } as Record<StarKey, number>;
+  } else {
+    const starKeys: StarKey[] = [
+      'meleeSkill', 'rangedSkill', 'meleeDefense', 'rangedDefense',
+      'resolve', 'initiative', 'hp', 'fatigue',
+    ];
+    const bgModMap: Record<string, [number, number]> = {
+      meleeSkill: bg.meleeSkillMod, rangedSkill: bg.rangedSkillMod,
+      meleeDefense: bg.defMod, rangedDefense: bg.defMod,
+      resolve: bg.resolveMod, initiative: bg.initMod,
+      hp: bg.hpMod, fatigue: bg.fatigueMod,
+    };
 
-  const getModMedian = (mod: [number, number]) => (mod[0] + mod[1]) / 2;
-  const starWeight = (key: string) => {
-    const median = getModMedian(bgModMap[key]);
-    if (median >= 15) return 4;
-    if (median >= 8) return 2;
-    if (median < 0) return 0.3;
-    return 1;
-  };
+    const getModMedian = (mod: [number, number]) => (mod[0] + mod[1]) / 2;
+    const starWeight = (key: string) => {
+      const median = getModMedian(bgModMap[key]);
+      if (median >= 15) return 4;
+      if (median >= 8) return 2;
+      if (median < 0) return 0.3;
+      return 1;
+    };
 
-  const starCountRoll = Math.random() * 100;
-  const starCount = starCountRoll < 15 ? 0 : starCountRoll < 40 ? 1 : starCountRoll < 70 ? 2 : starCountRoll < 90 ? 3 : 4;
+    const starCountRoll = Math.random() * 100;
+    const starCount = starCountRoll < 15 ? 0 : starCountRoll < 40 ? 1 : starCountRoll < 70 ? 2 : starCountRoll < 90 ? 3 : 4;
 
-  const chosenStarKeys = new Set<string>();
-  const starPool = [...starKeys];
-  for (let i = 0; i < starCount && starPool.length > 0; i++) {
-    const weights = starPool.map(k => starWeight(k));
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    let picked = starPool.length - 1;
-    for (let j = 0; j < starPool.length; j++) {
-      r -= weights[j];
-      if (r <= 0) { picked = j; break; }
+    const chosenStarKeys = new Set<string>();
+    const starPool = [...starKeys];
+    for (let i = 0; i < starCount && starPool.length > 0; i++) {
+      const weights = starPool.map(k => starWeight(k));
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let picked = starPool.length - 1;
+      for (let j = 0; j < starPool.length; j++) {
+        r -= weights[j];
+        if (r <= 0) { picked = j; break; }
+      }
+      chosenStarKeys.add(starPool[picked]);
+      starPool.splice(picked, 1);
     }
-    chosenStarKeys.add(starPool[picked]);
-    starPool.splice(picked, 1);
-  }
 
-  const rollStarLevel = (key: string): number => {
-    const median = getModMedian(bgModMap[key]);
-    const r = Math.random() * 100;
-    if (median >= 15) return r < 20 ? 3 : r < 60 ? 2 : 1;
-    return r < 10 ? 3 : r < 40 ? 2 : 1;
-  };
+    const rollStarLevel = (key: string): number => {
+      const median = getModMedian(bgModMap[key]);
+      const r = Math.random() * 100;
+      if (median >= 15) return r < 20 ? 3 : r < 60 ? 2 : 1;
+      return r < 10 ? 3 : r < 40 ? 2 : 1;
+    };
 
-  const stars: Record<StarKey, number> = {} as Record<StarKey, number>;
-  for (const key of starKeys) {
-    stars[key] = chosenStarKeys.has(key) ? rollStarLevel(key) : 0;
+    stars = {} as Record<StarKey, number>;
+    for (const key of starKeys) {
+      stars[key] = chosenStarKeys.has(key) ? rollStarLevel(key) : 0;
+    }
   }
 
   const weaponPool = WEAPON_TEMPLATES.filter(w => w.value < 400);
@@ -353,14 +361,15 @@ const createMercenary = (id: string): Character => {
   const { salary, hireCost } = calculateRecruitHireCost(bg.salaryMult, traits, TRAIT_TEMPLATES);
 
   return {
-    id, name, background: bg.name, backgroundStory: bg.desc, level: 1, xp: 0,
+    id, name, background: bg.name, backgroundStory: legendaryStory || bg.desc, level: 1, xp: 0,
     hp: baseHp, maxHp: baseHp, fatigue: 0, maxFatigue: baseFat,
     morale: 'STEADY' as any,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
     traits, perks: [], perkPoints: 0, pendingLevelUps: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet: null, ammo: null, accessory: null },
-    bag: [null, null, null, null], salary, hireCost, formationIndex: null
+    bag: [null, null, null, null], salary, hireCost, formationIndex: null,
+    ...(legendaryStory ? { isLegendary: true } : {}),
   };
 };
 
@@ -560,7 +569,17 @@ export const generateCities = (
 
       // 使用新的分层市场生成系统
       const market = generateCityMarket(cityType);
-      const recruits = Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${nameIndex}-${j}`));
+      const recruits = (() => {
+        const usedNames: string[] = [];
+        return Array.from({ length: 4 }).map((_, j) => {
+          const hero = rollLegendaryHero(usedNames);
+          if (hero) {
+            usedNames.push(hero.name);
+            return createMercenary(`rec-${nameIndex}-${j}`, hero.name, hero.bgKey, hero.traits, hero.stars, hero.story);
+          }
+          return createMercenary(`rec-${nameIndex}-${j}`);
+        });
+      })();
       
       // 根据城市规模生成不同数量的任务（仿战场兄弟）
       const quests = generateCityQuests(biome, cityType, `city-${nameIndex}`, nameIndex);

@@ -170,7 +170,8 @@ export interface Character {
   bag: (Item | null)[]; 
   salary: number;
   hireCost: number;
-  formationIndex: number | null; 
+  formationIndex: number | null;
+  isLegendary?: boolean;
 }
 
 export type QuestType = 'HUNT' | 'ESCORT' | 'PATROL' | 'DELIVERY';

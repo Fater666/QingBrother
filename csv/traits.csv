@@ -21,3 +21,5 @@ injury_deep_scar|深层创伤|🩹|negative|旧伤反复发作，体魄受损。
 injury_crushed_ribs|肋骨碎裂|💔|negative|胸腔旧伤影响呼吸。最大体力 -15。|0|-15|0|0|0|0|0|0
 injury_shell_shocked|心神俱损|😵|negative|历经血战后神志受损。胆识 -15。|0|0|-15|0|0|0|0|0
 injury_weak_spot|旧患缠身|⚠️|negative|多处旧伤累积，留下致命破绽。生命上限 -5，近战防御 -3，远程防御 -3。|-5|0|0|0|0|-3|-3|0
+eloquent|善辩|🗣️|positive|巧舌如簧，能言善辩。胆识 +8，先手 +5。|0|0|8|0|0|0|0|5
+enduring|隐忍|🪷|positive|忍辱负重，坚韧不拔。胆识 +5，体力 +10。|0|10|5|0|0|0|0|0

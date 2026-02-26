@@ -131,7 +131,7 @@ export const getCritThresholdMult = (perks: string[]): number => {
 };
 
 /**
- * 学徒 (student)
+ * 学徒 (st加几个历史人物彩蛋英雄吧属性可以不用很高，但是成长属性要符合人物，这个是不是很快可以加上udent)
  * 效果：经验值获取 × (1 + xpMult)
  */
 export const applyStudentXPBonus = (xp: number, perks: string[]): number => {

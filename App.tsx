@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameView, Party, WorldTile, CombatState, MoraleStatus, Character, CombatUnit, WorldEntity, City, CityFacility, Quest, WorldAIType, OriginConfig, BattleResult, Item, AIType, EnemyUnitType, EnemyAIConfigFlag, AmbitionState, EnemyCamp, CampRegion, GameDifficulty } from './types.ts';
-import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES, getIncomeMultiplierByDifficulty, getEnemyCountMultiplierByDifficulty, getEnemyStatMultiplierByDifficulty } from './constants';
+import { MAP_SIZE, WEAPON_TEMPLATES, ARMOR_TEMPLATES, SHIELD_TEMPLATES, HELMET_TEMPLATES, TERRAIN_DATA, CITY_NAMES, SURNAMES, NAMES_MALE, BACKGROUNDS, BackgroundTemplate, QUEST_FLAVOR_TEXTS, VISION_RADIUS, CONSUMABLE_TEMPLATES, assignTraits, getTraitStatMods, TRAIT_TEMPLATES, UNIQUE_WEAPON_TEMPLATES, UNIQUE_ARMOR_TEMPLATES, UNIQUE_HELMET_TEMPLATES, UNIQUE_SHIELD_TEMPLATES, getDifficultyTier, TIERED_ENEMY_COMPOSITIONS, GOLD_REWARDS, CAMP_TEMPLATES_DATA, BOSS_CAMP_CONFIGS, checkLevelUp, getPerkEffect, BANNER_AMBITION_ID, BANNER_WEAPON_ID, isBannerWeapon, BEAST_QUEST_TARGET_NAMES, getIncomeMultiplierByDifficulty, getEnemyCountMultiplierByDifficulty, getEnemyStatMultiplierByDifficulty, rollLegendaryHero } from './constants';
 import { applyStudentXPBonus, applyFortifiedMind, applyBrawny } from './services/perkService';
 import { WorldMap } from './components/WorldMap.tsx';
 import { CombatView } from './components/CombatView.tsx';
@@ -52,20 +52,20 @@ const generateName = (): string => {
     return surname + givenName;
 };
 
-const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, formationIndex: number | null = null): Character => {
+const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, formationIndex: number | null = null, forcedTraits?: string[], forcedStars?: Character['stars'], legendaryStory?: string): Character => {
   const bgKeys = Object.keys(BACKGROUNDS);
   let bgKey = forcedBgKey;
   if (!bgKey || !BACKGROUNDS[bgKey]) {
       bgKey = bgKeys[Math.floor(Math.random() * bgKeys.length)];
   }
-  
+
   const bg: BackgroundTemplate = BACKGROUNDS[bgKey];
   const name = fixedName || generateName();
   const roll = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
   const rollMod = (range: [number, number]) => roll(range[0], range[1]);
 
   // 分配特质并计算属性修正
-  const traits = assignTraits(bgKey!);
+  const traits = forcedTraits || assignTraits(bgKey!);
   const traitMods = getTraitStatMods(traits);
 
   const baseHp = roll(50, 70) + rollMod(bg.hpMod) + traitMods.hpMod;
@@ -77,54 +77,59 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
   const baseMDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.meleeDefMod;
   const baseRDef = roll(0, 5) + rollMod(bg.defMod) + traitMods.rangedDefMod;
 
-  const starKeys: (keyof Character['stars'])[] = [
-    'meleeSkill', 'rangedSkill', 'meleeDefense', 'rangedDefense',
-    'resolve', 'initiative', 'hp', 'fatigue',
-  ];
-  const bgModMap: Record<string, [number, number]> = {
-    meleeSkill: bg.meleeSkillMod, rangedSkill: bg.rangedSkillMod,
-    meleeDefense: bg.defMod, rangedDefense: bg.defMod,
-    resolve: bg.resolveMod, initiative: bg.initMod,
-    hp: bg.hpMod, fatigue: bg.fatigueMod,
-  };
+  let stars: Character['stars'];
+  if (forcedStars) {
+    stars = { ...forcedStars };
+  } else {
+    const starKeys: (keyof Character['stars'])[] = [
+      'meleeSkill', 'rangedSkill', 'meleeDefense', 'rangedDefense',
+      'resolve', 'initiative', 'hp', 'fatigue',
+    ];
+    const bgModMap: Record<string, [number, number]> = {
+      meleeSkill: bg.meleeSkillMod, rangedSkill: bg.rangedSkillMod,
+      meleeDefense: bg.defMod, rangedDefense: bg.defMod,
+      resolve: bg.resolveMod, initiative: bg.initMod,
+      hp: bg.hpMod, fatigue: bg.fatigueMod,
+    };
 
-  const getModMedian = (mod: [number, number]) => (mod[0] + mod[1]) / 2;
-  const starWeight = (key: string) => {
-    const median = getModMedian(bgModMap[key]);
-    if (median >= 15) return 4;
-    if (median >= 8) return 2;
-    if (median < 0) return 0.3;
-    return 1;
-  };
+    const getModMedian = (mod: [number, number]) => (mod[0] + mod[1]) / 2;
+    const starWeight = (key: string) => {
+      const median = getModMedian(bgModMap[key]);
+      if (median >= 15) return 4;
+      if (median >= 8) return 2;
+      if (median < 0) return 0.3;
+      return 1;
+    };
 
-  const starCountRoll = Math.random() * 100;
-  const starCount = starCountRoll < 15 ? 0 : starCountRoll < 40 ? 1 : starCountRoll < 70 ? 2 : starCountRoll < 90 ? 3 : 4;
+    const starCountRoll = Math.random() * 100;
+    const starCount = starCountRoll < 15 ? 0 : starCountRoll < 40 ? 1 : starCountRoll < 70 ? 2 : starCountRoll < 90 ? 3 : 4;
 
-  const chosenStarKeys = new Set<string>();
-  const pool = [...starKeys];
-  for (let i = 0; i < starCount && pool.length > 0; i++) {
-    const weights = pool.map(k => starWeight(k));
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    let picked = pool.length - 1;
-    for (let j = 0; j < pool.length; j++) {
-      r -= weights[j];
-      if (r <= 0) { picked = j; break; }
+    const chosenStarKeys = new Set<string>();
+    const pool = [...starKeys];
+    for (let i = 0; i < starCount && pool.length > 0; i++) {
+      const weights = pool.map(k => starWeight(k));
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let picked = pool.length - 1;
+      for (let j = 0; j < pool.length; j++) {
+        r -= weights[j];
+        if (r <= 0) { picked = j; break; }
+      }
+      chosenStarKeys.add(pool[picked]);
+      pool.splice(picked, 1);
     }
-    chosenStarKeys.add(pool[picked]);
-    pool.splice(picked, 1);
-  }
 
-  const rollStarLevel = (key: string): number => {
-    const median = getModMedian(bgModMap[key]);
-    const r = Math.random() * 100;
-    if (median >= 15) return r < 20 ? 3 : r < 60 ? 2 : 1;
-    return r < 10 ? 3 : r < 40 ? 2 : 1;
-  };
+    const rollStarLevel = (key: string): number => {
+      const median = getModMedian(bgModMap[key]);
+      const r = Math.random() * 100;
+      if (median >= 15) return r < 20 ? 3 : r < 60 ? 2 : 1;
+      return r < 10 ? 3 : r < 40 ? 2 : 1;
+    };
 
-  const stars = {} as Character['stars'];
-  for (const key of starKeys) {
-    stars[key] = chosenStarKeys.has(key) ? rollStarLevel(key) : 0;
+    stars = {} as Character['stars'];
+    for (const key of starKeys) {
+      stars[key] = chosenStarKeys.has(key) ? rollStarLevel(key) : 0;
+    }
   }
 
   let weaponPool = WEAPON_TEMPLATES.filter(w => w.value < 400 && w.rarity !== 'UNIQUE' && !isBannerWeapon(w));
@@ -136,13 +141,14 @@ const createMercenary = (id: string, fixedName?: string, forcedBgKey?: string, f
   const { salary, hireCost } = calculateRecruitHireCost(bg.salaryMult, traits, TRAIT_TEMPLATES);
 
   return {
-    id, name, background: bg.name, backgroundStory: bg.desc, level: 1, xp: 0, hp: baseHp, maxHp: baseHp, fatigue: 0,
+    id, name, background: bg.name, backgroundStory: legendaryStory || bg.desc, level: 1, xp: 0, hp: baseHp, maxHp: baseHp, fatigue: 0,
     maxFatigue: baseFat, morale: MoraleStatus.STEADY,
     stats: { meleeSkill: baseMSkill, rangedSkill: baseRSkill, meleeDefense: baseMDef, rangedDefense: baseRDef, resolve: baseRes, initiative: baseInit },
     stars,
     traits, perks: [], perkPoints: 0, pendingLevelUps: 0,
     equipment: { mainHand: weapon, offHand: null, armor, helmet, ammo: null, accessory: null },
-    bag: [null, null, null, null], salary, hireCost, formationIndex
+    bag: [null, null, null, null], salary, hireCost, formationIndex,
+    ...(legendaryStory ? { isLegendary: true } : {}),
   };
 };
 
@@ -1854,7 +1860,17 @@ export const App: React.FC = () => {
                 city = {
                   ...city,
                   market: generateCityMarket(c.type),
-                  recruits: Array.from({ length: 4 }).map((_, j) => createMercenary(`rec-${c.id}-${currentDay}-${j}`)),
+                  recruits: (() => {
+                    const usedNames: string[] = [];
+                    return Array.from({ length: 4 }).map((_, j) => {
+                      const hero = rollLegendaryHero(usedNames);
+                      if (hero) {
+                        usedNames.push(hero.name);
+                        return createMercenary(`rec-${c.id}-${currentDay}-${j}`, hero.name, hero.bgKey, null, hero.traits, hero.stars, hero.story);
+                      }
+                      return createMercenary(`rec-${c.id}-${currentDay}-${j}`);
+                    });
+                  })(),
                   lastMarketRefreshDay: currentDay,
                   priceModifier: rollPriceModifier(),
                 };

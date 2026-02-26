@@ -920,7 +920,7 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-xl leading-none">{bgIcon}</span>
                                                             <div className="flex-1 min-w-0">
-                                                                <div className={`text-sm font-bold truncate ${isSelected ? 'text-amber-100' : 'text-slate-200'}`}>{merc.name}</div>
+                                                                <div className={`text-sm font-bold truncate ${merc.isLegendary ? 'text-yellow-300' : isSelected ? 'text-amber-100' : 'text-slate-200'}`}>{merc.isLegendary ? '★ ' : ''}{merc.name}</div>
                                                                 <div className="text-[10px] text-amber-700 truncate">{merc.background}</div>
                                                             </div>
                                                         </div>

@@ -32,6 +32,7 @@ import QUEST_NPC_NAMES_CSV from './csv/quest_npc_names.csv?raw';
 import QUEST_PLACE_NAMES_CSV from './csv/quest_place_names.csv?raw';
 import QUEST_TEMPLATES_CSV from './csv/quest_templates.csv?raw';
 import ELITE_QUEST_TEMPLATES_CSV from './csv/elite_quest_templates.csv?raw';
+import LEGENDARY_HEROES_CSV from './csv/legendary_heroes.csv?raw';
 import QUEST_CITY_COUNT_CSV from './csv/quest_city_count.csv?raw';
 import QUEST_DIFFICULTY_POOLS_CSV from './csv/quest_difficulty_pools.csv?raw';
 import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
@@ -1173,4 +1174,39 @@ export const calculateHitChance = (
 export const rollHitCheck = (hitChance: number): boolean => {
   const roll = Math.random() * 100;
   return roll <= hitChance;
+};
+
+// --- 历史人物彩蛋英雄 ---
+export interface LegendaryHeroTemplate {
+  name: string;
+  bgKey: string;
+  traits: string[];
+  stars: Character['stars'];
+  story: string;
+}
+
+export const LEGENDARY_HEROES: LegendaryHeroTemplate[] = parseCSV(LEGENDARY_HEROES_CSV).map(row => ({
+  name: row.name,
+  bgKey: row.bgKey,
+  traits: (row.traits as string).split(',').filter(Boolean),
+  stars: {
+    meleeSkill: Number(row.meleeSkill) || 0,
+    rangedSkill: Number(row.rangedSkill) || 0,
+    meleeDefense: Number(row.meleeDefense) || 0,
+    rangedDefense: Number(row.rangedDefense) || 0,
+    resolve: Number(row.resolve) || 0,
+    initiative: Number(row.initiative) || 0,
+    hp: Number(row.hp) || 0,
+    fatigue: Number(row.fatigue) || 0,
+  },
+  story: row.story,
+}));
+
+export const LEGENDARY_HERO_CHANCE = 0.05;
+
+export const rollLegendaryHero = (excludeNames: string[]): LegendaryHeroTemplate | null => {
+  if (Math.random() >= LEGENDARY_HERO_CHANCE) return null;
+  const pool = LEGENDARY_HEROES.filter(h => !excludeNames.includes(h.name));
+  if (pool.length === 0) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
 };
