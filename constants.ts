@@ -1188,7 +1188,7 @@ export interface LegendaryHeroTemplate {
 export const LEGENDARY_HEROES: LegendaryHeroTemplate[] = parseCSV(LEGENDARY_HEROES_CSV).map(row => ({
   name: row.name,
   bgKey: row.bgKey,
-  traits: (row.traits as string).split(',').filter(Boolean),
+  traits: Array.isArray(row.traits) ? row.traits.map(String) : (typeof row.traits === 'string' && row.traits ? row.traits.split(',') : []),
   stars: {
     meleeSkill: Number(row.meleeSkill) || 0,
     rangedSkill: Number(row.rangedSkill) || 0,

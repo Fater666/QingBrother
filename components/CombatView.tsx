@@ -855,6 +855,82 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         });
       }
     }
+
+    // 连通性检查：确保玩家部署区和敌方部署区之间有通路
+    // 使用BFS从玩家区域中心检查是否能到达敌方区域
+    const getNeighbors = (q: number, r: number) => [
+      { q: q + 1, r: r }, { q: q + 1, r: r - 1 }, { q: q, r: r - 1 },
+      { q: q - 1, r: r }, { q: q - 1, r: r + 1 }, { q: q, r: r + 1 }
+    ];
+
+    const playerCenter = { q: -3, r: 0 };
+    const enemyCenter = { q: 5, r: 0 };
+
+    // BFS：仅通过可通行地形，检查两区域是否连通
+    const reachable = new Set<string>();
+    const bfsQueue: Array<{ q: number; r: number }> = [playerCenter];
+    reachable.add(`${playerCenter.q},${playerCenter.r}`);
+
+    while (bfsQueue.length > 0) {
+      const cur = bfsQueue.shift()!;
+      for (const n of getNeighbors(cur.q, cur.r)) {
+        const key = `${n.q},${n.r}`;
+        if (reachable.has(key)) continue;
+        const tile = data.get(key);
+        if (!tile) continue;
+        if (!TERRAIN_TYPES[tile.type].passable) continue;
+        reachable.add(key);
+        bfsQueue.push(n);
+      }
+    }
+
+    const enemyReached = reachable.has(`${enemyCenter.q},${enemyCenter.r}`);
+
+    if (!enemyReached) {
+      // 用Dijkstra找穿越最少山脉的路径（可通行地形代价0，山地代价1）
+      const dist = new Map<string, number>();
+      const prev = new Map<string, string>();
+      const startKey = `${playerCenter.q},${playerCenter.r}`;
+      const targetKey = `${enemyCenter.q},${enemyCenter.r}`;
+      dist.set(startKey, 0);
+
+      const pq: Array<{ q: number; r: number; cost: number }> = [{ ...playerCenter, cost: 0 }];
+
+      while (pq.length > 0) {
+        pq.sort((a, b) => a.cost - b.cost);
+        const cur = pq.shift()!;
+        const curKey = `${cur.q},${cur.r}`;
+
+        if (curKey === targetKey) break;
+        if (cur.cost > (dist.get(curKey) ?? Infinity)) continue;
+
+        for (const n of getNeighbors(cur.q, cur.r)) {
+          const key = `${n.q},${n.r}`;
+          const tile = data.get(key);
+          if (!tile) continue;
+
+          const tileCost = TERRAIN_TYPES[tile.type].passable ? 0 : 1;
+          const newCost = cur.cost + tileCost;
+
+          if (newCost < (dist.get(key) ?? Infinity)) {
+            dist.set(key, newCost);
+            prev.set(key, curKey);
+            pq.push({ ...n, cost: newCost });
+          }
+        }
+      }
+
+      // 回溯路径，将不可通行地形转为丘陵（山间小路）
+      let traceKey: string | undefined = targetKey;
+      while (traceKey && traceKey !== startKey) {
+        const tile = data.get(traceKey);
+        if (tile && !TERRAIN_TYPES[tile.type].passable) {
+          data.set(traceKey, { type: 'HILLS', height: TERRAIN_TYPES['HILLS'].height });
+        }
+        traceKey = prev.get(traceKey);
+      }
+    }
+
     return data;
   }, [combatSeed, biomeConfig]);
 
@@ -5906,7 +5982,12 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
           {/* 日志标题 */}
           <div className={`px-3 py-1.5 flex items-center gap-2 ${isCombatLogCollapsed ? '' : 'border-b border-amber-900/30'}`}>
-            <span className="text-amber-600 text-[10px] font-bold tracking-widest flex-1">战斗日志</span>
+            <span className="text-amber-600 text-[10px] font-bold tracking-widest">战斗日志</span>
+            <span className="text-[9px] flex-1 text-center">
+              <span className="text-blue-400">{state.units.filter(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped).length}</span>
+              <span className="text-slate-500 mx-0.5">vs</span>
+              <span className="text-red-400">{state.units.filter(u => u.team === 'ENEMY' && !u.isDead && !u.hasEscaped).length}</span>
+            </span>
             <span className="text-slate-600 text-[9px]">第{state.round}回合</span>
             <button
               type="button"
