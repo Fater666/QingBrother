@@ -5165,57 +5165,32 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     return map;
   }, [aliveUnits]);
 
+  // 行动顺序：从当前单位开始排序，过滤掉死亡/逃离的单位
+  const sortedTurnOrder = useMemo(() => {
+    const result: { uid: string; orderNum: number }[] = [];
+    const len = state.turnOrder.length;
+    for (let offset = 0; offset < len; offset++) {
+      const idx = (state.currentUnitIndex + offset) % len;
+      const uid = state.turnOrder[idx];
+      const u = state.units.find((uu: CombatUnit) => uu.id === uid);
+      if (u && !u.isDead && !u.hasEscaped) {
+        result.push({ uid, orderNum: offset });
+      }
+    }
+    return result;
+  }, [state.turnOrder, state.currentUnitIndex, state.units]);
+
+  const turnOrderScrollRef = useRef<HTMLDivElement>(null);
+
+  // 当前单位变化时自动滚回开头
+  useEffect(() => {
+    if (turnOrderScrollRef.current) {
+      turnOrderScrollRef.current.scrollLeft = 0;
+    }
+  }, [state.currentUnitIndex]);
+
   return (
     <div className="flex flex-col h-full w-full bg-[#050505] font-serif select-none overflow-hidden relative">
-      <div className={`${isCompactLandscape ? 'h-10 px-2 gap-1 overflow-x-auto overflow-y-hidden' : 'h-12 px-6 gap-2'} bg-black border-b border-amber-900/40 flex items-center z-50 shrink-0`}>
-        {state.turnOrder.map((uid, i) => {
-          const u = state.units.find(u => u.id === uid);
-          if (!u || u.isDead || u.hasEscaped) return null;
-          const isCurrent = i === state.currentUnitIndex;
-          const orderNum = i >= state.currentUnitIndex 
-            ? i - state.currentUnitIndex 
-            : state.turnOrder.length - state.currentUnitIndex + i;
-          const hpPercent = (u.hp / u.maxHp) * 100;
-          const hpColor = hpPercent > 50 ? '#4ade80' : hpPercent > 25 ? '#facc15' : '#ef4444';
-          const nameKey = `${u.team}:${u.name}`;
-          const dupCount = nameDupCount.get(nameKey) || 0;
-          const seenIdx = nameSeenIndex.get(u.id) || 1;
-          const displayName = dupCount > 1 ? `${u.name.slice(0, 2)}${seenIdx}` : u.name.slice(0, 3);
-          return (
-            <div 
-              key={uid} 
-              onClick={() => {
-                const pos = getPixelPos(u.combatPos.q, u.combatPos.r);
-                cameraRef.current.x = -pos.x;
-                cameraRef.current.y = -pos.y;
-              }}
-              title={`点击聚焦到 ${u.name}`}
-              className={`relative flex-shrink-0 transition-all duration-300 flex items-center gap-1.5 px-2 py-1 rounded-sm border cursor-pointer ${
-                isCurrent 
-                  ? 'scale-105 border-amber-500/80 bg-amber-900/30' 
-                  : 'opacity-60 border-transparent hover:opacity-90'
-              }`}
-            >
-              {/* 顺序标记 */}
-              <div className={`${isCompactLandscape ? 'w-3.5 h-3.5 text-[7px]' : 'w-4 h-4 text-[8px]'} rounded-full flex items-center justify-center font-bold flex-shrink-0 ${
-                isCurrent ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'
-              }`} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-                {isCurrent ? '▶' : orderNum}
-              </div>
-              {/* 名字 + 血条 */}
-              <div className={`${isCompactLandscape ? 'min-w-[34px]' : 'min-w-[40px]'} flex flex-col`}>
-                <span className={`${isCompactLandscape ? 'text-[8px]' : 'text-[9px]'} font-bold truncate leading-none ${u.team === 'ENEMY' ? 'text-red-400' : 'text-blue-300'}`}>
-                  {displayName}
-                </span>
-                <div className={`${isCompactLandscape ? 'h-[2px]' : 'h-[3px]'} w-full bg-black/60 rounded-full mt-0.5 overflow-hidden`}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${hpPercent}%`, backgroundColor: hpColor }} />
-                </div>
-              </div>
-              {isCurrent && <div className="absolute -bottom-0.5 left-1 right-1 h-[2px] bg-amber-500 rounded-full" />}
-            </div>
-          );
-        })}
-      </div>
 
       <div ref={containerRef} className={`flex-1 relative bg-[#0a0a0a] ${screenShake === 'heavy' ? 'anim-screen-shake-heavy' : screenShake === 'light' ? 'anim-screen-shake-light' : ''}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onWheel={handleWheel} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd} style={{ touchAction: 'none' }}>
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={isMobile ? undefined : performAttack} onContextMenu={isMobile ? undefined : performMove} />
@@ -5683,15 +5658,63 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         className={`absolute ${isCompactLandscape ? 'bottom-1 left-1 w-52' : isMobile ? 'bottom-2 left-2 w-64 max-w-[calc(100%-16px)]' : 'bottom-4 left-4 w-80'} z-[60] pointer-events-none`}
       >
         <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
-          <div className={`px-3 py-1.5 flex items-center gap-2 ${isStatsPanelCollapsed ? '' : 'border-b border-amber-900/30'}`}>
-            <span className="text-amber-600 text-[10px] font-bold tracking-widest flex-1 truncate">
-              {activeUnit ? activeUnit.name : '当前单位'}
-            </span>
-            <span className="text-slate-600 text-[9px]">属性</span>
+          <div className={`px-1.5 py-1 flex items-center gap-0 ${isStatsPanelCollapsed ? '' : 'border-b border-amber-900/30'}`}>
+            <div
+              ref={turnOrderScrollRef}
+              className={`turn-order-scroll flex items-center ${isCompactLandscape ? 'gap-0.5' : 'gap-1'} overflow-x-auto flex-1`}
+              style={{
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              {sortedTurnOrder.map(({ uid, orderNum }) => {
+                const u = state.units.find((uu: CombatUnit) => uu.id === uid);
+                if (!u) return null;
+                const isCurrent = orderNum === 0;
+                const hpPercent = (u.hp / u.maxHp) * 100;
+                const hpColor = hpPercent > 50 ? '#4ade80' : hpPercent > 25 ? '#facc15' : '#ef4444';
+                const nameKey = `${u.team}:${u.name}`;
+                const dupCount = nameDupCount.get(nameKey) || 0;
+                const seenIdx = nameSeenIndex.get(u.id) || 1;
+                const displayName = dupCount > 1 ? `${u.name.slice(0, 2)}${seenIdx}` : u.name.slice(0, 3);
+                return (
+                  <div
+                    key={uid}
+                    onClick={() => {
+                      const pos = getPixelPos(u.combatPos.q, u.combatPos.r);
+                      cameraRef.current.x = -pos.x;
+                      cameraRef.current.y = -pos.y;
+                    }}
+                    title={`点击聚焦到 ${u.name}`}
+                    className={`relative flex-shrink-0 transition-all duration-200 flex items-center gap-0.5 px-1 py-0.5 rounded-sm border cursor-pointer ${
+                      isCurrent
+                        ? 'border-amber-500/80 bg-amber-900/30'
+                        : 'border-transparent hover:bg-amber-900/20'
+                    }`}
+                    style={{ opacity: isCurrent ? 1 : Math.max(0.4, 1 - orderNum * 0.08) }}
+                  >
+                    <div className={`${isCompactLandscape ? 'w-3 h-3 text-[6px]' : 'w-3.5 h-3.5 text-[7px]'} rounded-full flex items-center justify-center font-bold flex-shrink-0 ${
+                      isCurrent ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'
+                    }`} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                      {isCurrent ? '▶' : orderNum}
+                    </div>
+                    <div className={`${isCompactLandscape ? 'min-w-[24px]' : 'min-w-[30px]'} flex flex-col`}>
+                      <span className={`${isCompactLandscape ? 'text-[7px]' : 'text-[8px]'} font-bold truncate leading-none ${u.team === 'ENEMY' ? 'text-red-400' : 'text-blue-300'}`}>
+                        {displayName}
+                      </span>
+                      <div className="h-[2px] w-full bg-black/60 rounded-full mt-0.5 overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${hpPercent}%`, backgroundColor: hpColor }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
             <button
               type="button"
               onClick={() => setIsStatsPanelCollapsed(prev => !prev)}
-              className="ml-1 text-[10px] text-slate-400 hover:text-amber-400 transition-colors leading-none"
+              className="ml-1 text-[10px] text-slate-400 hover:text-amber-400 transition-colors leading-none flex-shrink-0"
               aria-label={isStatsPanelCollapsed ? '展开属性面板' : '收起属性面板'}
               title={isStatsPanelCollapsed ? '展开属性面板' : '收起属性面板'}
             >
@@ -5977,7 +6000,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
       {/* ==================== 战斗日志面板（左侧悬浮） ==================== */}
       <div
-        className={`absolute ${isCompactLandscape ? 'top-11 left-1 w-44 max-h-[22vh]' : isMobile ? 'top-14 left-1 w-48 max-h-[25vh]' : 'top-20 left-3 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}
+        className={`absolute ${isCompactLandscape ? 'top-1 left-1 w-44 max-h-[22vh]' : isMobile ? 'top-1 left-1 w-48 max-h-[25vh]' : 'top-3 left-3 w-72 max-h-[45vh]'} z-[60] pointer-events-none`}
       >
         <div className="bg-black border border-amber-900/30 rounded-sm overflow-hidden pointer-events-auto">
           {/* 日志标题 */}
@@ -6091,6 +6114,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           </div>
         </div>
       )}
+
+      )
 
       {/* 快捷键帮助面板 */}
       {!isMobile && (

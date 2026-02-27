@@ -23,3 +23,8 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
 }
+
+/* 行动顺序条隐藏滚动条 */
+.turn-order-scroll::-webkit-scrollbar {
+  display: none;
+}
