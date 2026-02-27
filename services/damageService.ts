@@ -13,7 +13,7 @@
  * 
  * 集成技能：
  * - 铁额 (steel_brow): 头部不暴击
- * - 致残击 (crippling_strikes): 降低暴击判定阈值
+ * - 致残击 (crippling_strikes): 更容易造成伤残
  * - 补刀手 (executioner): 对重伤敌人+20%伤害
  * - 轻甲流 (nimble): 减少HP伤害
  * - 重甲流 (battle_forged): 减少护甲伤害
@@ -29,7 +29,6 @@ import { CombatUnit, Item, MoraleStatus } from '../types';
 import { getMoraleEffects } from './moraleService';
 import {
   hasPerk,
-  getCritThresholdMult,
   getExecutionerMultiplier,
   getNimbleDamageReduction,
   getBattleForgedReduction,
@@ -86,7 +85,7 @@ export interface DamageResult {
   newArmorDurability: number;
   /** 被击中护甲的旧耐久值 */
   oldArmorDurability: number;
-  /** 是否暴击（伤害超过基础伤害的80%） */
+  /** 是否暴击（命中头部即为暴击） */
   isCritical: boolean;
   /** 目标是否会被击杀 */
   willKill: boolean;
@@ -371,14 +370,9 @@ export const calculateDamage = (
   // 7. 命中必伤（至少1HP）
   hpDamageDealt = Math.max(1, hpDamageDealt);
   
-  // 判定暴击（伤害超过武器最大伤害的 critThreshold）
-  const maxDmg = weapon?.damage ? weapon.damage[1] : UNARMED_DAMAGE[1];
-  // === 致残击 (crippling_strikes): 降低暴击阈值 ===
-  const critThreshold = getCritThresholdMult(attacker.perks || []);
+  // 判定暴击（暴击 = 命中头部，与战场兄弟一致）
   // === 铁额 (steel_brow): 头部命中时不触发暴击 ===
-  const isCritical = (hitLocation === 'HEAD' && hasSteelBrow(target))
-    ? false
-    : baseDamage >= maxDmg * critThreshold;
+  const isCritical = hitLocation === 'HEAD' && !hasSteelBrow(target);
   
   // 判定是否击杀
   const willKill = target.hp - hpDamageDealt <= 0;

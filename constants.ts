@@ -920,6 +920,8 @@ export const RANGED_HIT_OPTIMAL_DISTANCE = 2;
 export const RANGED_HIT_PENALTY_PER_TILE = 8;
 /** 远程命中距离惩罚上限 */
 export const RANGED_HIT_PENALTY_MAX = 32;
+/** 远程贴身（距离1格）命中率惩罚（仿战场兄弟：远程不适合近身） */
+export const RANGED_CLOSE_RANGE_PENALTY = 25;
 
 /**
  * 计算合围加成
@@ -1095,13 +1097,17 @@ export const calculateHitChance = (
   // 合围加成：仅近战生效，远程不享受合围
   const surroundBonus = isRangedByName ? 0 : getSurroundingBonus(attacker, target, state);
 
-  // 远程距离惩罚：超过最佳距离后逐格降低命中
+  // 远程距离惩罚：超过最佳距离后逐格降低命中；贴身时大幅降低命中
   const attackDistance = getHexDistance(attacker.combatPos, target.combatPos);
-  const distancePenalty = isRangedByName && attackDistance > RANGED_HIT_OPTIMAL_DISTANCE
-    ? Math.min(
-        RANGED_HIT_PENALTY_MAX,
-        (attackDistance - RANGED_HIT_OPTIMAL_DISTANCE) * RANGED_HIT_PENALTY_PER_TILE
-      )
+  const distancePenalty = isRangedByName
+    ? attackDistance <= 1
+      ? RANGED_CLOSE_RANGE_PENALTY  // 贴身惩罚
+      : attackDistance > RANGED_HIT_OPTIMAL_DISTANCE
+        ? Math.min(
+            RANGED_HIT_PENALTY_MAX,
+            (attackDistance - RANGED_HIT_OPTIMAL_DISTANCE) * RANGED_HIT_PENALTY_PER_TILE
+          )
+        : 0
     : 0;
 
   // 临机应变(fast_adaptation)命中加成

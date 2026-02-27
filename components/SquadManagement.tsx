@@ -1275,13 +1275,26 @@ export const SquadManagement: React.FC<SquadManagementProps> = ({ party, onUpdat
                                             onMouseEnter={() => setHoveredItem(item)}
                                             onMouseLeave={() => setHoveredItem(null)}
                                             className={`border cursor-pointer transition-all flex flex-col items-center justify-center text-center ${isCompactLandscape ? 'h-14 px-1.5 py-1' : 'aspect-square p-2'} ${
-                                                selectedStashItem?.index === i 
-                                                    ? 'bg-amber-900/30 border-amber-500 shadow-lg' 
-                                                    : 'bg-black/40 border-slate-800 hover:border-amber-700 hover:bg-black/60'
+                                                selectedStashItem?.index === i
+                                                    ? 'bg-amber-900/30 border-amber-500 shadow-lg'
+                                                    : item.rarity === 'UNIQUE' ? 'bg-red-950/20 border-red-800/40 hover:border-red-600 hover:bg-red-950/30'
+                                                    : item.rarity === 'LEGENDARY' ? 'bg-amber-950/20 border-amber-700/40 hover:border-amber-500 hover:bg-amber-950/30'
+                                                    : item.rarity === 'EPIC' ? 'bg-purple-950/20 border-purple-800/40 hover:border-purple-600 hover:bg-purple-950/30'
+                                                    : item.rarity === 'RARE' ? 'bg-sky-950/20 border-sky-800/40 hover:border-sky-600 hover:bg-sky-950/30'
+                                                    : item.rarity === 'UNCOMMON' ? 'bg-emerald-950/20 border-emerald-800/40 hover:border-emerald-600 hover:bg-emerald-950/30'
+                                                    : 'bg-black/40 border-slate-800 hover:border-slate-600 hover:bg-black/60'
                                             }`}
                                         >
                                             <span
-                                                className={`font-bold leading-tight truncate w-full ${selectedStashItem?.index === i ? 'text-amber-300' : 'text-slate-300'} ${isCompactLandscape ? 'text-[10px]' : 'text-xs'}`}
+                                                className={`font-bold leading-tight truncate w-full ${
+                                                    selectedStashItem?.index === i ? 'text-amber-300'
+                                                    : item.rarity === 'UNIQUE' ? 'text-red-400'
+                                                    : item.rarity === 'LEGENDARY' ? 'text-amber-300'
+                                                    : item.rarity === 'EPIC' ? 'text-purple-300'
+                                                    : item.rarity === 'RARE' ? 'text-sky-300'
+                                                    : item.rarity === 'UNCOMMON' ? 'text-emerald-300'
+                                                    : 'text-slate-300'
+                                                } ${isCompactLandscape ? 'text-[10px]' : 'text-xs'}`}
                                                 style={isCompactLandscape ? { fontSize: `clamp(0.56rem, ${1.0 * compactFontScale}vw, 0.66rem)` } : undefined}
                                             >
                                                 {item.name}
@@ -1879,7 +1892,8 @@ const EquipSlotText: React.FC<EquipSlotTextProps> = ({ label, item, onHover, onC
                     : item.rarity === 'LEGENDARY' ? 'text-amber-300'
                     : item.rarity === 'EPIC' ? 'text-purple-300'
                     : item.rarity === 'RARE' ? 'text-sky-300'
-                    : 'text-amber-400'
+                    : item.rarity === 'UNCOMMON' ? 'text-emerald-300'
+                    : 'text-slate-300'
                 }`}
                     style={dense ? { fontSize: `clamp(0.58rem, ${1.0 * compactFontScale}vw, 0.72rem)`, lineHeight: 1.2 } : undefined}
                 >
