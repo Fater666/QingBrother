@@ -1538,8 +1538,11 @@ export const App: React.FC = () => {
       const enemyR = i - Math.floor(scaledCompositions.length / 2);
       // 轴坐标里 r 变化会带来 x 偏移，这里对 q 做补偿，让开局队列在屏幕上更接近竖直
       const enemyQ = 5 - Math.trunc(enemyR / 2);
+      // 计算装备负重惩罚（护甲+头盔的 maxFatiguePenalty 减少最大体力）
+      const enemyEquipPenalty = (baseChar.equipment.armor?.maxFatiguePenalty || 0) + (baseChar.equipment.helmet?.maxFatiguePenalty || 0);
       return {
         ...baseChar,
+        maxFatigue: baseChar.maxFatigue - enemyEquipPenalty,
         team: 'ENEMY' as const,
         // 敌我左右平行且竖直：敌方在右侧纵列，围绕中心线展开
         combatPos: { q: enemyQ, r: enemyR },
@@ -1571,13 +1574,15 @@ export const App: React.FC = () => {
         const r = col - 4; // 不再 clamp，每个编队位置映射到唯一的 r（-4 到 4）
         // 轴坐标补偿：抵消 r 带来的横向偏移，让列在视觉上更竖直
         const q = -2 - row - Math.trunc(r / 2);
-        let unit: CombatUnit = { ...m, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
+        // 计算装备负重惩罚（护甲+头盔的 maxFatiguePenalty 减少最大体力）
+        const equipFatiguePenalty = (m.equipment.armor?.maxFatiguePenalty || 0) + (m.equipment.helmet?.maxFatiguePenalty || 0);
+        let unit: CombatUnit = { ...m, maxFatigue: m.maxFatigue - equipFatiguePenalty, morale: startMorale, team: 'PLAYER' as const, combatPos: { q, r }, currentAP: 9, isDead: false, crossbowLoaded: true, isShieldWall: false, isHalberdWall: false, movedThisTurn: false, waitCount: 0, freeSwapUsed: false, hasUsedFreeAttack: false };
         const isBannerman = isBannerWeapon(unit.equipment.mainHand);
         unit = { ...unit, isBannerman, bannerAuraActive: isBannerman };
         // === 入场被动：应用专精效果 ===
-        // 强体(colossus)改为“学习时永久生效”，不再在战斗入场时临时加成
+        // 强体(colossus)改为”学习时永久生效”，不再在战斗入场时临时加成
         unit = applyFortifiedMind(unit);  // 定胆：+25% 胆识
-        unit = applyBrawny(unit);         // 负重者：减少护甲疲劳惩罚
+        unit = applyBrawny(unit);         // 负重者：减少护甲疲劳惩罚（加回30%）
         return unit;
     });
     const allUnits = [...playerUnits, ...enemies];
