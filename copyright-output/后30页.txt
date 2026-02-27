@@ -1,0 +1,1529 @@
+      return 0 !== diff ? diff : a.id - b.id;
+    }
+    function advanceTimers(currentTime) {
+      for (var timer = peek(timerQueue); null !== timer; ) {
+        if (null === timer.callback) pop(timerQueue);
+        else if (timer.startTime <= currentTime)
+          pop(timerQueue),
+            (timer.sortIndex = timer.expirationTime),
+            push(taskQueue, timer);
+        else break;
+        timer = peek(timerQueue);
+      }
+    }
+    function handleTimeout(currentTime) {
+      isHostTimeoutScheduled = !1;
+      advanceTimers(currentTime);
+      if (!isHostCallbackScheduled)
+        if (null !== peek(taskQueue))
+          (isHostCallbackScheduled = !0),
+            isMessageLoopRunning ||
+              ((isMessageLoopRunning = !0), schedulePerformWorkUntilDeadline());
+        else {
+          var firstTimer = peek(timerQueue);
+          null !== firstTimer &&
+            requestHostTimeout(
+              handleTimeout,
+              firstTimer.startTime - currentTime
+            );
+        }
+    }
+    function unstable_scheduleCallback$1(priorityLevel, callback, options) {
+      var currentTime = getCurrentTime();
+      "object" === typeof options && null !== options
+        ? ((options = options.delay),
+          (options =
+            "number" === typeof options && 0 < options
+              ? currentTime + options
+              : currentTime))
+        : (options = currentTime);
+      switch (priorityLevel) {
+        case 1:
+          var timeout = -1;
+          break;
+        case 2:
+          timeout = 250;
+          break;
+        case 5:
+          timeout = 1073741823;
+          break;
+        case 4:
+
+          timeout = 1e4;
+          break;
+        default:
+          timeout = 5e3;
+      }
+      timeout = options + timeout;
+      priorityLevel = {
+        id: taskIdCounter++,
+        callback: callback,
+        priorityLevel: priorityLevel,
+        startTime: options,
+        expirationTime: timeout,
+        sortIndex: -1
+      };
+      options > currentTime
+        ? ((priorityLevel.sortIndex = options),
+          push(timerQueue, priorityLevel),
+          null === peek(taskQueue) &&
+            priorityLevel === peek(timerQueue) &&
+            (isHostTimeoutScheduled
+              ? (localClearTimeout(taskTimeoutID), (taskTimeoutID = -1))
+              : (isHostTimeoutScheduled = !0),
+            requestHostTimeout(handleTimeout, options - currentTime)))
+        : ((priorityLevel.sortIndex = timeout),
+          push(taskQueue, priorityLevel),
+          isHostCallbackScheduled ||
+            isPerformingWork ||
+            ((isHostCallbackScheduled = !0),
+            isMessageLoopRunning ||
+              ((isMessageLoopRunning = !0),
+              schedulePerformWorkUntilDeadline())));
+      return priorityLevel;
+    }
+    function unstable_cancelCallback$1(task) {
+      task.callback = null;
+    }
+    function unstable_getCurrentPriorityLevel$1() {
+      return currentPriorityLevel;
+    }
+    function shouldYieldToHost() {
+      return needsPaint
+        ? !0
+        : getCurrentTime() - startTime < frameInterval
+          ? !1
+          : !0;
+    }
+    function requestPaint() {
+      needsPaint = !0;
+    }
+    function requestHostTimeout(callback, ms) {
+
+      taskTimeoutID = localSetTimeout(function () {
+        callback(getCurrentTime());
+      }, ms);
+    }
+    function throwNotImplemented() {
+      throw Error("Not implemented.");
+    }
+    if (
+      "object" === typeof performance &&
+      "function" === typeof performance.now
+    ) {
+      var localPerformance = performance;
+      var getCurrentTime = function () {
+        return localPerformance.now();
+      };
+    } else {
+      var localDate = Date,
+        initialTime = localDate.now();
+      getCurrentTime = function () {
+        return localDate.now() - initialTime;
+      };
+    }
+    var taskQueue = [],
+      timerQueue = [],
+      taskIdCounter = 1,
+      currentTask = null,
+      currentPriorityLevel = 3,
+      isPerformingWork = !1,
+      isHostCallbackScheduled = !1,
+      isHostTimeoutScheduled = !1,
+      needsPaint = !1,
+      localSetTimeout = "function" === typeof setTimeout ? setTimeout : null,
+      localClearTimeout =
+        "function" === typeof clearTimeout ? clearTimeout : null,
+      localSetImmediate =
+        "undefined" !== typeof setImmediate ? setImmediate : null,
+      isMessageLoopRunning = !1,
+      taskTimeoutID = -1,
+      frameInterval = 5,
+      startTime = -1;
+    if ("function" === typeof localSetImmediate)
+      var schedulePerformWorkUntilDeadline = function () {
+        localSetImmediate(performWorkUntilDeadline);
+      };
+    else if ("undefined" !== typeof MessageChannel) {
+      var channel = new MessageChannel(),
+        port = channel.port2;
+      channel.port1.onmessage = performWorkUntilDeadline;
+      schedulePerformWorkUntilDeadline = function () {
+        port.postMessage(null);
+
+      };
+    } else
+      schedulePerformWorkUntilDeadline = function () {
+        localSetTimeout(performWorkUntilDeadline, 0);
+      };
+    channel =
+      "undefined" !== typeof nativeRuntimeScheduler
+        ? nativeRuntimeScheduler.unstable_UserBlockingPriority
+        : 2;
+    var unstable_NormalPriority =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_NormalPriority
+          : 3,
+      unstable_LowPriority =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_LowPriority
+          : 4,
+      unstable_ImmediatePriority =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_ImmediatePriority
+          : 1,
+      unstable_scheduleCallback =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_scheduleCallback
+          : unstable_scheduleCallback$1,
+      unstable_cancelCallback =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_cancelCallback
+          : unstable_cancelCallback$1,
+      unstable_getCurrentPriorityLevel =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_getCurrentPriorityLevel
+          : unstable_getCurrentPriorityLevel$1,
+      unstable_shouldYield =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_shouldYield
+          : shouldYieldToHost,
+      unstable_requestPaint =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_requestPaint
+          : requestPaint,
+      unstable_now =
+        "undefined" !== typeof nativeRuntimeScheduler
+          ? nativeRuntimeScheduler.unstable_now
+          : getCurrentTime;
+    exports.unstable_IdlePriority =
+      "undefined" !== typeof nativeRuntimeScheduler
+        ? nativeRuntimeScheduler.unstable_IdlePriority
+        : 5;
+    exports.unstable_ImmediatePriority = unstable_ImmediatePriority;
+
+    exports.unstable_LowPriority = unstable_LowPriority;
+    exports.unstable_NormalPriority = unstable_NormalPriority;
+    exports.unstable_Profiling = null;
+    exports.unstable_UserBlockingPriority = channel;
+    exports.unstable_cancelCallback = unstable_cancelCallback;
+    exports.unstable_forceFrameRate = throwNotImplemented;
+    exports.unstable_getCurrentPriorityLevel = unstable_getCurrentPriorityLevel;
+    exports.unstable_next = throwNotImplemented;
+    exports.unstable_now = unstable_now;
+    exports.unstable_requestPaint = unstable_requestPaint;
+    exports.unstable_runWithPriority = throwNotImplemented;
+    exports.unstable_scheduleCallback = unstable_scheduleCallback;
+    exports.unstable_shouldYield = unstable_shouldYield;
+    exports.unstable_wrapCallback = throwNotImplemented;
+  })();
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/cjs/scheduler.native.production.js =====
+"use strict";
+function push(heap, node) {
+  var index = heap.length;
+  heap.push(node);
+  a: for (; 0 < index; ) {
+    var parentIndex = (index - 1) >>> 1,
+      parent = heap[parentIndex];
+    if (0 < compare(parent, node))
+      (heap[parentIndex] = node), (heap[index] = parent), (index = parentIndex);
+    else break a;
+  }
+}
+function peek(heap) {
+  return 0 === heap.length ? null : heap[0];
+}
+function pop(heap) {
+  if (0 === heap.length) return null;
+  var first = heap[0],
+    last = heap.pop();
+  if (last !== first) {
+    heap[0] = last;
+    a: for (
+      var index = 0, length = heap.length, halfLength = length >>> 1;
+      index < halfLength;
+    ) {
+      var leftIndex = 2 * (index + 1) - 1,
+        left = heap[leftIndex],
+        rightIndex = leftIndex + 1,
+        right = heap[rightIndex];
+      if (0 > compare(left, last))
+        rightIndex < length && 0 > compare(right, left)
+          ? ((heap[index] = right),
+            (heap[rightIndex] = last),
+            (index = rightIndex))
+
+          : ((heap[index] = left),
+            (heap[leftIndex] = last),
+            (index = leftIndex));
+      else if (rightIndex < length && 0 > compare(right, last))
+        (heap[index] = right), (heap[rightIndex] = last), (index = rightIndex);
+      else break a;
+    }
+  }
+  return first;
+}
+function compare(a, b) {
+  var diff = a.sortIndex - b.sortIndex;
+  return 0 !== diff ? diff : a.id - b.id;
+}
+var getCurrentTime;
+if ("object" === typeof performance && "function" === typeof performance.now) {
+  var localPerformance = performance;
+  getCurrentTime = function () {
+    return localPerformance.now();
+  };
+} else {
+  var localDate = Date,
+    initialTime = localDate.now();
+  getCurrentTime = function () {
+    return localDate.now() - initialTime;
+  };
+}
+var taskQueue = [],
+  timerQueue = [],
+  taskIdCounter = 1,
+  currentTask = null,
+  currentPriorityLevel = 3,
+  isPerformingWork = !1,
+  isHostCallbackScheduled = !1,
+  isHostTimeoutScheduled = !1,
+  needsPaint = !1,
+  localSetTimeout = "function" === typeof setTimeout ? setTimeout : null,
+  localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null,
+  localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+function advanceTimers(currentTime) {
+  for (var timer = peek(timerQueue); null !== timer; ) {
+    if (null === timer.callback) pop(timerQueue);
+    else if (timer.startTime <= currentTime)
+      pop(timerQueue),
+        (timer.sortIndex = timer.expirationTime),
+        push(taskQueue, timer);
+    else break;
+    timer = peek(timerQueue);
+  }
+}
+
+function handleTimeout(currentTime) {
+  isHostTimeoutScheduled = !1;
+  advanceTimers(currentTime);
+  if (!isHostCallbackScheduled)
+    if (null !== peek(taskQueue))
+      (isHostCallbackScheduled = !0),
+        isMessageLoopRunning ||
+          ((isMessageLoopRunning = !0), schedulePerformWorkUntilDeadline());
+    else {
+      var firstTimer = peek(timerQueue);
+      null !== firstTimer &&
+        requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+    }
+}
+function unstable_scheduleCallback$1(priorityLevel, callback, options) {
+  var currentTime = getCurrentTime();
+  "object" === typeof options && null !== options
+    ? ((options = options.delay),
+      (options =
+        "number" === typeof options && 0 < options
+          ? currentTime + options
+          : currentTime))
+    : (options = currentTime);
+  switch (priorityLevel) {
+    case 1:
+      var timeout = -1;
+      break;
+    case 2:
+      timeout = 250;
+      break;
+    case 5:
+      timeout = 1073741823;
+      break;
+    case 4:
+      timeout = 1e4;
+      break;
+    default:
+      timeout = 5e3;
+  }
+  timeout = options + timeout;
+  priorityLevel = {
+    id: taskIdCounter++,
+    callback: callback,
+    priorityLevel: priorityLevel,
+    startTime: options,
+    expirationTime: timeout,
+    sortIndex: -1
+  };
+  options > currentTime
+    ? ((priorityLevel.sortIndex = options),
+
+      push(timerQueue, priorityLevel),
+      null === peek(taskQueue) &&
+        priorityLevel === peek(timerQueue) &&
+        (isHostTimeoutScheduled
+          ? (localClearTimeout(taskTimeoutID), (taskTimeoutID = -1))
+          : (isHostTimeoutScheduled = !0),
+        requestHostTimeout(handleTimeout, options - currentTime)))
+    : ((priorityLevel.sortIndex = timeout),
+      push(taskQueue, priorityLevel),
+      isHostCallbackScheduled ||
+        isPerformingWork ||
+        ((isHostCallbackScheduled = !0),
+        isMessageLoopRunning ||
+          ((isMessageLoopRunning = !0), schedulePerformWorkUntilDeadline())));
+  return priorityLevel;
+}
+function unstable_cancelCallback$1(task) {
+  task.callback = null;
+}
+function unstable_getCurrentPriorityLevel$1() {
+  return currentPriorityLevel;
+}
+var isMessageLoopRunning = !1,
+  taskTimeoutID = -1,
+  startTime = -1;
+function shouldYieldToHost() {
+  return needsPaint ? !0 : 5 > getCurrentTime() - startTime ? !1 : !0;
+}
+function requestPaint() {
+  needsPaint = !0;
+}
+function performWorkUntilDeadline() {
+  needsPaint = !1;
+  if (isMessageLoopRunning) {
+    var currentTime = getCurrentTime();
+    startTime = currentTime;
+    var hasMoreWork = !0;
+    try {
+      a: {
+        isHostCallbackScheduled = !1;
+        isHostTimeoutScheduled &&
+          ((isHostTimeoutScheduled = !1),
+          localClearTimeout(taskTimeoutID),
+          (taskTimeoutID = -1));
+        isPerformingWork = !0;
+        var previousPriorityLevel = currentPriorityLevel;
+        try {
+          b: {
+            advanceTimers(currentTime);
+            for (
+
+              currentTask = peek(taskQueue);
+              null !== currentTask &&
+              !(
+                currentTask.expirationTime > currentTime && shouldYieldToHost()
+              );
+            ) {
+              var callback = currentTask.callback;
+              if ("function" === typeof callback) {
+                currentTask.callback = null;
+                currentPriorityLevel = currentTask.priorityLevel;
+                var continuationCallback = callback(
+                  currentTask.expirationTime <= currentTime
+                );
+                currentTime = getCurrentTime();
+                if ("function" === typeof continuationCallback) {
+                  currentTask.callback = continuationCallback;
+                  advanceTimers(currentTime);
+                  hasMoreWork = !0;
+                  break b;
+                }
+                currentTask === peek(taskQueue) && pop(taskQueue);
+                advanceTimers(currentTime);
+              } else pop(taskQueue);
+              currentTask = peek(taskQueue);
+            }
+            if (null !== currentTask) hasMoreWork = !0;
+            else {
+              var firstTimer = peek(timerQueue);
+              null !== firstTimer &&
+                requestHostTimeout(
+                  handleTimeout,
+                  firstTimer.startTime - currentTime
+                );
+              hasMoreWork = !1;
+            }
+          }
+          break a;
+        } finally {
+          (currentTask = null),
+            (currentPriorityLevel = previousPriorityLevel),
+            (isPerformingWork = !1);
+        }
+        hasMoreWork = void 0;
+      }
+    } finally {
+      hasMoreWork
+        ? schedulePerformWorkUntilDeadline()
+        : (isMessageLoopRunning = !1);
+    }
+  }
+
+}
+var schedulePerformWorkUntilDeadline;
+if ("function" === typeof localSetImmediate)
+  schedulePerformWorkUntilDeadline = function () {
+    localSetImmediate(performWorkUntilDeadline);
+  };
+else if ("undefined" !== typeof MessageChannel) {
+  var channel = new MessageChannel(),
+    port = channel.port2;
+  channel.port1.onmessage = performWorkUntilDeadline;
+  schedulePerformWorkUntilDeadline = function () {
+    port.postMessage(null);
+  };
+} else
+  schedulePerformWorkUntilDeadline = function () {
+    localSetTimeout(performWorkUntilDeadline, 0);
+  };
+function requestHostTimeout(callback, ms) {
+  taskTimeoutID = localSetTimeout(function () {
+    callback(getCurrentTime());
+  }, ms);
+}
+var unstable_UserBlockingPriority =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_UserBlockingPriority
+      : 2,
+  unstable_NormalPriority =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_NormalPriority
+      : 3,
+  unstable_LowPriority =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_LowPriority
+      : 4,
+  unstable_ImmediatePriority =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_ImmediatePriority
+      : 1,
+  unstable_scheduleCallback =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_scheduleCallback
+      : unstable_scheduleCallback$1,
+  unstable_cancelCallback =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_cancelCallback
+      : unstable_cancelCallback$1,
+  unstable_getCurrentPriorityLevel =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_getCurrentPriorityLevel
+      : unstable_getCurrentPriorityLevel$1,
+
+  unstable_shouldYield =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_shouldYield
+      : shouldYieldToHost,
+  unstable_requestPaint =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_requestPaint
+      : requestPaint,
+  unstable_now =
+    "undefined" !== typeof nativeRuntimeScheduler
+      ? nativeRuntimeScheduler.unstable_now
+      : getCurrentTime;
+function throwNotImplemented() {
+  throw Error("Not implemented.");
+}
+exports.unstable_IdlePriority =
+  "undefined" !== typeof nativeRuntimeScheduler
+    ? nativeRuntimeScheduler.unstable_IdlePriority
+    : 5;
+exports.unstable_ImmediatePriority = unstable_ImmediatePriority;
+exports.unstable_LowPriority = unstable_LowPriority;
+exports.unstable_NormalPriority = unstable_NormalPriority;
+exports.unstable_Profiling = null;
+exports.unstable_UserBlockingPriority = unstable_UserBlockingPriority;
+exports.unstable_cancelCallback = unstable_cancelCallback;
+exports.unstable_forceFrameRate = throwNotImplemented;
+exports.unstable_getCurrentPriorityLevel = unstable_getCurrentPriorityLevel;
+exports.unstable_next = throwNotImplemented;
+exports.unstable_now = unstable_now;
+exports.unstable_requestPaint = unstable_requestPaint;
+exports.unstable_runWithPriority = throwNotImplemented;
+exports.unstable_scheduleCallback = unstable_scheduleCallback;
+exports.unstable_shouldYield = unstable_shouldYield;
+exports.unstable_wrapCallback = throwNotImplemented;
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/cjs/scheduler.production.js =====
+"use strict";
+function push(heap, node) {
+  var index = heap.length;
+  heap.push(node);
+  a: for (; 0 < index; ) {
+    var parentIndex = (index - 1) >>> 1,
+      parent = heap[parentIndex];
+    if (0 < compare(parent, node))
+      (heap[parentIndex] = node), (heap[index] = parent), (index = parentIndex);
+    else break a;
+  }
+}
+function peek(heap) {
+  return 0 === heap.length ? null : heap[0];
+}
+
+function pop(heap) {
+  if (0 === heap.length) return null;
+  var first = heap[0],
+    last = heap.pop();
+  if (last !== first) {
+    heap[0] = last;
+    a: for (
+      var index = 0, length = heap.length, halfLength = length >>> 1;
+      index < halfLength;
+    ) {
+      var leftIndex = 2 * (index + 1) - 1,
+        left = heap[leftIndex],
+        rightIndex = leftIndex + 1,
+        right = heap[rightIndex];
+      if (0 > compare(left, last))
+        rightIndex < length && 0 > compare(right, left)
+          ? ((heap[index] = right),
+            (heap[rightIndex] = last),
+            (index = rightIndex))
+          : ((heap[index] = left),
+            (heap[leftIndex] = last),
+            (index = leftIndex));
+      else if (rightIndex < length && 0 > compare(right, last))
+        (heap[index] = right), (heap[rightIndex] = last), (index = rightIndex);
+      else break a;
+    }
+  }
+  return first;
+}
+function compare(a, b) {
+  var diff = a.sortIndex - b.sortIndex;
+  return 0 !== diff ? diff : a.id - b.id;
+}
+exports.unstable_now = void 0;
+if ("object" === typeof performance && "function" === typeof performance.now) {
+  var localPerformance = performance;
+  exports.unstable_now = function () {
+    return localPerformance.now();
+  };
+} else {
+  var localDate = Date,
+    initialTime = localDate.now();
+  exports.unstable_now = function () {
+    return localDate.now() - initialTime;
+  };
+}
+var taskQueue = [],
+  timerQueue = [],
+  taskIdCounter = 1,
+  currentTask = null,
+
+  currentPriorityLevel = 3,
+  isPerformingWork = !1,
+  isHostCallbackScheduled = !1,
+  isHostTimeoutScheduled = !1,
+  needsPaint = !1,
+  localSetTimeout = "function" === typeof setTimeout ? setTimeout : null,
+  localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null,
+  localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+function advanceTimers(currentTime) {
+  for (var timer = peek(timerQueue); null !== timer; ) {
+    if (null === timer.callback) pop(timerQueue);
+    else if (timer.startTime <= currentTime)
+      pop(timerQueue),
+        (timer.sortIndex = timer.expirationTime),
+        push(taskQueue, timer);
+    else break;
+    timer = peek(timerQueue);
+  }
+}
+function handleTimeout(currentTime) {
+  isHostTimeoutScheduled = !1;
+  advanceTimers(currentTime);
+  if (!isHostCallbackScheduled)
+    if (null !== peek(taskQueue))
+      (isHostCallbackScheduled = !0),
+        isMessageLoopRunning ||
+          ((isMessageLoopRunning = !0), schedulePerformWorkUntilDeadline());
+    else {
+      var firstTimer = peek(timerQueue);
+      null !== firstTimer &&
+        requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+    }
+}
+var isMessageLoopRunning = !1,
+  taskTimeoutID = -1,
+  frameInterval = 5,
+  startTime = -1;
+function shouldYieldToHost() {
+  return needsPaint
+    ? !0
+    : exports.unstable_now() - startTime < frameInterval
+      ? !1
+      : !0;
+}
+function performWorkUntilDeadline() {
+  needsPaint = !1;
+  if (isMessageLoopRunning) {
+    var currentTime = exports.unstable_now();
+    startTime = currentTime;
+    var hasMoreWork = !0;
+
+    try {
+      a: {
+        isHostCallbackScheduled = !1;
+        isHostTimeoutScheduled &&
+          ((isHostTimeoutScheduled = !1),
+          localClearTimeout(taskTimeoutID),
+          (taskTimeoutID = -1));
+        isPerformingWork = !0;
+        var previousPriorityLevel = currentPriorityLevel;
+        try {
+          b: {
+            advanceTimers(currentTime);
+            for (
+              currentTask = peek(taskQueue);
+              null !== currentTask &&
+              !(
+                currentTask.expirationTime > currentTime && shouldYieldToHost()
+              );
+            ) {
+              var callback = currentTask.callback;
+              if ("function" === typeof callback) {
+                currentTask.callback = null;
+                currentPriorityLevel = currentTask.priorityLevel;
+                var continuationCallback = callback(
+                  currentTask.expirationTime <= currentTime
+                );
+                currentTime = exports.unstable_now();
+                if ("function" === typeof continuationCallback) {
+                  currentTask.callback = continuationCallback;
+                  advanceTimers(currentTime);
+                  hasMoreWork = !0;
+                  break b;
+                }
+                currentTask === peek(taskQueue) && pop(taskQueue);
+                advanceTimers(currentTime);
+              } else pop(taskQueue);
+              currentTask = peek(taskQueue);
+            }
+            if (null !== currentTask) hasMoreWork = !0;
+            else {
+              var firstTimer = peek(timerQueue);
+              null !== firstTimer &&
+                requestHostTimeout(
+                  handleTimeout,
+                  firstTimer.startTime - currentTime
+                );
+              hasMoreWork = !1;
+            }
+          }
+          break a;
+
+        } finally {
+          (currentTask = null),
+            (currentPriorityLevel = previousPriorityLevel),
+            (isPerformingWork = !1);
+        }
+        hasMoreWork = void 0;
+      }
+    } finally {
+      hasMoreWork
+        ? schedulePerformWorkUntilDeadline()
+        : (isMessageLoopRunning = !1);
+    }
+  }
+}
+var schedulePerformWorkUntilDeadline;
+if ("function" === typeof localSetImmediate)
+  schedulePerformWorkUntilDeadline = function () {
+    localSetImmediate(performWorkUntilDeadline);
+  };
+else if ("undefined" !== typeof MessageChannel) {
+  var channel = new MessageChannel(),
+    port = channel.port2;
+  channel.port1.onmessage = performWorkUntilDeadline;
+  schedulePerformWorkUntilDeadline = function () {
+    port.postMessage(null);
+  };
+} else
+  schedulePerformWorkUntilDeadline = function () {
+    localSetTimeout(performWorkUntilDeadline, 0);
+  };
+function requestHostTimeout(callback, ms) {
+  taskTimeoutID = localSetTimeout(function () {
+    callback(exports.unstable_now());
+  }, ms);
+}
+exports.unstable_IdlePriority = 5;
+exports.unstable_ImmediatePriority = 1;
+exports.unstable_LowPriority = 4;
+exports.unstable_NormalPriority = 3;
+exports.unstable_Profiling = null;
+exports.unstable_UserBlockingPriority = 2;
+exports.unstable_cancelCallback = function (task) {
+  task.callback = null;
+};
+exports.unstable_forceFrameRate = function (fps) {
+  0 > fps || 125 < fps
+    ? console.error(
+        "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
+      )
+    : (frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5);
+
+};
+exports.unstable_getCurrentPriorityLevel = function () {
+  return currentPriorityLevel;
+};
+exports.unstable_next = function (eventHandler) {
+  switch (currentPriorityLevel) {
+    case 1:
+    case 2:
+    case 3:
+      var priorityLevel = 3;
+      break;
+    default:
+      priorityLevel = currentPriorityLevel;
+  }
+  var previousPriorityLevel = currentPriorityLevel;
+  currentPriorityLevel = priorityLevel;
+  try {
+    return eventHandler();
+  } finally {
+    currentPriorityLevel = previousPriorityLevel;
+  }
+};
+exports.unstable_requestPaint = function () {
+  needsPaint = !0;
+};
+exports.unstable_runWithPriority = function (priorityLevel, eventHandler) {
+  switch (priorityLevel) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+      break;
+    default:
+      priorityLevel = 3;
+  }
+  var previousPriorityLevel = currentPriorityLevel;
+  currentPriorityLevel = priorityLevel;
+  try {
+    return eventHandler();
+  } finally {
+    currentPriorityLevel = previousPriorityLevel;
+  }
+};
+exports.unstable_scheduleCallback = function (
+  priorityLevel,
+  callback,
+  options
+) {
+  var currentTime = exports.unstable_now();
+
+  "object" === typeof options && null !== options
+    ? ((options = options.delay),
+      (options =
+        "number" === typeof options && 0 < options
+          ? currentTime + options
+          : currentTime))
+    : (options = currentTime);
+  switch (priorityLevel) {
+    case 1:
+      var timeout = -1;
+      break;
+    case 2:
+      timeout = 250;
+      break;
+    case 5:
+      timeout = 1073741823;
+      break;
+    case 4:
+      timeout = 1e4;
+      break;
+    default:
+      timeout = 5e3;
+  }
+  timeout = options + timeout;
+  priorityLevel = {
+    id: taskIdCounter++,
+    callback: callback,
+    priorityLevel: priorityLevel,
+    startTime: options,
+    expirationTime: timeout,
+    sortIndex: -1
+  };
+  options > currentTime
+    ? ((priorityLevel.sortIndex = options),
+      push(timerQueue, priorityLevel),
+      null === peek(taskQueue) &&
+        priorityLevel === peek(timerQueue) &&
+        (isHostTimeoutScheduled
+          ? (localClearTimeout(taskTimeoutID), (taskTimeoutID = -1))
+          : (isHostTimeoutScheduled = !0),
+        requestHostTimeout(handleTimeout, options - currentTime)))
+    : ((priorityLevel.sortIndex = timeout),
+      push(taskQueue, priorityLevel),
+      isHostCallbackScheduled ||
+        isPerformingWork ||
+        ((isHostCallbackScheduled = !0),
+        isMessageLoopRunning ||
+          ((isMessageLoopRunning = !0), schedulePerformWorkUntilDeadline())));
+  return priorityLevel;
+};
+
+exports.unstable_shouldYield = shouldYieldToHost;
+exports.unstable_wrapCallback = function (callback) {
+  var parentPriorityLevel = currentPriorityLevel;
+  return function () {
+    var previousPriorityLevel = currentPriorityLevel;
+    currentPriorityLevel = parentPriorityLevel;
+    try {
+      return callback.apply(this, arguments);
+    } finally {
+      currentPriorityLevel = previousPriorityLevel;
+    }
+  };
+};
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/index.js =====
+'use strict';
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/scheduler.production.js');
+} else {
+  module.exports = require('./cjs/scheduler.development.js');
+}
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/index.native.js =====
+'use strict';
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/scheduler.native.production.js');
+} else {
+  module.exports = require('./cjs/scheduler.native.development.js');
+}
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/unstable_mock.js =====
+'use strict';
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/scheduler-unstable_mock.production.js');
+} else {
+  module.exports = require('./cjs/scheduler-unstable_mock.development.js');
+}
+// ===== release/win-unpacked/resources/app/node_modules/scheduler/unstable_post_task.js =====
+'use strict';
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/scheduler-unstable_post_task.production.js');
+} else {
+  module.exports = require('./cjs/scheduler-unstable_post_task.development.js');
+}
+// ===== scripts/copyright-gen.js =====
+#!/usr/bin/env node
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
+const EXCLUDE_DIRS = [
+  'node_modules', 'dist', 'build', '.git', '.claude',
+  'android/build', 'android/.gradle', 'android/app/build',
+
+  'public', 'docs', '__pycache__',
+];
+const EXCLUDE_FILES = [
+  'vite.config.ts', 'vite-env.d.ts', 'postcss.config.js',
+  'capacitor.config.ts', 'tailwind.config.js', 'tailwind.config.ts',
+];
+const FILE_PRIORITY = [
+  { pattern: /^components\/CombatView/, priority: 1 },
+  { pattern: /^App\.tsx$/, priority: 2 },
+  { pattern: /^components\/WorldMap/, priority: 3 },
+  { pattern: /^components\/SquadManagement/, priority: 4 },
+  { pattern: /^components\/CityView/, priority: 5 },
+  { pattern: /^services\/mapGenerator/, priority: 6 },
+  { pattern: /^services\/combatAI/, priority: 7 },
+  { pattern: /^services\/worldMapAI/, priority: 8 },
+  { pattern: /^constants\.ts$/, priority: 9 },
+  { pattern: /^types\.ts$/, priority: 10 },
+  { pattern: /^components\
+  { pattern: /^services\
+  { pattern: /^index\.tsx$/, priority: 40 },
+  { pattern: /^scripts\
+  { pattern: /^electron\
+];
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const config = {
+    linesPerPage: 50,
+    pages: 30,
+    keepImports: false,
+    name: '',
+    output: 'copyright-output',
+  };
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--lines-per-page':
+        config.linesPerPage = parseInt(args[++i], 10);
+        break;
+      case '--pages':
+        config.pages = parseInt(args[++i], 10);
+        break;
+      case '--keep-imports':
+        config.keepImports = true;
+        break;
+      case '--name':
+        config.name = args[++i];
+        break;
+      case '--output':
+        config.output = args[++i];
+        break;
+      case '--help':
+
+        console.log(`
+软著源代码生成脚本
+用法: node scripts/copyright-gen.js [选项]
+选项:
+  --lines-per-page <n>  每页行数（默认 50）
+  --pages <n>           前后各多少页（默认 30）
+  --keep-imports        保留 import 语句
+  --name <name>         软件名称（默认读取 package.json）
+  --output <dir>        输出目录（默认 copyright-output）
+  --help                显示帮助
+`);
+        process.exit(0);
+    }
+  }
+  if (!config.name) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf-8'));
+      config.name = pkg.description || pkg.name || 'QingBrother';
+    } catch {
+      config.name = 'QingBrother';
+    }
+  }
+  return config;
+}
+function scanFiles(dir, relBase = '') {
+  const results = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (EXCLUDE_DIRS.some(ex => relPath === ex || relPath.startsWith(ex + '/'))) continue;
+      results.push(...scanFiles(path.join(dir, entry.name), relPath));
+    } else if (entry.isFile()) {
+      if (!EXTENSIONS.includes(path.extname(entry.name))) continue;
+      if (EXCLUDE_FILES.includes(entry.name)) continue;
+      results.push({ absPath: path.join(dir, entry.name), relPath });
+    }
+  }
+  return results;
+}
+function getFilePriority(relPath) {
+  const normalizedPath = relPath.replace(/\\/g, '/');
+  for (const rule of FILE_PRIORITY) {
+    if (rule.pattern.test(normalizedPath)) return rule.priority;
+  }
+  return 50;
+}
+function cleanCode(source, keepImports) {
+  const lines = source.split('\n');
+  const cleaned = [];
+
+  let inBlockComment = false;
+  for (let line of lines) {
+    if (inBlockComment) {
+      const endIdx = line.indexOf('*/');
+      if (endIdx !== -1) {
+        inBlockComment = false;
+        line = line.substring(endIdx + 2);
+        if (line.trim() === '') continue;
+      } else {
+        continue;
+      }
+    }
+    const blockStart = line.indexOf('
+', blockStart + 2);
+      if (blockEnd !== -1) {
+        line = line.substring(0, blockStart) + line.substring(blockEnd + 2);
+        if (line.trim() === '') continue;
+      } else {
+        line = line.substring(0, blockStart);
+        inBlockComment = true;
+        if (line.trim() === '') continue;
+      }
+    }
+    line = removeLineComment(line);
+    if (line.trim() === '') continue;
+    if (!keepImports) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('import ') && (trimmed.includes(' from ') || trimmed.includes("from'"))) continue;
+      if (trimmed.startsWith('import {') || trimmed.startsWith('import type')) continue;
+      if (trimmed.startsWith('} from ')) continue;
+    }
+    cleaned.push(line);
+  }
+  return cleaned;
+}
+function removeLineComment(line) {
+  let inString = false;
+  let stringChar = '';
+  let inTemplate = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    const next = line[i + 1];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === stringChar) inString = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '`') inTemplate = false;
+
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      return line.substring(0, i).trimEnd();
+    }
+  }
+  return line;
+}
+function main() {
+  const config = parseArgs();
+  const totalLines = config.linesPerPage * config.pages;
+  console.log('========================================');
+  console.log('  软著源代码生成工具');
+  console.log('========================================');
+  console.log(`软件名称: ${config.name}`);
+  console.log(`每页行数: ${config.linesPerPage}`);
+  console.log(`前后各:   ${config.pages} 页`);
+  console.log(`保留import: ${config.keepImports}`);
+  console.log('');
+  const files = scanFiles(PROJECT_ROOT);
+  files.sort((a, b) => getFilePriority(a.relPath) - getFilePriority(b.relPath));
+  console.log(`扫描到 ${files.length} 个源代码文件:`);
+  files.forEach(f => console.log(`  ${f.relPath}`));
+  console.log('');
+  const allLines = [];
+  const fileStats = [];
+  for (const file of files) {
+    const source = fs.readFileSync(file.absPath, 'utf-8');
+    const cleaned = cleanCode(source, config.keepImports);
+    if (cleaned.length === 0) continue;
+    allLines.push(`// ===== ${file.relPath} =====`);
+    allLines.push(...cleaned);
+    fileStats.push({
+      file: file.relPath,
+      originalLines: source.split('\n').length,
+      cleanedLines: cleaned.length,
+    });
+  }
+  console.log(`清洗后总行数: ${allLines.length}`);
+  console.log(`需要行数: 前${totalLines}行 + 后${totalLines}行 = ${totalLines * 2}行`);
+  console.log('');
+
+  if (allLines.length < totalLines * 2) {
+    console.log(`⚠ 注意: 清洗后代码总行数(${allLines.length})不足${totalLines * 2}行`);
+    console.log(`  前后页面可能有重叠，建议开启 --keep-imports 或减少 --pages`);
+    console.log('');
+  }
+  const frontLines = allLines.slice(0, totalLines);
+  const backLines = allLines.slice(-totalLines);
+  const outputDir = path.join(PROJECT_ROOT, config.output);
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+  const frontText = formatPages(frontLines, config.linesPerPage, config.pages);
+  const backText = formatPages(backLines, config.linesPerPage, config.pages);
+  fs.writeFileSync(path.join(outputDir, '前30页.txt'), frontText, 'utf-8');
+  fs.writeFileSync(path.join(outputDir, '后30页.txt'), backText, 'utf-8');
+  const statsText = generateStats(config, fileStats, allLines.length);
+  fs.writeFileSync(path.join(outputDir, '统计信息.txt'), statsText, 'utf-8');
+  console.log('========================================');
+  console.log('  生成完成!');
+  console.log('========================================');
+  console.log(`输出目录: ${outputDir}`);
+  console.log(`  - 前30页.txt (${frontLines.length} 行)`);
+  console.log(`  - 后30页.txt (${backLines.length} 行)`);
+  console.log(`  - 统计信息.txt`);
+  console.log('');
+  console.log('后续步骤:');
+  console.log('  1. 将 txt 内容复制到 Word 文档');
+  console.log('  2. 设置字体: 宋体/等线 小四号');
+  console.log('  3. 行间距: 固定值 20磅');
+  console.log('  4. 页边距: 上下左右各 2cm');
+}
+function formatPages(lines, linesPerPage, totalPages) {
+  const output = [];
+  const actualPages = Math.ceil(lines.length / linesPerPage);
+  const pages = Math.min(actualPages, totalPages);
+  for (let p = 0; p < pages; p++) {
+    const start = p * linesPerPage;
+    const end = Math.min(start + linesPerPage, lines.length);
+    const pageLines = lines.slice(start, end);
+    output.push(...pageLines);
+    if (p < pages - 1) {
+      output.push('');
+    }
+  }
+  return output.join('\n');
+}
+function generateStats(config, fileStats, totalCleanedLines) {
+  const lines = [];
+  lines.push(`软件名称: ${config.name}`);
+  lines.push(`生成时间: ${new Date().toLocaleString('zh-CN')}`);
+
+  lines.push(`每页行数: ${config.linesPerPage}`);
+  lines.push(`前后各: ${config.pages} 页`);
+  lines.push(`保留import: ${config.keepImports}`);
+  lines.push('');
+  lines.push(`清洗后总行数: ${totalCleanedLines}`);
+  lines.push(`前${config.pages}页行数: ${Math.min(totalCleanedLines, config.linesPerPage * config.pages)}`);
+  lines.push(`后${config.pages}页行数: ${Math.min(totalCleanedLines, config.linesPerPage * config.pages)}`);
+  lines.push('');
+  lines.push('文件统计:');
+  lines.push('-'.repeat(60));
+  lines.push(`${'文件路径'.padEnd(45)} 原始行数  清洗后`);
+  lines.push('-'.repeat(60));
+  let totalOriginal = 0;
+  let totalCleaned = 0;
+  for (const stat of fileStats) {
+    const orig = String(stat.originalLines).padStart(6);
+    const clean = String(stat.cleanedLines).padStart(6);
+    lines.push(`${stat.file.padEnd(45)} ${orig}  ${clean}`);
+    totalOriginal += stat.originalLines;
+    totalCleaned += stat.cleanedLines;
+  }
+  lines.push('-'.repeat(60));
+  lines.push(`${'合计'.padEnd(45)} ${String(totalOriginal).padStart(6)}  ${String(totalCleaned).padStart(6)}`);
+  return lines.join('\n');
+}
+main();
+// ===== scripts/download-assets.js =====
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const FONT_CSS_URL = 'https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap';
+const BG_IMAGE_URL = 'https://www.transparenttextures.com/patterns/p6.png';
+const PUBLIC_DIR = path.join(__dirname, '../public');
+const FONTS_DIR = path.join(PUBLIC_DIR, 'fonts/NotoSerifSC');
+const IMAGES_DIR = path.join(PUBLIC_DIR, 'images');
+const FONT_CSS_FILE = path.join(PUBLIC_DIR, 'fonts/NotoSerifSC.css');
+if (!fs.existsSync(FONTS_DIR)) {
+    fs.mkdirSync(FONTS_DIR, { recursive: true });
+}
+if (!fs.existsSync(IMAGES_DIR)) {
+    fs.mkdirSync(IMAGES_DIR, { recursive: true });
+}
+function fetchContent(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        }, response => {
+            if (response.statusCode !== 200) {
+                reject(new Error(`Failed to fetch ${url}: ${response.statusCode}`));
+
+                return;
+            }
+            let data = '';
+            response.on('data', chunk => data += chunk);
+            response.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
+function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(dest);
+        https.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        }, response => {
+            if (response.statusCode !== 200) {
+                reject(new Error(`Failed to download ${url}: ${response.statusCode}`));
+                return;
+            }
+            response.pipe(file);
+            file.on('finish', () => {
+                file.close();
+                resolve();
+            });
+        }).on('error', (err) => {
+            fs.unlink(dest, () => {});
+            reject(err);
+        });
+    });
+}
+async function processFonts() {
+    console.log('Fetching font CSS...');
+    let css;
+    try {
+        css = await fetchContent(FONT_CSS_URL);
+    } catch (e) {
+        console.error('Failed to fetch font CSS:', e);
+        return;
+    }
+    const fontUrls = [];
+    const fontFiles = new Map();
+    const urlRegex = /src:\s*url\((https:\/\/[^)]+)\)/g;
+    let match;
+    let counter = 0;
+    while ((match = urlRegex.exec(css)) !== null) {
+        const url = match[1];
+        if (!fontFiles.has(url)) {
+            const ext = path.extname(new URL(url).pathname) || '.woff2';
+            const filename = `noto-serif-sc-${counter++}${ext}`;
+
+            fontFiles.set(url, filename);
+            fontUrls.push({ url, filename });
+        }
+    }
+    console.log(`Found ${fontUrls.length} font files.`);
+    for (const { url, filename } of fontUrls) {
+        const dest = path.join(FONTS_DIR, filename);
+        if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+            console.log(`Skipping ${filename} (already exists)`);
+            continue;
+        }
+        console.log(`Downloading ${filename}...`);
+        try {
+            await downloadFile(url, dest);
+        } catch (e) {
+            console.error(`Failed to download ${filename}:`, e);
+        }
+    }
+// ===== scripts/upload-taptap.js =====
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
+const ANDROID_DIR = join(ROOT, 'android');
+const BUILD_GRADLE_PATH = join(ANDROID_DIR, 'app', 'build.gradle');
+function getApkPath(versionName, versionCode) {
+  return join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', `qingbrother-${versionName}-${versionCode}.apk`);
+}
+const CONFIG_PATH = join(__dirname, 'taptap-upload.config.json');
+const UPLOAD_PARAMS_URL = 'https://cloud.tapapis.cn/apk/v1/upload-params';
+function log(msg, type = 'info') {
+  const prefix = type === 'err' ? '[错误]' : type === 'ok' ? '[完成]' : '[TapTap]';
+  console.log(`${prefix} ${msg}`);
+}
+function loadConfig() {
+  if (!existsSync(CONFIG_PATH)) {
+    log('未找到 scripts/taptap-upload.config.json', 'err');
+    log('请复制 scripts/taptap-upload.config.example.json 为 taptap-upload.config.json 并填写 client_id、server_secret、app_id', 'err');
+    process.exit(1);
+  }
+  const raw = readFileSync(CONFIG_PATH, 'utf-8');
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch (e) {
+    log('taptap-upload.config.json 格式错误，应为 JSON', 'err');
+    process.exit(1);
+  }
+  const { client_id, server_secret, app_id } = config;
+  if (!client_id || !server_secret || !app_id) {
+    log('请在 taptap-upload.config.json 中填写 client_id、server_secret、app_id', 'err');
+    process.exit(1);
+
+  }
+  const appIdStr = String(app_id).trim();
+  if (!/^\d+$/.test(appIdStr)) {
+    log('app_id 必须是纯数字（TapTap 游戏数字 ID），例如 58881。当前值看起来像 client_id 或 server_secret，请到 TapTap 游戏页 URL 中查看 app/ 后面的数字', 'err');
+    process.exit(1);
+  }
+  let version_code = config.version_code != null ? Number(config.version_code) : NaN;
+  let version_name = config.version_name != null ? String(config.version_name).trim() : '';
+  if (!Number.isInteger(version_code) || version_code < 0 || !version_name) {
+    const fromGradle = readVersionFromBuildGradle();
+    if (fromGradle) {
+      version_code = Number.isNaN(version_code) || version_code < 0 ? fromGradle.versionCode : version_code;
+      version_name = version_name || fromGradle.versionName;
+      log(`版本从 build.gradle 同步: versionCode ${version_code}, versionName "${version_name}"`, 'info');
+    } else {
+      log('请在 taptap-upload.config.json 中填写 version_code、version_name，或保证 android/app/build.gradle 中有 versionCode/versionName', 'err');
+      process.exit(1);
+    }
+  }
+  return { ...config, client_id, server_secret, app_id: appIdStr, version_code, version_name };
+}
+function readVersionFromBuildGradle() {
+  if (!existsSync(BUILD_GRADLE_PATH)) return null;
+  const content = readFileSync(BUILD_GRADLE_PATH, 'utf-8');
+  const codeMatch = content.match(/versionCode\s+(\d+)/);
+  const nameMatch = content.match(/versionName\s+"([^"]+)"/);
+  if (!codeMatch || !nameMatch) return null;
+  return { versionCode: parseInt(codeMatch[1], 10), versionName: nameMatch[1] };
+}
+function randomNonce(len = 8) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+function computeSign(serverSecret, signParts) {
+  const hmac = createHmac('sha256', serverSecret);
+  hmac.update(signParts, 'utf8');
+  return hmac.digest('base64');
+}
+async function getUploadParams(config, fileName) {
+  const ts = Math.floor(Date.now() / 1000);
+  const nonce = randomNonce(8);
+  const query = new URLSearchParams({
+    app_id: config.app_id,
+    client_id: config.client_id,
+    file_name: fileName,
+  });
+  const urlPathAndQuery = `/apk/v1/upload-params?${query.toString()}`;
+  const headersPart = `x-tap-nonce:${nonce}\nx-tap-ts:${ts}`;
+
+  const signParts = `GET\n${urlPathAndQuery}\n${headersPart}\n\n`;
+  const sign = computeSign(config.server_secret, signParts);
+  const url = `https://cloud.tapapis.cn${urlPathAndQuery}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'X-Tap-Ts': String(ts),
+      'X-Tap-Nonce': nonce,
+      'X-Tap-Sign': sign,
+    },
+  });
+  const body = await res.json();
+  if (!body.success || !body.data) {
+    log(body.message || body.errmsg || JSON.stringify(body), 'err');
+    process.exit(1);
+  }
+  return body.data;
+}
+function bumpVersionAndSync(config) {
+  if (!existsSync(BUILD_GRADLE_PATH)) {
+    log('未找到 android/app/build.gradle', 'err');
+    process.exit(1);
+  }
+  const prevCode = config.version_code;
+  const nextCode = prevCode + 1;
+  const versionName = config.version_name;
+  let content = readFileSync(BUILD_GRADLE_PATH, 'utf-8');
+  content = content
+    .replace(/versionCode\s+\d+/, `versionCode ${nextCode}`)
+    .replace(/versionName\s+"[^"]+"/, `versionName "${versionName}"`);
+  writeFileSync(BUILD_GRADLE_PATH, content, 'utf-8');
+  config.version_code = nextCode;
+  const configOut = { ...config, version_code: nextCode };
+  writeFileSync(CONFIG_PATH, JSON.stringify(configOut, null, 2) + '\n', 'utf-8');
+  log(`version_code ${prevCode} -> ${nextCode}，version_name "${versionName}"（仅手动在 config 中修改）`, 'ok');
+}
+function buildRelease(apkPath) {
+  const isWin = process.platform === 'win32';
+  const gradlew = isWin ? 'gradlew.bat' : 'gradlew';
+  const gradlewPath = join(ANDROID_DIR, gradlew);
+  if (!existsSync(gradlewPath)) {
+    log('未找到 android/gradlew，请在项目根目录执行', 'err');
+    process.exit(1);
+  }
+  log('正在执行: android assembleRelease ...');
+  const ret = spawnSync(gradlew, ['assembleRelease'], {
+    cwd: ANDROID_DIR,
+    stdio: 'inherit',
+    shell: isWin,
+  });
+
+  if (ret.status !== 0) {
+    log('构建失败', 'err');
+    process.exit(1);
+  }
+  log('构建成功', 'ok');
+  if (!existsSync(apkPath)) {
+    log('未找到 APK: ' + apkPath + '（可能未配置签名，请配置 keystore.properties 后重试）', 'err');
+    process.exit(1);
+  }
+}
+async function uploadApk(localPath, uploadData) {
+  const { url, method, headers } = uploadData;
+  const body = readFileSync(localPath);
+  const res = await fetch(url, {
+    method: method || 'PUT',
+    headers: {
+      ...headers,
+      'Content-Length': String(body.length),
+    },
+    body,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    log(`上传失败 HTTP ${res.status}: ${text}`, 'err');
+    process.exit(1);
+  }
+  log('上传成功，约 3–5 分钟后可在 TapTap 商店 >> 游戏资料 >> 商店资料 中看到该包', 'ok');
+}
+async function main() {
+  console.log('');
+  log('1/4 加载配置');
+  const config = loadConfig();
+  log('2/4 按 config 升级版本并写回 build.gradle');
+  bumpVersionAndSync(config);
+  const apkPath = getApkPath(config.version_name, config.version_code);
+  const fileName = `qingbrother-${config.version_name}-${config.version_code}.apk`;
+  log('3/4 构建 Release APK');
+  buildRelease(apkPath);
+  log('4/4 获取上传参数并上传');
+  const uploadData = await getUploadParams(config, fileName);
+  await uploadApk(apkPath, uploadData);
+  console.log('');
+}
+main().catch((e) => {
+  log(e.message || String(e), 'err');
+  process.exit(1);
+});
+// ===== electron/main.js =====
+const { app, BrowserWindow, shell } = require('electron');
+const path = require('path');
+
+const isDev = process.env.NODE_ENV === 'development';
+function createWindow() {
+  const mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 768,
+    title: '战国·与伍同行',
+    icon: path.join(__dirname, '../build/icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+    autoHideMenuBar: true,
+    backgroundColor: '#0f172a',
+  });
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.maximize();
+}
+app.whenReady().then(() => {
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+// ===== electron/preload.js =====
+const { contextBridge } = require('electron');
+contextBridge.exposeInMainWorld('electronAPI', {
+  platform: process.platform,
+  isElectron: true,
+});

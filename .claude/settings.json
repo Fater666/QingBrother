@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/66432/.claude/**)",
+      "Read(//c/Users/66432/**)",
+      "Bash(gh api repos/anthropics/skills/contents/skills/skill-creator/SKILL.md -q '.content')",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}

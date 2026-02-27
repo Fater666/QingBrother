@@ -1,0 +1,1529 @@
+// ===== components/CombatView.tsx =====
+  getPathMoveCost, checkNineLives, hasPerk,
+  getBerserkAPRecovery, hasHeadHunter, getKillingFrenzyMultiplier,
+  getOverwhelmStacks, getReachAdvantageBonus, hasFearsome,
+  resetTurnStartStates, applyAdrenalineTurnOrder,
+  getWeaponMasteryFatigueMultiplier, getWeaponMasteryEffects,
+  isLoneWolfActive, getLoneWolfMultiplier,
+  handleAllyDeath,
+  handleHeavyDamage,
+  handleEnemyKilled,
+  handleTurnStartRecovery,
+  applyMoraleResults,
+  getMoraleEffects,
+  getMoraleDisplayText,
+  checkTeamRouted,
+  getFleeTargetPosition,
+  getRetreatTargetPosition,
+  shouldSkipAction,
+  MORALE_ICONS,
+  MORALE_COLORS,
+  MoraleCheckResult
+  checkZoCOnMove,
+  checkZoCEnterOnStep,
+  processZoCAttacks,
+  processSpearwallEntryAttacks,
+  getFreeAttackLogText,
+  FreeAttackResult
+  calculateDamage,
+  getDamageLogText,
+  getInterceptDamageLogText,
+  DamageResult,
+  HitLocation
+const RenderIcon: React.FC<{ icon: string; className?: string; style?: React.CSSProperties }> = ({ icon, className, style }) => {
+  if (icon.startsWith('/assets/')) {
+    return <img src={icon} alt="" className={className} style={{ ...style, display: 'inline-block', verticalAlign: 'middle' }} />;
+  }
+  return <span className={className} style={style}>{icon}</span>;
+};
+interface CombatViewProps {
+  initialState: CombatState;
+  onCombatEnd: (victory: boolean, survivors: CombatUnit[], enemyUnits: CombatUnit[], rounds: number, isRetreat?: boolean) => void;
+  onTriggerTip?: (tipId: string) => void;
+}
+type FloatingTextType = 'damage' | 'heal' | 'miss' | 'critical' | 'morale' | 'block' | 'intercept';
+interface FloatingText {
+    id: number;
+    text: string;
+    x: number;
+    y: number;
+    color: string;
+
+    type: FloatingTextType;
+    size?: 'sm' | 'md' | 'lg';
+}
+type CombatLogType = 'attack' | 'move' | 'morale' | 'kill' | 'skill' | 'intercept' | 'info' | 'flee';
+interface CombatLogEntry {
+    id: number;
+    text: string;
+    type: CombatLogType;
+    timestamp: number;
+}
+interface CenterBanner {
+    id: number;
+    text: string;
+    color: string;
+    icon: string;
+}
+interface AttackLineEffect {
+    fromQ: number;
+    fromR: number;
+    toQ: number;
+    toR: number;
+    startTime: number;
+    color: string;
+    duration: number;
+}
+interface DeathEffect {
+    id: number;
+    q: number;
+    r: number;
+    startTime: number;
+}
+type HexPos = { q: number; r: number };
+const LOG_STYLES: Record<CombatLogType, { color: string; icon: string }> = {
+    attack: { color: '#ef4444', icon: '⚔' },
+    move: { color: '#60a5fa', icon: '👣' },
+    morale: { color: '#fbbf24', icon: '🛡' },
+    kill: { color: '#f59e0b', icon: '💀' },
+    skill: { color: '#a78bfa', icon: '✦' },
+    intercept: { color: '#f97316', icon: '⚡' },
+    info: { color: '#94a3b8', icon: '•' },
+    flee: { color: '#f87171', icon: '💨' },
+};
+const TYPE_STYLES: Record<string, { bg: string; accent: string }> = {
+  FARMER: { bg: 'bg-emerald-950/90', accent: 'border-emerald-700' },
+  DESERTER: { bg: 'bg-slate-900/90', accent: 'border-slate-600' },
+  HUNTER: { bg: 'bg-amber-950/90', accent: 'border-amber-700' },
+  NOMAD: { bg: 'bg-cyan-950/90', accent: 'border-cyan-700' },
+  NOBLE: { bg: 'bg-purple-950/90', accent: 'border-purple-700' },
+  MONK: { bg: 'bg-indigo-950/90', accent: 'border-indigo-700' },
+  BANDIT: { bg: 'bg-red-950/90', accent: 'border-red-800' },
+
+  BEAST: { bg: 'bg-orange-950/90', accent: 'border-orange-800' },
+  ARMY: { bg: 'bg-zinc-900/90', accent: 'border-zinc-600' },
+  ARCHER: { bg: 'bg-lime-950/90', accent: 'border-lime-800' },
+  BERSERKER: { bg: 'bg-rose-950/90', accent: 'border-rose-800' },
+};
+const getWeaponIcon = (w: Item | null): string => {
+  if (!w) return '/assets/icons/fist.png';
+  const n = w.name;
+  if (n.includes('爪') || n.includes('牙') || n.includes('獠')) return '🐺';
+  if (n.includes('弓')) return '/assets/icons/bow.png';
+  if (n.includes('弩')) return '/assets/icons/bow.png';
+  if (n.includes('斧') || n.includes('飞斧')) return '/assets/icons/axe.png';
+  if (n.includes('矛') || n.includes('枪') || n.includes('标枪') || n.includes('投矛')) return '/assets/icons/spear.png';
+  if (n.includes('锤') || n.includes('骨朵')) return '/assets/icons/mace.png';
+  if (n.includes('棒') || n.includes('殳')) return '/assets/icons/mace.png';
+  if (n.includes('戈') || n.includes('戟')) return '/assets/icons/spear.png';
+  if (n.includes('匕')) return '/assets/icons/dagger.png';
+  if (n.includes('飞石') || n.includes('飞蝗')) return '🪨';
+  if (n.includes('鞭') || n.includes('锏') || n.includes('铁链')) return '/assets/icons/mace.png';
+  return '/assets/icons/sword.png';
+};
+const getAbilityIcon = (ability: Ability | null | undefined): string => {
+  if (!ability) return '✦';
+  return ability.icon || '✦';
+};
+const isCrossbowWeapon = (weapon: Item | null | undefined): boolean => {
+  if (!weapon) return false;
+  return weapon.weaponClass === 'crossbow' || weapon.name.includes('弩');
+};
+const isCrossbowUnit = (unit: CombatUnit | null | undefined): boolean => {
+  if (!unit) return false;
+  return isCrossbowWeapon(unit.equipment.mainHand);
+};
+const isCrossbowLoaded = (unit: CombatUnit | null | undefined): boolean => {
+  if (!unit) return false;
+  return unit.crossbowLoaded !== false;
+};
+const AIMED_SHOT_DAMAGE_MULT = 1.2;
+const TURN_START_FATIGUE_RECOVERY = 15;
+const HAMMER_BASH_STUN_CHANCE_ONE_HANDED = 35;
+const HAMMER_BASH_STUN_CHANCE_TWO_HANDED = 45;
+const HAMMER_BASH_STUN_HEADSHOT_BONUS = 10;
+const clampPercent = (value: number, min: number, max: number): number => {
+  return Math.max(min, Math.min(max, value));
+};
+const isHammerBashStunAttack = (ability: Ability, attacker: CombatUnit): boolean => {
+  const weapon = attacker.equipment.mainHand;
+  if (!weapon || ability.id !== 'BASH') return false;
+  return weapon.weaponClass === 'hammer';
+};
+
+const getHammerBashStunChance = (
+  attacker: CombatUnit,
+  target: CombatUnit,
+  hitLocation: HitLocation
+): number => {
+  const weapon = attacker.equipment.mainHand;
+  const weaponId = weapon?.id;
+  const baseChance = weapon?.twoHanded ? HAMMER_BASH_STUN_CHANCE_TWO_HANDED : HAMMER_BASH_STUN_CHANCE_ONE_HANDED;
+  const headBonus = hitLocation === 'HEAD' ? HAMMER_BASH_STUN_HEADSHOT_BONUS : 0;
+  const masteryBonus = hasPerk(attacker, 'hammer_mastery') ? 10 : 0;
+  let uniqueBonus = 0;
+  let resolveReductionMult = 1;
+  if (weaponId === 'w_unique_pojun') { uniqueBonus = 20; resolveReductionMult = 0.5; }
+  const resolveReduction = Math.max(0, Math.floor((target.stats.resolve - 40) / 5)) * resolveReductionMult;
+  return clampPercent(baseChance + headBonus + masteryBonus + uniqueBonus - resolveReduction, 15, 75);
+};
+interface DisplayStatus {
+  id: string;
+  icon: string;
+  label: string;
+  tone: 'buff' | 'debuff' | 'utility';
+  badge?: string;
+}
+const getUnitDisplayStatuses = (unit: CombatUnit): DisplayStatus[] => {
+  const statuses: DisplayStatus[] = [];
+  if (unit.isShieldWall) {
+    statuses.push({ id: 'shieldwall', icon: '🛡️', label: '盾墙', tone: 'buff' });
+  }
+  if (unit.isHalberdWall) {
+    statuses.push({ id: 'spearwall', icon: '🚧', label: '矛墙', tone: 'buff' });
+  }
+  if (unit.isRiposte) {
+    statuses.push({ id: 'riposte', icon: '🔄', label: '反击姿态', tone: 'buff' });
+  }
+  if (unit.isIndomitable) {
+    statuses.push({ id: 'indomitable', icon: '🗿', label: '不屈', tone: 'buff' });
+  }
+  if (unit.adrenalineActive) {
+    statuses.push({ id: 'adrenaline', icon: '💉', label: '血勇（下回合先手）', tone: 'buff' });
+  }
+  if (unit.taunting) {
+    statuses.push({ id: 'taunt', icon: '🤬', label: '挑衅（敌方优先攻击）', tone: 'buff' });
+  }
+  if (unit.isBannerman) {
+    statuses.push({ id: 'bannerman', icon: '🚩', label: '旗手（士气光环）', tone: 'buff' });
+  }
+  if ((unit.killingFrenzyTurns || 0) > 0) {
+    statuses.push({
+      id: 'killing_frenzy',
+      icon: '🔥',
+
+      label: '杀意（伤害提升）',
+      tone: 'buff',
+      badge: `${unit.killingFrenzyTurns}T`,
+    });
+  }
+  if ((unit.overwhelmStacks || 0) > 0) {
+    statuses.push({
+      id: 'overwhelm',
+      icon: '🕸️',
+      label: '压制（攻击力下降）',
+      tone: 'debuff',
+      badge: `${unit.overwhelmStacks}`,
+    });
+  }
+  if ((unit.stunnedTurns || 0) > 0) {
+    statuses.push({
+      id: 'stunned',
+      icon: '😵',
+      label: '击晕（下回合无法行动）',
+      tone: 'debuff',
+      badge: `${unit.stunnedTurns}T`,
+    });
+  }
+  if (unit.headHunterActive) {
+    statuses.push({ id: 'head_hunter', icon: '🎯', label: '索首（下次必中头部）', tone: 'buff' });
+  }
+  if ((unit.fastAdaptationStacks || 0) > 0) {
+    statuses.push({
+      id: 'fast_adaptation',
+      icon: '📈',
+      label: '临机应变（命中率提升）',
+      tone: 'buff',
+      badge: `${unit.fastAdaptationStacks}`,
+    });
+  }
+  if ((unit.reachAdvantageBonus || 0) > 0) {
+    statuses.push({
+      id: 'reach_advantage',
+      icon: '🧱',
+      label: '兵势（近战防御加成）',
+      tone: 'buff',
+      badge: `+${unit.reachAdvantageBonus}`,
+    });
+  }
+  return statuses;
+};
+const UnitCard: React.FC<{
+  unit: CombatUnit;
+  isActive: boolean;
+  isHit: boolean;
+
+  turnIndex: number;
+  compactFontScale: number;
+  isCompactLandscape: boolean;
+  showDetail: boolean;
+  dodgeDirection?: 'left' | 'right' | null;
+}> = ({
+  unit,
+  isActive,
+  isHit,
+  turnIndex,
+  compactFontScale,
+  isCompactLandscape,
+  showDetail,
+  dodgeDirection = null
+}) => {
+  const hpPercent = (unit.hp / unit.maxHp) * 100;
+  const hpBarColor = hpPercent > 50 ? '#22c55e' : hpPercent > 25 ? '#eab308' : '#dc2626';
+  const armor = unit.equipment.armor;
+  const armorPercent = armor ? (armor.durability / armor.maxDurability) * 100 : 0;
+  const helmet = unit.equipment.helmet;
+  const helmetPercent = helmet ? (helmet.durability / helmet.maxDurability) * 100 : 0;
+  const weapon = unit.equipment.mainHand;
+  const weaponName = weapon?.name || '徒手';
+  const weaponIcon = getWeaponIcon(weapon);
+  const weaponDamageText = weapon?.damage ? `${weapon.damage[0]}-${weapon.damage[1]}` : '--';
+  const weaponHitText = weapon?.hitChanceMod ? `${weapon.hitChanceMod > 0 ? '+' : ''}${weapon.hitChanceMod}` : '0';
+  const weaponDurabilityText = weapon ? `${weapon.durability}/${weapon.maxDurability}` : '-';
+  const isCrossbow = isCrossbowWeapon(weapon);
+  const crossbowLoaded = unit.crossbowLoaded !== false;
+  const shield = unit.equipment.offHand;
+  const hasShield = shield?.type === 'SHIELD';
+  const shieldDefenseText = hasShield && shield?.defenseBonus ? `${shield.defenseBonus}` : '0';
+  const shieldDurabilityText = hasShield && shield ? `${shield.durability}/${shield.maxDurability}` : '-';
+  const bgKey = unit.team === 'ENEMY' ? (unit.aiType || 'BANDIT') : unit.background;
+  const typeName = unit.team === 'ENEMY' 
+    ? (unit.aiType === 'BEAST' ? '野兽' : unit.aiType === 'ARMY' ? '军士' : unit.aiType === 'ARCHER' ? '弓手' : '贼寇')
+    : (BACKGROUNDS[unit.background]?.name || unit.background);
+  const isEnemy = unit.team === 'ENEMY';
+  const displayStatuses = getUnitDisplayStatuses(unit);
+  const moraleIcon = MORALE_ICONS[unit.morale];
+  const moraleColor = MORALE_COLORS[unit.morale];
+  const isFleeing = unit.morale === MoraleStatus.FLEEING;
+  const cardWidth = Math.max(96, Math.round((showDetail ? 136 : 112) * compactFontScale));
+  const iconCardMinWidth = showDetail ? '68px' : '32px';
+  const iconCardMaxWidth = showDetail ? '96px' : '40px';
+  const cardStyle: React.CSSProperties = isEnemy ? {
+    clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+    background: isFleeing 
+      ? 'linear-gradient(135deg, rgba(100,50,50,0.95) 0%, rgba(50,25,25,0.98) 100%)'
+      : 'linear-gradient(135deg, rgba(127,29,29,0.95) 0%, rgba(69,10,10,0.98) 100%)',
+
+    boxShadow: isActive 
+      ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)'
+      : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.3)',
+  } : {
+    background: isFleeing
+      ? 'linear-gradient(135deg, rgba(50,50,100,0.95) 0%, rgba(25,25,50,0.98) 100%)'
+      : 'linear-gradient(135deg, rgba(30,58,138,0.95) 0%, rgba(23,37,84,0.98) 100%)',
+    boxShadow: isActive 
+      ? '0 8px 20px rgba(251,191,36,0.4), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -2px 4px rgba(0,0,0,0.3)'
+      : '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.3)',
+    borderRadius: '4px',
+  };
+  return (
+    <div
+      className={`relative ${dodgeDirection === 'left' ? 'anim-dodge-left' : dodgeDirection === 'right' ? 'anim-dodge-right' : ''}`}
+      style={{ width: `${cardWidth}px` }}
+    >
+      <div
+        className={`absolute left-1/2 -translate-x-1/2 -top-3 px-1.5 py-0.5 rounded-full text-[8px] leading-none font-black z-30 border ${
+          isActive
+            ? 'bg-amber-500 border-amber-300 text-black'
+            : 'bg-slate-800 border-slate-600 text-slate-200'
+        }`}
+        style={{ boxShadow: isActive ? '0 0 6px rgba(245,158,11,0.6)' : '0 1px 3px rgba(0,0,0,0.5)' }}
+        title={isActive ? '当前行动' : `第${turnIndex + 1}个行动`}
+      >
+        {turnIndex + 1}
+      </div>
+      {}
+      <div
+        className={`
+          p-1 text-center font-mono relative overflow-hidden
+          border-2 ${isEnemy ? 'border-red-600/80' : 'border-blue-500/80'}
+          ${isActive ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-[1.03]' : ''}
+          ${isFleeing ? 'opacity-70' : ''}
+          ${isHit ? 'anim-hit-shake' : ''}
+          transition-all duration-200
+        `}
+        style={{ ...cardStyle, width: `${cardWidth}px` }}
+      >
+        {}
+        {isHit && (
+          <div 
+            className="absolute inset-0 z-10 pointer-events-none anim-hit-flash rounded"
+            style={{ background: 'radial-gradient(circle, rgba(255,60,60,0.7) 0%, rgba(255,0,0,0.3) 70%, transparent 100%)' }}
+          />
+        )}
+        {}
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+        {}
+
+        <div
+          className={`absolute top-0.5 right-0.5 ${showDetail ? 'text-[10px]' : 'text-[9px]'} drop-shadow-md`}
+          style={{ color: moraleColor }}
+          title={unit.morale}
+        >
+          {moraleIcon}
+        </div>
+        {}
+        <div
+          className={`${showDetail ? 'text-[7px]' : 'text-[8px]'} truncate drop-shadow-sm mb-0.5 ${isEnemy ? 'text-red-300/70' : 'text-blue-300/70'}`}
+          style={isCompactLandscape ? { fontSize: `${showDetail ? 7 : 8}px` } : undefined}
+        >
+          {unit.name.slice(0, showDetail ? 4 : 3)}{showDetail && typeName ? ` · ${typeName}` : ''}
+        </div>
+        {displayStatuses.length > 0 && (
+          <div className={`flex flex-wrap justify-center gap-0.5 mb-0.5 ${showDetail ? 'min-h-[12px]' : 'min-h-[10px]'}`}>
+            {displayStatuses.map(status => {
+              const toneClass = status.tone === 'debuff'
+                ? 'border-rose-600/70 bg-rose-950/60'
+                : status.tone === 'utility'
+                  ? 'border-slate-500/70 bg-slate-900/60'
+                  : 'border-emerald-600/70 bg-emerald-950/60';
+              return (
+                <div
+                  key={status.id}
+                  className={`relative px-0.5 rounded border ${toneClass}`}
+                  title={status.label}
+                >
+                  <RenderIcon icon={status.icon} className={showDetail ? 'text-[9px] leading-none' : 'text-[8px] leading-none'} />
+                  {status.badge && (
+                    <span className="absolute -top-1 -right-1 min-w-[10px] h-[10px] px-[1px] rounded-full bg-black/90 border border-amber-500/70 text-[6px] leading-[8px] text-amber-300 text-center font-bold">
+                      {status.badge}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {showDetail && (
+          <>
+            {}
+            {helmet && (
+              <div className="flex items-center gap-0.5 mb-0.5">
+                <span className="text-[7px] text-slate-400 min-w-[10px] w-2.5 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>⛑</span>
+                <div className="flex-1 min-w-[46px] h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                  <div className="h-full transition-all relative" style={{ width: `${helmetPercent}%`, background: 'linear-gradient(to right, #0e7490, #06b6d4)' }}>
+                    <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.25), transparent)' }} />
+                  </div>
+                </div>
+
+                <span className="text-[6px] text-cyan-300 font-bold w-8 text-right">{helmet.durability}/{helmet.maxDurability}</span>
+              </div>
+            )}
+            {}
+            {armor && (
+              <div className="flex items-center gap-0.5 mb-0.5">
+                <span className="text-[7px] text-slate-400 min-w-[10px] w-2.5 flex-shrink-0" style={{ display: 'inline-block', textAlign: 'center' }}>🛡</span>
+                <div className="flex-1 min-w-[46px] h-[7px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                  <div className="h-full transition-all relative" style={{ width: `${armorPercent}%`, background: 'linear-gradient(to right, #64748b, #cbd5e1)' }}>
+                    <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)' }} />
+                  </div>
+                </div>
+                <span className="text-[6px] text-slate-300 font-bold w-8 text-right">{armor.durability}/{armor.maxDurability}</span>
+              </div>
+            )}
+            {}
+            <div className="flex items-center gap-0.5 mb-0.5">
+              <span className="text-[7px] w-2.5 flex-shrink-0" style={{ color: hpBarColor }}>♥</span>
+              <div className="flex-1 min-w-[46px] h-[8px] rounded-sm overflow-hidden border border-black/50" style={{ boxShadow: 'inset 0 2px 3px rgba(0,0,0,0.5)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                <div className="h-full transition-all relative" style={{ width: `${hpPercent}%`, backgroundColor: hpBarColor }}>
+                  <div className="absolute inset-0 h-1/2" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)' }} />
+                </div>
+              </div>
+              <span className="text-[6px] font-bold w-8 text-right" style={{ color: hpBarColor }}>{unit.hp}/{unit.maxHp}</span>
+            </div>
+            <div className="text-[6px] text-amber-300/90 leading-none truncate mt-0.5">
+              ⚔ {weaponName.slice(0, 6)} 伤害 {weaponDamageText}
+            </div>
+            {hasShield && (
+              <div className="text-[6px] text-sky-300/90 leading-none truncate mt-0.5">
+                🛡 格挡 {shieldDefenseText} 耐久 {shieldDurabilityText}
+              </div>
+            )}
+          </>
+        )}
+        {}
+        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-t from-black/40 to-transparent" />
+      </div>
+      {}
+      {!isFleeing && (
+        <div
+          className="absolute flex flex-col gap-0.5"
+          style={isEnemy ? { 
+            right: '100%', top: '42%', transform: 'translateY(-50%)', marginRight: showDetail ? '-5px' : '-3px'
+          } : { 
+            left: '100%', top: '42%', transform: 'translateY(-50%)', marginLeft: showDetail ? '-5px' : '-3px'
+          }}
+        >
+          {}
+          <div
+
+            className="px-1 py-0.5 text-center rounded-sm border border-amber-800/50 relative"
+            style={{ 
+              background: 'linear-gradient(180deg, rgba(60,40,20,0.95) 0%, rgba(40,25,10,0.98) 100%)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+              transform: isEnemy 
+                ? `rotate(${hasShield ? '8deg' : '5deg'})` 
+                : `rotate(${hasShield ? '-8deg' : '-5deg'})`,
+              minWidth: iconCardMinWidth,
+              maxWidth: iconCardMaxWidth,
+            }}
+          >
+            {isCrossbow && (
+              <div
+                className="absolute -top-1 -right-1 text-[8px] leading-none bg-black/70 border border-amber-600/70 rounded-full w-3.5 h-3.5 flex items-center justify-center"
+                title={crossbowLoaded ? '弩已装填' : '弩未装填'}
+              >
+                {crossbowLoaded ? '🟢' : '🔴'}
+              </div>
+            )}
+            <div className={showDetail ? 'text-[10px] leading-none' : 'text-[8px] leading-none'}>
+              <RenderIcon icon={weaponIcon} style={{ width: showDetail ? '30px' : '24px', height: showDetail ? '30px' : '24px' }} />
+            </div>
+            {showDetail && (
+              <>
+                <div className="text-[7px] text-amber-300 font-bold mt-0.5 leading-none break-words">{weaponName}</div>
+                <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">伤害 {weaponDamageText}</div>
+                <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">命中 {weaponHitText}</div>
+                <div className="text-[6px] text-amber-400/90 leading-none mt-0.5">耐久 {weaponDurabilityText}</div>
+                {isCrossbow && (
+                  <div className={`text-[6px] leading-none mt-0.5 ${crossbowLoaded ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    装填 {crossbowLoaded ? '已装' : '未装'}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {}
+          {showDetail && hasShield && shield && (
+            <div
+              className="px-1 py-0.5 text-center rounded-sm border border-sky-800/50"
+              style={{
+                background: 'linear-gradient(180deg, rgba(20,40,60,0.95) 0%, rgba(10,25,40,0.98) 100%)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                transform: isEnemy ? 'rotate(-5deg)' : 'rotate(5deg)',
+                minWidth: iconCardMinWidth,
+                maxWidth: iconCardMaxWidth,
+              }}
+            >
+              <div className="text-[10px] leading-none">
+                <RenderIcon icon="/assets/icons/shield.png" style={{ width: '20px', height: '20px' }} />
+
+              </div>
+              <div className="text-[6px] text-sky-300/90 leading-none mt-0.5">格挡 {shieldDefenseText}</div>
+              <div className="text-[6px] text-sky-300/90 leading-none mt-0.5">耐久 {shieldDurabilityText}</div>
+            </div>
+          )}
+        </div>
+      )}
+      {}
+      {isFleeing && (
+        <div 
+          className="absolute left-1/2 -translate-x-1/2 text-[8px] text-red-400 font-bold animate-pulse whitespace-nowrap"
+          style={{ top: '100%', marginTop: '-2px' }}
+        >
+          💨 逃跑中
+        </div>
+      )}
+    </div>
+  );
+};
+export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEnd, onTriggerTip }) => {
+  const [state, setState] = useState(initialState);
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const cameraRef = useRef({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(0.8);
+  const [hoveredHex, setHoveredHex] = useState<{q:number, r:number} | null>(null);
+  const hoveredHexRef = useRef<{q:number, r:number} | null>(null);
+  const [pendingMoveHex, setPendingMoveHex] = useState<{q:number, r:number} | null>(null);
+  const [selectedAbility, setSelectedAbility] = useState<Ability | null>(null);
+  const [isRetreating, setIsRetreating] = useState(false);
+  const [hitUnits, setHitUnits] = useState<Set<string>>(new Set());
+  const [dodgingUnits, setDodgingUnits] = useState<Map<string, 'left' | 'right'>>(new Map());
+  const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none');
+  const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>([]);
+  const [centerBanner, setCenterBanner] = useState<CenterBanner | null>(null);
+  const [isCombatLogCollapsed, setIsCombatLogCollapsed] = useState(false);
+  const [isStatsPanelCollapsed, setIsStatsPanelCollapsed] = useState(false);
+  const [isSkillsPanelCollapsed, setIsSkillsPanelCollapsed] = useState(false);
+  const attackLinesRef = useRef<AttackLineEffect[]>([]);
+  const deathEffectsRef = useRef<DeathEffect[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const unitRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const animPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+  const [compactFontScale, setCompactFontScale] = useState(1);
+  const [showUnitDetail, setShowUnitDetail] = useState(false);
+
+  const [showChaseChoice, setShowChaseChoice] = useState(false);
+  const isMobile = isMobileLayout;
+  const touchStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
+  const touchStartCameraRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isTouchDraggingRef = useRef(false);
+  const touchMovedDistRef = useRef(0);
+  const pinchStartDistRef = useRef(0);
+  const pinchStartZoomRef = useRef(0.8);
+  const isPinchingRef = useRef(false);
+  const pinchMidpointRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [mobileAttackTarget, setMobileAttackTarget] = useState<{
+    unit: CombatUnit;
+    hitBreakdown: ReturnType<typeof calculateHitChance>;
+    ability: Ability;
+  } | null>(null);
+  const lastSelfSkillClickRef = useRef<{ skillId: string; time: number } | null>(null);
+  const lastTurnActionClickRef = useRef<{ action: 'wait' | 'end' | 'retreat'; time: number } | null>(null);
+  const chaseChoiceHandledRef = useRef(false);
+  const isWaitAbility = (ability: Ability) =>
+    ability.id === 'WAIT' ||
+    ability.name === '等待' ||
+    ability.icon === '⏳' ||
+    ability.description.includes('推迟行动顺序');
+  const requireDoubleClickForTurnAction = (action: 'wait' | 'end' | 'retreat', onConfirm: () => void) => {
+    const now = Date.now();
+    const last = lastTurnActionClickRef.current;
+    const isDoubleClick = !!last && last.action === action && now - last.time <= 420;
+    lastTurnActionClickRef.current = { action, time: now };
+    if (!isDoubleClick) {
+      const actionText = action === 'wait' ? '等待' : action === 'end' ? '结束回合' : '撤退';
+      addToLog(`再次点击${actionText}以确认`, 'info');
+      return;
+    }
+    onConfirm();
+  };
+  const isAttackLikeAbility = (ability: Ability | null | undefined): ability is Ability =>
+    !!ability && (ability.type === 'ATTACK' || ability.id === 'KNOCK_BACK');
+  const activeUnit = state.units.find(u => u.id === state.turnOrder[state.currentUnitIndex]);
+  const isPlayerTurn = activeUnit?.team === 'PLAYER';
+  const movePreviewHex = pendingMoveHex ?? hoveredHex;
+  const movePreviewHexKey = movePreviewHex ? `${movePreviewHex.q},${movePreviewHex.r}` : null;
+  const TERRAIN_TYPES = {
+    PLAINS: {
+      baseColor: '#4a6b30',
+      lightColor: '#5c8040',
+      darkColor: '#385220',
+      height: 0,
+      name: '平原',
+      moveCost: 2, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+
+      description: '',
+    },
+    FOREST: {
+      baseColor: '#1a4a20',
+      lightColor: '#2a5c2a',
+      darkColor: '#0f3510',
+      height: 1,
+      name: '森林',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+    MOUNTAIN: {
+      baseColor: '#606068',
+      lightColor: '#75757e',
+      darkColor: '#404048',
+      height: 3,
+      name: '山地',
+      moveCost: 0, passable: false,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '不可通行',
+    },
+    HILLS: {
+      baseColor: '#7a6842',
+      lightColor: '#8d7d55',
+      darkColor: '#5a4c2a',
+      height: 2,
+      name: '丘陵',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+    SWAMP: {
+      baseColor: '#2a4540',
+      lightColor: '#3a5855',
+      darkColor: '#1a3530',
+      height: -1,
+      name: '沼泽',
+      moveCost: 4, passable: true,
+      rangedDefMod: -10, meleeDefMod: -15, meleeAtkMod: -10,
+      description: '近战攻击-10, 近战防御-15, 远程防御-10',
+    },
+    SNOW: {
+      baseColor: '#c8d5e0',
+      lightColor: '#dce6ef',
+      darkColor: '#9aabb8',
+      height: 0,
+      name: '雪原',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+
+      description: '移动消耗增加',
+    },
+    DESERT: {
+      baseColor: '#c09050',
+      lightColor: '#d4a868',
+      darkColor: '#906830',
+      height: 0,
+      name: '荒漠',
+      moveCost: 3, passable: true,
+      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
+      description: '移动消耗增加',
+    },
+  };
+  const gridRange = 15;
+  const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
+  type CombatTerrainType = keyof typeof TERRAIN_TYPES;
+  interface BiomeConfig {
+    primary: CombatTerrainType;
+    secondary: CombatTerrainType;
+    tertiary: CombatTerrainType;
+    rare: CombatTerrainType;
+    thresholds: [number, number, number];
+    lowTerrain?: CombatTerrainType;
+    lowThreshold?: number;
+  }
+  const biomeConfig = useMemo((): BiomeConfig => {
+    const t = initialState.terrainType;
+    switch (t) {
+      case 'FOREST':
+        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+      case 'MOUNTAIN':
+        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5 };
+      case 'SWAMP':
+        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3 };
+      case 'SNOW':
+        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3 };
+      case 'DESERT':
+        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6 };
+      case 'ROAD':
+      case 'PLAINS':
+      default:
+        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+    }
+  }, [initialState.terrainType]);
+  const terrainData = useMemo(() => {
+    const data = new Map<string, {
+      type: CombatTerrainType,
+      height: number,
+    }>();
+    const hash = (x: number, y: number, seed: number): number => {
+
+      let h = seed + x * 374761393 + y * 668265263;
+      h = (h ^ (h >> 13)) * 1274126177;
+      h = h ^ (h >> 16);
+      return (h & 0x7fffffff) / 0x7fffffff;
+    };
+    const smoothNoise = (q: number, r: number, scale: number, seed: number): number => {
+      const sq = q * scale, sr = r * scale;
+      const q0 = Math.floor(sq), r0 = Math.floor(sr);
+      const fq = sq - q0, fr = sr - r0;
+      const v00 = hash(q0, r0, seed);
+      const v10 = hash(q0 + 1, r0, seed);
+      const v01 = hash(q0, r0 + 1, seed);
+      const v11 = hash(q0 + 1, r0 + 1, seed);
+      const top = v00 * (1 - fq) + v10 * fq;
+      const bot = v01 * (1 - fq) + v11 * fq;
+      return top * (1 - fr) + bot * fr;
+    };
+    const combinedNoise = (q: number, r: number): number => {
+      const n1 = smoothNoise(q, r, 0.15, combatSeed) * 0.5;
+      const n2 = smoothNoise(q, r, 0.3, combatSeed + 1000) * 0.3;
+      const n3 = smoothNoise(q, r, 0.6, combatSeed + 2000) * 0.2;
+      return (n1 + n2 + n3) * 2 - 1;
+    };
+    const [t1, t2, t3] = biomeConfig.thresholds;
+    for (let q = -gridRange; q <= gridRange; q++) {
+      for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
+        const n = combinedNoise(q, r);
+        let type: CombatTerrainType;
+        if (n > t1) type = biomeConfig.rare;
+        else if (n > t2) type = biomeConfig.tertiary;
+        else if (n > t3) type = biomeConfig.secondary;
+        else if (biomeConfig.lowTerrain && biomeConfig.lowThreshold !== undefined && n < biomeConfig.lowThreshold) type = biomeConfig.lowTerrain;
+        else type = biomeConfig.primary;
+        if (!TERRAIN_TYPES[type].passable) {
+          const inPlayerZone = q >= -6 && q <= -1 && r >= -5 && r <= 5;
+          const inEnemyZone = q >= 3 && q <= 8 && r >= -5 && r <= 5;
+          if (inPlayerZone || inEnemyZone) {
+            type = biomeConfig.primary;
+          }
+        }
+        data.set(`${q},${r}`, {
+          type,
+          height: TERRAIN_TYPES[type].height
+        });
+      }
+    }
+    const getNeighbors = (q: number, r: number) => [
+      { q: q + 1, r: r }, { q: q + 1, r: r - 1 }, { q: q, r: r - 1 },
+      { q: q - 1, r: r }, { q: q - 1, r: r + 1 }, { q: q, r: r + 1 }
+    ];
+
+    const playerCenter = { q: -3, r: 0 };
+    const enemyCenter = { q: 5, r: 0 };
+    const reachable = new Set<string>();
+    const bfsQueue: Array<{ q: number; r: number }> = [playerCenter];
+    reachable.add(`${playerCenter.q},${playerCenter.r}`);
+    while (bfsQueue.length > 0) {
+      const cur = bfsQueue.shift()!;
+      for (const n of getNeighbors(cur.q, cur.r)) {
+        const key = `${n.q},${n.r}`;
+        if (reachable.has(key)) continue;
+        const tile = data.get(key);
+        if (!tile) continue;
+        if (!TERRAIN_TYPES[tile.type].passable) continue;
+        reachable.add(key);
+        bfsQueue.push(n);
+      }
+    }
+    const enemyReached = reachable.has(`${enemyCenter.q},${enemyCenter.r}`);
+    if (!enemyReached) {
+      const dist = new Map<string, number>();
+      const prev = new Map<string, string>();
+      const startKey = `${playerCenter.q},${playerCenter.r}`;
+      const targetKey = `${enemyCenter.q},${enemyCenter.r}`;
+      dist.set(startKey, 0);
+      const pq: Array<{ q: number; r: number; cost: number }> = [{ ...playerCenter, cost: 0 }];
+      while (pq.length > 0) {
+        pq.sort((a, b) => a.cost - b.cost);
+        const cur = pq.shift()!;
+        const curKey = `${cur.q},${cur.r}`;
+        if (curKey === targetKey) break;
+        if (cur.cost > (dist.get(curKey) ?? Infinity)) continue;
+        for (const n of getNeighbors(cur.q, cur.r)) {
+          const key = `${n.q},${n.r}`;
+          const tile = data.get(key);
+          if (!tile) continue;
+          const tileCost = TERRAIN_TYPES[tile.type].passable ? 0 : 1;
+          const newCost = cur.cost + tileCost;
+          if (newCost < (dist.get(key) ?? Infinity)) {
+            dist.set(key, newCost);
+            prev.set(key, curKey);
+            pq.push({ ...n, cost: newCost });
+          }
+        }
+      }
+      let traceKey: string | undefined = targetKey;
+      while (traceKey && traceKey !== startKey) {
+        const tile = data.get(traceKey);
+        if (tile && !TERRAIN_TYPES[tile.type].passable) {
+          data.set(traceKey, { type: 'HILLS', height: TERRAIN_TYPES['HILLS'].height });
+        }
+
+        traceKey = prev.get(traceKey);
+      }
+    }
+    return data;
+  }, [combatSeed, biomeConfig]);
+  const buildBlockedHexSet = useCallback((
+    units: CombatUnit[],
+    movingUnitId: string,
+    movingTeam: CombatUnit['team'],
+    tData?: Map<string, { type: CombatTerrainType; height: number }>
+  ): Set<string> => {
+    const blocked = new Set<string>();
+    units.forEach(u => {
+      if (u.isDead || u.hasEscaped || u.id === movingUnitId) return;
+      if (u.team === movingTeam) return;
+      blocked.add(`${u.combatPos.q},${u.combatPos.r}`);
+    });
+    if (tData) {
+      tData.forEach((data, key) => {
+        if (!TERRAIN_TYPES[data.type as CombatTerrainType].passable) {
+          blocked.add(key);
+        }
+      });
+    }
+    return blocked;
+  }, []);
+  const getMaxMoveSteps = useCallback((unit: CombatUnit, currentAP: number, currentFatigue: number): number => {
+    const remainingFatigue = unit.maxFatigue - currentFatigue;
+    if (currentAP < 2 || remainingFatigue <= 0) return 0;
+    return currentAP;
+  }, []);
+  const isPathHexInBounds = useCallback((pos: HexPos) => {
+    const range = gridRange;
+    const { q, r } = pos;
+    if (q < -range || q > range) return false;
+    const minR = Math.max(-range, -q - range);
+    const maxR = Math.min(range, -q + range);
+    return r >= minR && r <= maxR;
+  }, []);
+  const findPathWithinSteps = useCallback((
+    start: HexPos,
+    target: HexPos,
+    blockedHexes: Set<string>,
+    maxAP: number,
+    tData?: Map<string, { type: string; height: number }>,
+    pathfinderPerk: boolean = false,
+    allowPartial: boolean = false,
+    allyOccupiedHexes?: Set<string>
+  ): HexPos[] | null => {
+    if (maxAP < 2) return null;
+
+    const startKey = `${start.q},${start.r}`;
+    const targetKey = `${target.q},${target.r}`;
+    if (startKey === targetKey) return [];
+    if (blockedHexes.has(targetKey) && !allowPartial) return null;
+    if (!isPathHexInBounds(target) && !allowPartial) return null;
+    const costMap = new Map<string, number>();
+    costMap.set(startKey, 0);
+    const parent = new Map<string, string>();
+    const queue: Array<{ pos: HexPos; cost: number }> = [{ pos: start, cost: 0 }];
+    while (queue.length > 0) {
+      queue.sort((a, b) => a.cost - b.cost);
+      const current = queue.shift()!;
+      const currentKey = `${current.pos.q},${current.pos.r}`;
+      if (current.cost > (costMap.get(currentKey) ?? Infinity)) continue;
+      if (currentKey === targetKey) {
+        const path: HexPos[] = [];
+        let traceKey = targetKey;
+        while (traceKey !== startKey) {
+          const [q, r] = traceKey.split(',').map(Number);
+          path.push({ q, r });
+          const prevKey = parent.get(traceKey);
+          if (!prevKey) break;
+          traceKey = prevKey;
+        }
+        path.reverse();
+        return path;
+      }
+      const neighbors = getHexNeighbors(current.pos.q, current.pos.r);
+      for (const next of neighbors) {
+        const nextKey = `${next.q},${next.r}`;
+        if (blockedHexes.has(nextKey)) continue;
+        if (!isPathHexInBounds(next)) continue;
+        let tileCost = 2;
+        if (tData) {
+          const td = tData.get(nextKey);
+          if (td) {
+            const terrainDef = (TERRAIN_TYPES as Record<string, { moveCost: number; passable: boolean }>)[td.type];
+            if (terrainDef && !terrainDef.passable) continue;
+            if (terrainDef) tileCost = terrainDef.moveCost;
+          }
+        }
+        if (pathfinderPerk) tileCost = 2;
+        const newCost = current.cost + tileCost;
+        if (newCost > maxAP) continue;
+        const prevCost = costMap.get(nextKey);
+        if (prevCost === undefined || newCost < prevCost) {
+          costMap.set(nextKey, newCost);
+          parent.set(nextKey, currentKey);
+          queue.push({ pos: next, cost: newCost });
+        }
+
+      }
+    }
+    if (allowPartial && costMap.size > 1) {
+      let bestKey = '';
+      let bestDist = Infinity;
+      for (const [key] of costMap) {
+        if (key === startKey) continue;
+        if (allyOccupiedHexes && allyOccupiedHexes.has(key)) continue;
+        const [q, r] = key.split(',').map(Number);
+        const dist = getHexDistance({ q, r }, target);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestKey = key;
+        }
+      }
+      if (bestKey) {
+        const path: HexPos[] = [];
+        let traceKey = bestKey;
+        while (traceKey !== startKey) {
+          const [q, r] = traceKey.split(',').map(Number);
+          path.push({ q, r });
+          const prevKey = parent.get(traceKey);
+          if (!prevKey) break;
+          traceKey = prevKey;
+        }
+        path.reverse();
+        if (path.length > 0) return path;
+      }
+    }
+    return null;
+  }, [isPathHexInBounds]);
+  const evaluateMovePathOutcome = useCallback((unit: CombatUnit, path: HexPos[], liveUnits?: CombatUnit[]) => {
+    let cursor = unit.combatPos;
+    let stepsMoved = 0;
+    let enteredEnemyZoC = false;
+    let threateningEnemies: CombatUnit[] = [];
+    const unitsSnapshot = liveUnits || state.units;
+    const isOccupiedByOther = (pos: HexPos) => unitsSnapshot.some(u =>
+      !u.isDead && !u.hasEscaped && u.id !== unit.id &&
+      u.combatPos.q === pos.q && u.combatPos.r === pos.r
+    );
+    let lastSafePos = unit.combatPos;
+    let lastSafeSteps = 0;
+    for (const step of path) {
+      const enterCheck = checkZoCEnterOnStep(unit, cursor, step, state);
+      cursor = step;
+      stepsMoved += 1;
+      if (!isOccupiedByOther(step)) {
+        lastSafePos = step;
+        lastSafeSteps = stepsMoved;
+
+      }
+      if (enterCheck.enteringEnemyZoC) {
+        enteredEnemyZoC = true;
+        threateningEnemies = enterCheck.threateningEnemies;
+        break;
+      }
+    }
+    if (stepsMoved > 0 && isOccupiedByOther(cursor)) {
+      cursor = lastSafePos;
+      stepsMoved = lastSafeSteps;
+      enteredEnemyZoC = false;
+      threateningEnemies = [];
+    }
+    return {
+      finalPos: cursor,
+      stepsMoved,
+      enteredEnemyZoC,
+      threateningEnemies,
+    };
+  }, [state]);
+  const getPathTerrainCosts = useCallback((path: HexPos[], tData: Map<string, { type: string; height: number }>): number[] => {
+    return path.map(p => {
+      const td = tData.get(`${p.q},${p.r}`);
+      if (td) {
+        const terrainDef = (TERRAIN_TYPES as Record<string, { moveCost: number }>)[td.type];
+        if (terrainDef) return terrainDef.moveCost;
+      }
+      return 2;
+    });
+  }, []);
+  const getTerrainCombatMods = useCallback((
+    atkPos: { q: number; r: number },
+    defPos: { q: number; r: number },
+    tData: Map<string, { type: string; height: number }>
+  ) => {
+    const atkTd = tData.get(`${atkPos.q},${atkPos.r}`);
+    const defTd = tData.get(`${defPos.q},${defPos.r}`);
+    const atkTerrain = atkTd ? (TERRAIN_TYPES as Record<string, { meleeAtkMod: number; meleeDefMod: number; rangedDefMod: number }>)[atkTd.type] : null;
+    const defTerrain = defTd ? (TERRAIN_TYPES as Record<string, { meleeAtkMod: number; meleeDefMod: number; rangedDefMod: number }>)[defTd.type] : null;
+    return {
+      atkMeleeAtkMod: atkTerrain?.meleeAtkMod || 0,
+      defRangedDefMod: defTerrain?.rangedDefMod || 0,
+      defMeleeDefMod: defTerrain?.meleeDefMod || 0,
+    };
+  }, []);
+  const movePreviewPath = useMemo(() => {
+    if (!activeUnit || !isPlayerTurn || selectedAbility || !movePreviewHex || !movePreviewHexKey) return null;
+    const blocked = buildBlockedHexSet(state.units, activeUnit.id, activeUnit.team, terrainData);
+    const maxSteps = getMaxMoveSteps(activeUnit, activeUnit.currentAP, activeUnit.fatigue);
+    return findPathWithinSteps(activeUnit.combatPos, movePreviewHex, blocked, maxSteps, terrainData, hasPerk(activeUnit, 'pathfinder'));
+
+  }, [
+    activeUnit,
+    isPlayerTurn,
+    selectedAbility,
+    movePreviewHex,
+    movePreviewHexKey,
+    state.units,
+    buildBlockedHexSet,
+    getMaxMoveSteps,
+    findPathWithinSteps,
+  ]);
+  const movePreviewOutcome = useMemo(() => {
+    if (!activeUnit || !movePreviewPath) return null;
+    return evaluateMovePathOutcome(activeUnit, movePreviewPath);
+  }, [activeUnit, movePreviewPath, evaluateMovePathOutcome]);
+  const effectiveMovePreviewPath = useMemo(() => {
+    if (!movePreviewPath || !movePreviewOutcome) return movePreviewPath;
+    return movePreviewPath.slice(0, movePreviewOutcome.stepsMoved);
+  }, [movePreviewPath, movePreviewOutcome]);
+  const movePreviewPathSet = useMemo(() => {
+    const set = new Set<string>();
+    if (!effectiveMovePreviewPath) return set;
+    effectiveMovePreviewPath.forEach(p => set.add(`${p.q},${p.r}`));
+    return set;
+  }, [effectiveMovePreviewPath]);
+  const previewCosts = useMemo(() => {
+    if (!activeUnit || !isPlayerTurn) return null;
+    if (selectedAbility && selectedAbility.id !== 'MOVE') {
+      let apCost = selectedAbility.apCost || 4;
+      let fatigueCost = selectedAbility.fatCost || 0;
+      const masteryEffects = getWeaponMasteryEffects(activeUnit);
+      if (masteryEffects.reducedApCost) {
+        apCost = Math.min(apCost, masteryEffects.reducedApCost);
+      }
+      if (masteryEffects.daggerReducedAp && selectedAbility.type === 'ATTACK') {
+        apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
+      }
+      const fatigueMult = getWeaponMasteryFatigueMultiplier(activeUnit);
+      fatigueCost = Math.floor(fatigueCost * fatigueMult);
+      return { apCost, fatigueCost };
+    }
+    if (movePreviewOutcome && movePreviewOutcome.stepsMoved > 0 && effectiveMovePreviewPath) {
+        const tileCosts = getPathTerrainCosts(effectiveMovePreviewPath, terrainData);
+        const moveCost = getPathMoveCost(tileCosts, hasPerk(activeUnit, 'pathfinder'));
+        return { apCost: moveCost.apCost, fatigueCost: moveCost.fatigueCost };
+    }
+    return null;
+  }, [activeUnit, isPlayerTurn, selectedAbility, movePreviewOutcome, effectiveMovePreviewPath, getPathTerrainCosts]);
+  useEffect(() => {
+    setPendingMoveHex(null);
+
+  }, [activeUnit?.id, selectedAbility?.id, isPlayerTurn]);
+  const tipPrevUnitsRef = useRef(state.units);
+  const tipFirstAttackFired = useRef(false);
+  useEffect(() => {
+    const prev = tipPrevUnitsRef.current;
+    const curr = state.units;
+    for (const unit of curr) {
+      if (unit.team !== 'PLAYER' || unit.isDead) continue;
+      const prevUnit = prev.find(u => u.id === unit.id);
+      if (!prevUnit) continue;
+      if (!tipFirstAttackFired.current && prevUnit.currentAP > unit.currentAP && state.round >= 1) {
+        tipFirstAttackFired.current = true;
+        onTriggerTip?.('combat_first_attack');
+      }
+      const armor = unit.equipment.armor;
+      const prevArmor = prevUnit.equipment.armor;
+      if (armor && prevArmor && armor.maxDurability > 0) {
+        if (prevArmor.durability >= prevArmor.maxDurability * 0.5 && armor.durability < armor.maxDurability * 0.5) {
+          onTriggerTip?.('combat_armor_break');
+        }
+      }
+      if ((prevUnit.morale === MoraleStatus.STEADY || prevUnit.morale === MoraleStatus.CONFIDENT) &&
+          (unit.morale !== MoraleStatus.STEADY && unit.morale !== MoraleStatus.CONFIDENT)) {
+        onTriggerTip?.('combat_morale_change');
+      }
+    }
+    tipPrevUnitsRef.current = curr;
+  }, [state.units]);
+  useEffect(() => {
+    if (activeUnit && activeUnit.team === 'PLAYER' && activeUnit.currentAP === 0) {
+      onTriggerTip?.('combat_ap_zero');
+    }
+  }, [state.currentUnitIndex, activeUnit?.currentAP]);
+  useEffect(() => {
+    const detect = () => {
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+      const isLandscape = viewportWidth > viewportHeight;
+      const compactLandscape = coarsePointer && isLandscape;
+      const shortest = Math.min(viewportWidth, viewportHeight);
+      const dpr = window.devicePixelRatio || 1;
+      const BASELINE_DPR = 1.7;
+      const scale = Math.max(0.58, Math.min(1.08, (shortest / 440) * (BASELINE_DPR / dpr)));
+      setIsMobileLayout(coarsePointer || viewportWidth < 1024);
+      setIsCompactLandscape(compactLandscape);
+      setCompactFontScale(scale);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+
+    window.visualViewport?.addEventListener('resize', detect);
+    return () => {
+      window.removeEventListener('resize', detect);
+      window.visualViewport?.removeEventListener('resize', detect);
+    };
+  }, []);
+  useEffect(() => { setMobileAttackTarget(null); }, [selectedAbility, activeUnit?.id]);
+  const triggerHitEffect = useCallback((unitId: string) => {
+    setHitUnits(prev => new Set(prev).add(unitId));
+    setTimeout(() => {
+      setHitUnits(prev => {
+        const next = new Set(prev);
+        next.delete(unitId);
+        return next;
+      });
+    }, 400);
+  }, []);
+  const triggerDodgeEffect = useCallback((targetUnitId: string, attackerPos: { q: number; r: number }, targetPos: { q: number; r: number }) => {
+    const direction: 'left' | 'right' = attackerPos.q <= targetPos.q ? 'right' : 'left';
+    setDodgingUnits(prev => {
+      const next = new Map(prev);
+      next.set(targetUnitId, direction);
+      return next;
+    });
+    setTimeout(() => {
+      setDodgingUnits(prev => {
+        if (!prev.has(targetUnitId)) return prev;
+        const next = new Map(prev);
+        next.delete(targetUnitId);
+        return next;
+      });
+    }, 320);
+  }, []);
+  const triggerScreenShake = useCallback((intensity: 'light' | 'heavy') => {
+    setScreenShake(intensity);
+    setTimeout(() => setScreenShake('none'), intensity === 'heavy' ? 500 : 300);
+  }, []);
+  const triggerAttackLine = useCallback((fromQ: number, fromR: number, toQ: number, toR: number, color: string = '#ef4444') => {
+    attackLinesRef.current.push({
+      fromQ, fromR, toQ, toR,
+      startTime: performance.now(),
+      color,
+      duration: 400,
+    });
+  }, []);
+  const triggerDeathEffect = useCallback((q: number, r: number) => {
+    deathEffectsRef.current.push({
+      id: Date.now() + Math.random(),
+      q, r,
+      startTime: performance.now(),
+
+    });
+  }, []);
+  const showCenterBanner = useCallback((text: string, color: string, icon: string) => {
+    const banner: CenterBanner = { id: Date.now(), text, color, icon };
+    setCenterBanner(banner);
+    setTimeout(() => setCenterBanner(prev => prev?.id === banner.id ? null : prev), 2200);
+  }, []);
+  const renderBannerIcon = (icon: string) => {
+    return <RenderIcon icon={icon} style={{ fontSize: '1.5rem', width: '32px', height: '32px' }} />;
+  };
+  const showInsufficientActionPoints = useCallback((ability: Ability, unit = activeUnit) => {
+    if (!unit) return;
+    const required = ability.apCost ?? 0;
+    const current = unit.currentAP ?? 0;
+    addToLog(`行动点不足！${ability.name} 需要 ${required} 点，当前仅 ${current} 点。`, 'info');
+    showCenterBanner(`行动点不足 ${current}/${required}`, '#ef4444', '⚠️');
+  }, [activeUnit, showCenterBanner]);
+  const getRemainingFatigue = useCallback((unit: CombatUnit): number => {
+    return Math.max(0, unit.maxFatigue - unit.fatigue);
+  }, []);
+  const getEffectiveApCost = useCallback((unit: CombatUnit, ability: Ability): number => {
+    let apCost = ability.apCost || 4;
+    const masteryEffects = getWeaponMasteryEffects(unit);
+    if (masteryEffects.reducedApCost) {
+      apCost = Math.min(apCost, masteryEffects.reducedApCost);
+    }
+    if (masteryEffects.daggerReducedAp && ability.type === 'ATTACK') {
+      apCost = Math.min(apCost, masteryEffects.daggerReducedAp);
+    }
+    return apCost;
+  }, []);
+  const getEffectiveFatigueCost = useCallback((unit: CombatUnit, ability: Ability): number => {
+    const baseFatigue = ability.fatCost || 0;
+    if (baseFatigue <= 0) return 0;
+    if (ability.type === 'ATTACK') {
+      const fatigueMult = getWeaponMasteryFatigueMultiplier(unit);
+      return Math.floor(baseFatigue * fatigueMult);
+    }
+    return baseFatigue;
+  }, []);
+  const showInsufficientFatigue = useCallback((actionName: string, required: number, unit = activeUnit) => {
+    if (!unit) return;
+    const remaining = Math.max(0, unit.maxFatigue - unit.fatigue);
+    addToLog(`疲劳不足！${actionName} 需要 ${required} 点，当前仅剩 ${remaining} 点。`, 'info');
+    showCenterBanner(`疲劳不足 ${remaining}/${required}`, '#3b82f6', '💨');
+    triggerScreenShake('light');
+  }, [activeUnit, showCenterBanner, triggerScreenShake]);
+  const HEX_SIZE = 45;
+  const HEX_GAP = 2;
+  const HEIGHT_MULTIPLIER = 8;
+
+  const COLOR_FOG = "#080808";
+  const getPixelPos = (q: number, r: number) => {
+    const x = HEX_SIZE * (Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
+    const y = HEX_SIZE * (1.5 * r);
+    return { x, y };
+  };
+  const isHexInBounds = useCallback((pos: { q: number; r: number }) => {
+    const { q, r } = pos;
+    if (q < -gridRange || q > gridRange) return false;
+    const minR = Math.max(-gridRange, -q - gridRange);
+    const maxR = Math.min(gridRange, -q + gridRange);
+    return r >= minR && r <= maxR;
+  }, []);
+  const isEdgeHex = useCallback((pos: { q: number; r: number }) => {
+    if (!isHexInBounds(pos)) return false;
+    const { q, r } = pos;
+    const minR = Math.max(-gridRange, -q - gridRange);
+    const maxR = Math.min(gridRange, -q + gridRange);
+    return q === -gridRange || q === gridRange || r === minR || r === maxR;
+  }, [isHexInBounds]);
+  const visibleSet = useMemo(() => {
+    const set = new Set<string>();
+    state.units.filter(u => u.team === 'PLAYER' && !u.isDead && !u.hasEscaped).forEach(u => {
+      const radius = 12;
+      for (let q = -radius; q <= radius; q++) {
+        for (let r = Math.max(-radius, -q - radius); r <= Math.min(radius, -q + radius); r++) {
+          if (getHexDistance({q:0, r:0}, {q, r}) <= radius) {
+            set.add(`${u.combatPos.q + q},${u.combatPos.r + r}`);
+          }
+        }
+      }
+    });
+    return set;
+  }, [state.units]);
+  const hexPoints = useMemo(() => {
+    const points: { x: number, y: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 180) * (60 * i + 30);
+      points.push({ x: Math.cos(angle), y: Math.sin(angle) });
+    }
+    return points;
+  }, []);
+  const VARIANT_COUNT = 3;
+  const terrainTextures = useMemo(() => {
+    const textures = new Map<string, HTMLCanvasElement>();
+    const hexEffectiveSize = HEX_SIZE - HEX_GAP;
+    const texW = Math.ceil(hexEffectiveSize * 2) + 4;
+    const texH = Math.ceil(hexEffectiveSize * 2) + 4;
+    const seededRandom = (seed: number) => {
+      let s = seed;
+
+      return () => {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        return s / 0x7fffffff;
+      };
+    };
+    const drawHexClip = (c: CanvasRenderingContext2D, cx: number, cy: number, size: number) => {
+      c.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 180) * (60 * i + 30);
+        const px = cx + Math.cos(angle) * size;
+        const py = cy + Math.sin(angle) * size;
+        if (i === 0) c.moveTo(px, py);
+        else c.lineTo(px, py);
+      }
+      c.closePath();
+    };
+    const terrainKeys = ['PLAINS', 'FOREST', 'HILLS', 'MOUNTAIN', 'SWAMP', 'SNOW', 'DESERT'] as const;
+    terrainKeys.forEach((type, typeIdx) => {
+      for (let v = 0; v < VARIANT_COUNT; v++) {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = texW;
+        offCanvas.height = texH;
+        const c = offCanvas.getContext('2d')!;
+        const cx = texW / 2;
+        const cy = texH / 2;
+        c.save();
+        drawHexClip(c, cx, cy, hexEffectiveSize);
+        c.clip();
+        const rand = seededRandom(combatSeed + typeIdx * 999 + v * 77);
+        switch (type) {
+          case 'PLAINS': {
+            for (let i = 0; i < 12; i++) {
+              const gx = cx + (rand() - 0.5) * hexEffectiveSize * 1.4;
+              const gy = cy + (rand() - 0.5) * hexEffectiveSize * 1.2;
+              const bladeCount = 2 + Math.floor(rand() * 2);
+              for (let b = 0; b < bladeCount; b++) {
+                c.strokeStyle = `rgba(80, 145, 50, ${0.3 + rand() * 0.25})`;
+                c.lineWidth = 1;
+                c.beginPath();
+                c.moveTo(gx + (rand() - 0.5) * 3, gy);
+                c.quadraticCurveTo(
+                  gx + (rand() - 0.5) * 6, gy - 5 - rand() * 4,
+                  gx + (rand() - 0.5) * 5, gy - 9 - rand() * 5
+                );
+                c.stroke();
+              }
+            }
+            break;
+          }
+          case 'FOREST': {
+
+            const trees = [
+              { tx: cx, ty: cy + 2, scale: 1.0 },
+              { tx: cx - 11 + rand() * 4, ty: cy + 6, scale: 0.7 },
+              { tx: cx + 9 + rand() * 4, ty: cy + 5, scale: 0.8 },
+            ];
+            trees.forEach(({ tx, ty, scale }) => {
+              c.fillStyle = `rgba(30, 105, 40, ${0.45 + rand() * 0.2})`;
+              c.beginPath();
+              c.moveTo(tx, ty - 13 * scale);
+              c.lineTo(tx - 7 * scale, ty + 1);
+              c.lineTo(tx + 7 * scale, ty + 1);
+              c.closePath();
+              c.fill();
+              c.fillStyle = `rgba(60, 145, 65, 0.25)`;
+              c.beginPath();
+              c.moveTo(tx, ty - 13 * scale);
+              c.lineTo(tx + 3.5 * scale, ty - 5 * scale);
+              c.lineTo(tx + 7 * scale, ty + 1);
+              c.closePath();
+              c.fill();
+              c.fillStyle = `rgba(85, 60, 30, 0.45)`;
+              c.fillRect(tx - 1.5 * scale, ty + 1, 3 * scale, 4 * scale);
+            });
+            break;
+          }
+          case 'HILLS': {
+            for (let i = 0; i < 3; i++) {
+              const offsetY = -8 + i * 8;
+              c.strokeStyle = `rgba(120, 100, 60, ${0.3 + rand() * 0.15})`;
+              c.lineWidth = 1.5;
+              c.beginPath();
+              c.arc(cx + (i % 2 === 0 ? -3 : 3), cy + offsetY + 10, 17 - i * 3, Math.PI * 1.1, Math.PI * 1.9);
+              c.stroke();
+            }
+            c.strokeStyle = 'rgba(140, 115, 70, 0.3)';
+            c.lineWidth = 2;
+            c.beginPath();
+            c.arc(cx, cy + 8, 14, Math.PI * 1.15, Math.PI * 1.85);
+            c.stroke();
+            break;
+          }
+          case 'MOUNTAIN': {
+            c.fillStyle = 'rgba(100, 100, 115, 0.55)';
+            c.beginPath();
+            c.moveTo(cx, cy - 14);
+            c.lineTo(cx - 13, cy + 8);
+            c.lineTo(cx + 13, cy + 8);
+            c.closePath();
+            c.fill();
+            c.fillStyle = 'rgba(225, 235, 245, 0.5)';
+
+            c.beginPath();
+            c.moveTo(cx, cy - 14);
+            c.lineTo(cx - 5, cy - 5);
+            c.lineTo(cx + 5, cy - 5);
+            c.closePath();
+            c.fill();
+            c.fillStyle = 'rgba(85, 85, 100, 0.4)';
+            c.beginPath();
+            c.moveTo(cx - 9, cy - 5);
+            c.lineTo(cx - 18, cy + 8);
+            c.lineTo(cx, cy + 8);
+            c.closePath();
+            c.fill();
+            break;
+          }
+          case 'SWAMP': {
+            c.strokeStyle = 'rgba(70, 145, 125, 0.3)';
+            c.lineWidth = 1.2;
+            for (let row = 0; row < 3; row++) {
+              const baseY = cy - 6 + row * 8;
+              c.beginPath();
+              for (let px = -18; px <= 18; px += 2) {
+                const py = baseY + Math.sin(px * 0.4 + row + v) * 2.5;
+                if (px === -18) c.moveTo(cx + px, py);
+                else c.lineTo(cx + px, py);
+              }
+              c.stroke();
+            }
+            const reeds = [-7 + rand() * 2, 3 + rand() * 2, 11 + rand() * 2];
+            reeds.forEach(rx => {
+              c.strokeStyle = 'rgba(65, 110, 85, 0.4)';
+              c.lineWidth = 1.5;
+              c.beginPath();
+              c.moveTo(cx + rx, cy + 8);
+              c.lineTo(cx + rx, cy - 3);
+              c.stroke();
+              c.fillStyle = 'rgba(95, 75, 50, 0.4)';
+              c.beginPath();
+              c.ellipse(cx + rx, cy - 5, 1.5, 3.5, 0, 0, Math.PI * 2);
+              c.fill();
+            });
+            break;
+          }
+          case 'SNOW': {
+            const snowflakes = [
+              { sx: cx, sy: cy - 2, r: 8 },
+              { sx: cx - 11 + rand() * 4, sy: cy + 7, r: 5 },
+              { sx: cx + 10 + rand() * 3, sy: cy + 5, r: 6 },
+            ];
+            snowflakes.forEach(({ sx, sy, r }) => {
+
+              c.strokeStyle = `rgba(160, 185, 220, ${0.3 + rand() * 0.15})`;
+              c.lineWidth = 1;
+              for (let a = 0; a < 3; a++) {
+                const angle = (a * Math.PI) / 3;
+                const dx = Math.cos(angle) * r;
+                const dy = Math.sin(angle) * r;
+                c.beginPath();
+                c.moveTo(sx - dx, sy - dy);
+                c.lineTo(sx + dx, sy + dy);
+                c.stroke();
+                const bx = Math.cos(angle) * r * 0.55;
+                const by = Math.sin(angle) * r * 0.55;
+                const branchAngle = angle + Math.PI / 4;
+                const br = r * 0.35;
+                c.beginPath();
+                c.moveTo(sx + bx, sy + by);
+                c.lineTo(sx + bx + Math.cos(branchAngle) * br, sy + by + Math.sin(branchAngle) * br);
+                c.stroke();
+              }
+            });
+            break;
+          }
+          case 'DESERT': {
+            c.strokeStyle = 'rgba(165, 125, 65, 0.3)';
+            c.lineWidth = 1.5;
+            for (let row = 0; row < 3; row++) {
+              const baseY = cy - 8 + row * 9;
+              c.beginPath();
+              c.arc(cx + (row % 2 === 0 ? -5 : 5), baseY + 12, 20, Math.PI * 1.2, Math.PI * 1.8);
+              c.stroke();
+            }
+            c.strokeStyle = 'rgba(80, 135, 60, 0.4)';
+            c.lineWidth = 2;
+            c.lineCap = 'round';
+            c.beginPath();
+            c.moveTo(cx, cy + 6);
+            c.lineTo(cx, cy - 6);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx, cy);
+            c.lineTo(cx - 4, cy - 1);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx - 4, cy - 1);
+            c.lineTo(cx - 4, cy - 5);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx, cy + 2);
+            c.lineTo(cx + 4, cy + 1);
+            c.stroke();
+
+            c.beginPath();
+            c.moveTo(cx + 4, cy + 1);
+            c.lineTo(cx + 4, cy - 3);
+            c.stroke();
+            c.lineCap = 'butt';
+            break;
+          }
+        }
+        c.restore();
+        textures.set(`${type}_${v}`, offCanvas);
+      }
+    });
+    return textures;
+  }, [combatSeed]);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    const drawHex = (x: number, y: number, size: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + size * hexPoints[0].x, y + size * hexPoints[0].y);
+      for (let i = 1; i < 6; i++) {
+        ctx.lineTo(x + size * hexPoints[i].x, y + size * hexPoints[i].y);
+      }
+      ctx.closePath();
+    };
+    const getVisibleHexes = () => {
+      const visible: { q: number, r: number, key: string }[] = [];
+      const rect = canvas.getBoundingClientRect();
+      const viewWidth = rect.width / zoom + 200;
+      const viewHeight = rect.height / zoom + 200;
+      terrainData.forEach((_, key) => {
+        const [q, r] = key.split(',').map(Number);
+        const { x, y } = getPixelPos(q, r);
+        const screenX = x + cameraRef.current.x;
+        const screenY = y + cameraRef.current.y;
+        if (Math.abs(screenX) < viewWidth / 2 && Math.abs(screenY) < viewHeight / 2) {
+          visible.push({ q, r, key });
+        }
+      });
+      return visible;
+    };
+    let animId: number;
+    const render = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = canvas.getBoundingClientRect();
+      if (canvas.width !== rect.width * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
