@@ -306,9 +306,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onNewGame, onLoadGame, hasSa
                 onClick={() => setShowContact(true)}
                 className={`group relative ${isCompactLandscape ? 'w-full py-2' : 'w-72 py-3'} text-center overflow-hidden`}
               >
-                <div className="absolute inset-0 border border-amber-900/20 group-hover:border-amber-700/40 transition-all duration-500" />
+                <div className="absolute inset-0 border border-amber-700/40 group-hover:border-amber-500/70 transition-all duration-500" />
+                <div className="absolute inset-0 bg-amber-900/0 group-hover:bg-amber-900/10 transition-all duration-500" />
                 <span
-                  className={`${isCompactLandscape ? 'tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative text-amber-700/60 group-hover:text-amber-500/80 transition-colors duration-300`}
+                  className={`${isCompactLandscape ? 'tracking-[0.22em]' : 'text-sm tracking-[0.3em]'} relative text-amber-500/80 group-hover:text-amber-300 transition-colors duration-300`}
                   style={compactSecondaryButtonTextStyle}
                 >
                   联 系 开 发 者
