@@ -39,6 +39,7 @@ import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
 import QUEST_GENERATION_RULES_CSV from './csv/quest_generation_rules.csv?raw';
 import BACKGROUND_TRAIT_WEIGHTS_CSV from './csv/background_trait_weights.csv?raw';
 import GAME_DIFFICULTY_CONFIG_CSV from './csv/game_difficulty_config.csv?raw';
+import COMBAT_TERRAIN_CSV from './csv/combat_terrain.csv?raw';
 
 // --- CSV PARSER UTILITY ---
 const parseCSV = (csv: string): any[] => {
@@ -114,6 +115,11 @@ parseCSV(PERKS_CSV).forEach(p => {
 export const TERRAIN_DATA: Record<string, any> = {};
 parseCSV(TERRAIN_CSV).forEach(t => {
     TERRAIN_DATA[t.id] = t;
+});
+
+export const COMBAT_TERRAIN_DATA: Record<string, any> = {};
+parseCSV(COMBAT_TERRAIN_CSV).forEach(t => {
+    COMBAT_TERRAIN_DATA[t.id] = t;
 });
 
 export const EVENT_TEMPLATES: any[] = parseCSV(EVENTS_CSV).map(e => ({
@@ -993,6 +999,8 @@ export interface HitChanceBreakdown {
   extraHitMod: number;
   /** 地形修正 */
   terrainMod: number;
+  /** 掩体遮挡减免 */
+  coverPenalty: number;
 }
 
 /**
@@ -1012,7 +1020,8 @@ export const calculateHitChance = (
   heightDiff: number = 0,
   ability?: Ability,
   extraHitMod: number = 0,
-  terrainMods?: { atkMeleeAtkMod?: number; defRangedDefMod?: number; defMeleeDefMod?: number }
+  terrainMods?: { atkMeleeAtkMod?: number; defRangedDefMod?: number; defMeleeDefMod?: number },
+  coverPenalty: number = 0
 ): HitChanceBreakdown => {
   const isRanged = attacker.equipment.mainHand?.range
     ? attacker.equipment.mainHand.range > 1
@@ -1148,7 +1157,7 @@ export const calculateHitChance = (
   let uniqueHitBonus = 0;
   if (ability?.id === 'MOYE_SHADOW') uniqueHitBonus = 25;
   if (ability?.id === 'YANGYOUJI_SNIPE') uniqueHitBonus = 25;
-  let final = baseSkill - targetDefense - uniqueDefBonus + weaponMod + moraleMod - effectiveShieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - effectiveDistancePenalty + extraHitMod + terrainMod + uniqueHitBonus;
+  let final = baseSkill - targetDefense - uniqueDefBonus + weaponMod + moraleMod - effectiveShieldDef - shieldWallDef + heightMod + surroundBonus + adaptationBonus - effectiveDistancePenalty + extraHitMod + terrainMod + uniqueHitBonus - coverPenalty;
   final = Math.max(5, Math.min(95, final));
   // 纯钧「百发百中」：命中率下限75%
   if (atkWeaponId === 'w_unique_chunjun') {
@@ -1169,6 +1178,7 @@ export const calculateHitChance = (
     adaptationBonus,
     extraHitMod,
     terrainMod,
+    coverPenalty,
   };
 };
 

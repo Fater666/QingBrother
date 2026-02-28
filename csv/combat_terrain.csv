@@ -1,0 +1,12 @@
+id|name|passable|moveCost|height|coverValue|rangedDefMod|meleeDefMod|meleeAtkMod|baseColor|lightColor|darkColor|description
+PLAINS|平原|true|2|0|0|0|0|0|#4a6b30|#5c8040|#385220|
+FOREST|森林|true|3|1|0|-15|0|0|#1a4a20|#2a5c2a|#0f3510|远程防御-15
+MOUNTAIN|山地|false|0|3|25|0|0|0|#606068|#75757e|#404048|不可通行
+HILLS|丘陵|true|3|2|0|0|0|0|#7a6842|#8d7d55|#5a4c2a|移动消耗增加
+SWAMP|沼泽|true|4|-1|0|-10|-15|-10|#2a4540|#3a5855|#1a3530|近战攻击-10 近战防御-15 远程防御-10
+SNOW|雪原|true|3|0|0|0|0|0|#c8d5e0|#dce6ef|#9aabb8|移动消耗增加
+DESERT|荒漠|true|3|0|0|0|0|0|#c09050|#d4a868|#906830|移动消耗增加
+BOULDER|巨石|false|0|2|25|0|0|0|#555560|#686875|#3a3a45|不可通行
+LARGE_TREE|古木|false|0|2|20|0|0|0|#0d3d15|#1a5020|#082a0e|不可通行
+RUINS_WALL|残墙|false|0|1|30|0|0|0|#3a342a|#4d4538|#2a261f|不可通行
+FENCE|栅栏|true|3|0|10|0|0|0|#6b5530|#7d6540|#524020|提供少量掩护

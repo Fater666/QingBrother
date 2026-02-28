@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { CombatState, CombatUnit, Ability, Item, MoraleStatus } from '../types.ts';
-import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus } from '../constants';
+import { getHexNeighbors, getHexDistance, getUnitAbilities, ABILITIES, BACKGROUNDS, isInEnemyZoC, getAllEnemyZoCHexes, calculateHitChance, rollHitCheck, getSurroundingBonus, COMBAT_TERRAIN_DATA } from '../constants';
 import { executeAITurn, AIAction } from '../services/combatAI.ts';
 import {
   getPathMoveCost, checkNineLives, hasPerk,
@@ -683,78 +683,31 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const movePreviewHexKey = movePreviewHex ? `${movePreviewHex.q},${movePreviewHex.r}` : null;
 
   // 地形类型定义 - 带高度、颜色、移动消耗和战斗修正（对齐战场兄弟）
-  const TERRAIN_TYPES = {
-    PLAINS: {
-      baseColor: '#4a6b30',
-      lightColor: '#5c8040',
-      darkColor: '#385220',
-      height: 0,
-      name: '平原',
-      moveCost: 2, passable: true,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '',
-    },
-    FOREST: {
-      baseColor: '#1a4a20',
-      lightColor: '#2a5c2a',
-      darkColor: '#0f3510',
-      height: 1,
-      name: '森林',
-      moveCost: 3, passable: true,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '移动消耗增加',
-    },
-    MOUNTAIN: {
-      baseColor: '#606068',
-      lightColor: '#75757e',
-      darkColor: '#404048',
-      height: 3,
-      name: '山地',
-      moveCost: 0, passable: false,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '不可通行',
-    },
-    HILLS: {
-      baseColor: '#7a6842',
-      lightColor: '#8d7d55',
-      darkColor: '#5a4c2a',
-      height: 2,
-      name: '丘陵',
-      moveCost: 3, passable: true,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '移动消耗增加',
-    },
-    SWAMP: {
-      baseColor: '#2a4540',
-      lightColor: '#3a5855',
-      darkColor: '#1a3530',
-      height: -1,
-      name: '沼泽',
-      moveCost: 4, passable: true,
-      rangedDefMod: -10, meleeDefMod: -15, meleeAtkMod: -10,
-      description: '近战攻击-10, 近战防御-15, 远程防御-10',
-    },
-    SNOW: {
-      baseColor: '#c8d5e0',
-      lightColor: '#dce6ef',
-      darkColor: '#9aabb8',
-      height: 0,
-      name: '雪原',
-      moveCost: 3, passable: true,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '移动消耗增加',
-    },
-    DESERT: {
-      baseColor: '#c09050',
-      lightColor: '#d4a868',
-      darkColor: '#906830',
-      height: 0,
-      name: '荒漠',
-      moveCost: 3, passable: true,
-      rangedDefMod: 0, meleeDefMod: 0, meleeAtkMod: 0,
-      description: '移动消耗增加',
-    },
-  };
+  const TERRAIN_TYPES: Record<string, {
+    baseColor: string; lightColor: string; darkColor: string;
+    height: number; name: string; moveCost: number; passable: boolean;
+    rangedDefMod: number; meleeDefMod: number; meleeAtkMod: number;
+    coverValue: number; description: string;
+  }> = useMemo(() => {
+    const result: Record<string, any> = {};
+    Object.entries(COMBAT_TERRAIN_DATA).forEach(([id, t]: [string, any]) => {
+      result[id] = {
+        baseColor: t.baseColor,
+        lightColor: t.lightColor,
+        darkColor: t.darkColor,
+        height: t.height ?? 0,
+        name: t.name,
+        moveCost: t.moveCost ?? 2,
+        passable: t.passable === true,
+        rangedDefMod: t.rangedDefMod ?? 0,
+        meleeDefMod: t.meleeDefMod ?? 0,
+        meleeAtkMod: t.meleeAtkMod ?? 0,
+        coverValue: t.coverValue ?? 0,
+        description: t.description || '',
+      };
+    });
+    return result;
+  }, []);
 
   // 预生成地形数据 - 基于世界地形类型和随机种子
   const gridRange = 15;
@@ -763,7 +716,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
   const combatSeed = useMemo(() => Math.floor(Math.random() * 100000), []);
 
   // 根据世界地形确定战斗地图的生物群落配置
-  type CombatTerrainType = keyof typeof TERRAIN_TYPES;
+  type CombatTerrainType = string;
   interface BiomeConfig {
     primary: CombatTerrainType;
     secondary: CombatTerrainType;
@@ -772,25 +725,27 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     thresholds: [number, number, number];
     lowTerrain?: CombatTerrainType;
     lowThreshold?: number;
+    obstacles?: CombatTerrainType[];
+    obstacleChance?: number;
   }
 
   const biomeConfig = useMemo((): BiomeConfig => {
     const t = initialState.terrainType;
     switch (t) {
       case 'FOREST':
-        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['LARGE_TREE', 'BOULDER'], obstacleChance: 0.06 };
       case 'MOUNTAIN':
-        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5 };
+        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.06 };
       case 'SWAMP':
-        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3 };
+        return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3, obstacles: ['LARGE_TREE'], obstacleChance: 0.04 };
       case 'SNOW':
-        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3 };
+        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3, obstacles: ['BOULDER'], obstacleChance: 0.04 };
       case 'DESERT':
-        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6 };
+        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.05 };
       case 'ROAD':
       case 'PLAINS':
       default:
-        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55 };
+        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['BOULDER', 'FENCE'], obstacleChance: 0.05 };
     }
   }, [initialState.terrainType]);
 
@@ -839,6 +794,15 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
         else if (n > t3) type = biomeConfig.secondary;
         else if (biomeConfig.lowTerrain && biomeConfig.lowThreshold !== undefined && n < biomeConfig.lowThreshold) type = biomeConfig.lowTerrain;
         else type = biomeConfig.primary;
+
+        // 障碍物生成：对可通行格有概率替换为障碍物
+        if (TERRAIN_TYPES[type]?.passable && biomeConfig.obstacles && biomeConfig.obstacles.length > 0 && biomeConfig.obstacleChance) {
+          const obstacleRoll = hash(q * 7 + 13, r * 11 + 17, combatSeed + 5000);
+          if (obstacleRoll < biomeConfig.obstacleChance) {
+            const idx = Math.floor(hash(q + 31, r + 47, combatSeed + 6000) * biomeConfig.obstacles.length);
+            type = biomeConfig.obstacles[idx];
+          }
+        }
 
         // 部署区域保护：部署区域内不生成不可通行地形
         if (!TERRAIN_TYPES[type].passable) {
@@ -1165,6 +1129,64 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       defMeleeDefMod: defTerrain?.meleeDefMod || 0,
     };
   }, []);
+
+  // 掩体计算：邻接检查算法（类似战场兄弟）
+  // 检查目标的邻接格中，在攻击方向对侧是否有遮挡物
+  const calculateCoverPenalty = useCallback((
+    attackerPos: { q: number; r: number },
+    targetPos: { q: number; r: number },
+    tData: Map<string, { type: string; height: number }>,
+    units: CombatUnit[],
+    targetId: string
+  ): number => {
+    const neighbors = getHexNeighbors(targetPos.q, targetPos.r);
+
+    // 攻击方向向量（从目标指向攻击者）—— 用于判断"对侧"
+    // 在 hex axial 坐标中，将 q,r 转为 cube 坐标 (x, y, z) 其中 x=q, z=r, y=-x-z
+    const aDirQ = attackerPos.q - targetPos.q;
+    const aDirR = attackerPos.r - targetPos.r;
+
+    let maxCover = 0;
+
+    for (const nb of neighbors) {
+      // 邻接格相对于目标的方向向量
+      const nbDirQ = nb.q - targetPos.q;
+      const nbDirR = nb.r - targetPos.r;
+
+      // 判断邻接格是否在攻击方向的对侧
+      // 使用 cube 坐标内积判定：将 axial 转 cube 后算内积
+      // axial (q, r) → cube (q, -q-r, r)
+      const aX = aDirQ, aY = -(aDirQ + aDirR), aZ = aDirR;
+      const nX = nbDirQ, nY = -(nbDirQ + nbDirR), nZ = nbDirR;
+      const dot = aX * nX + aY * nY + aZ * nZ;
+
+      // dot < 0 表示邻接格在攻击方向的对侧（掩体在目标背后）
+      if (dot >= 0) continue;
+
+      // 检查地形掩体
+      const key = `${nb.q},${nb.r}`;
+      const td = tData.get(key);
+      if (td) {
+        const terrainDef = TERRAIN_TYPES[td.type];
+        if (terrainDef && terrainDef.coverValue > 0) {
+          maxCover = Math.max(maxCover, terrainDef.coverValue);
+        }
+      }
+
+      // 检查单位遮挡
+      const blockingUnit = units.find(u =>
+        !u.isDead && !u.hasEscaped &&
+        u.id !== targetId &&
+        u.combatPos.q === nb.q && u.combatPos.r === nb.r
+      );
+      if (blockingUnit) {
+        maxCover = Math.max(maxCover, 10);
+      }
+    }
+
+    // 掩体上限 50%
+    return Math.min(50, maxCover);
+  }, [TERRAIN_TYPES]);
 
   const movePreviewPath = useMemo(() => {
     if (!activeUnit || !isPlayerTurn || selectedAbility || !movePreviewHex || !movePreviewHexKey) return null;
@@ -1508,7 +1530,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       c.closePath();
     };
 
-    const terrainKeys = ['PLAINS', 'FOREST', 'HILLS', 'MOUNTAIN', 'SWAMP', 'SNOW', 'DESERT'] as const;
+    const terrainKeys = ['PLAINS', 'FOREST', 'HILLS', 'MOUNTAIN', 'SWAMP', 'SNOW', 'DESERT', 'BOULDER', 'LARGE_TREE', 'RUINS_WALL', 'FENCE'] as const;
 
     terrainKeys.forEach((type, typeIdx) => {
       for (let v = 0; v < VARIANT_COUNT; v++) {
@@ -1722,6 +1744,120 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             c.lineTo(cx + 4, cy - 3);
             c.stroke();
             c.lineCap = 'butt';
+            break;
+          }
+          case 'BOULDER': {
+            // 巨石纹理：圆润的大石头
+            c.fillStyle = 'rgba(90, 90, 100, 0.55)';
+            c.beginPath();
+            c.ellipse(cx, cy + 2, 14, 11, 0, 0, Math.PI * 2);
+            c.fill();
+            // 高光
+            c.fillStyle = 'rgba(130, 130, 145, 0.35)';
+            c.beginPath();
+            c.ellipse(cx - 3, cy - 2, 8, 6, -0.3, 0, Math.PI * 2);
+            c.fill();
+            // 暗面
+            c.fillStyle = 'rgba(50, 50, 60, 0.3)';
+            c.beginPath();
+            c.ellipse(cx + 4, cy + 5, 7, 4, 0.2, 0, Math.PI * 2);
+            c.fill();
+            // 裂纹
+            c.strokeStyle = 'rgba(60, 60, 70, 0.4)';
+            c.lineWidth = 1;
+            c.beginPath();
+            c.moveTo(cx - 5, cy - 3);
+            c.lineTo(cx + 2, cy + 1);
+            c.lineTo(cx + 6, cy - 1);
+            c.stroke();
+            break;
+          }
+          case 'LARGE_TREE': {
+            // 古木纹理：粗壮树干 + 大树冠
+            // 树干
+            c.fillStyle = 'rgba(70, 50, 25, 0.6)';
+            c.fillRect(cx - 3, cy - 2, 6, 14);
+            // 树根
+            c.strokeStyle = 'rgba(60, 40, 20, 0.5)';
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(cx - 3, cy + 12);
+            c.lineTo(cx - 8, cy + 14);
+            c.moveTo(cx + 3, cy + 12);
+            c.lineTo(cx + 7, cy + 14);
+            c.stroke();
+            // 树冠（大圆形）
+            c.fillStyle = 'rgba(20, 80, 30, 0.55)';
+            c.beginPath();
+            c.arc(cx, cy - 6, 14, 0, Math.PI * 2);
+            c.fill();
+            // 树冠高光
+            c.fillStyle = 'rgba(40, 110, 50, 0.3)';
+            c.beginPath();
+            c.arc(cx - 3, cy - 8, 8, 0, Math.PI * 2);
+            c.fill();
+            break;
+          }
+          case 'RUINS_WALL': {
+            // 残墙纹理：破损的砖墙
+            c.fillStyle = 'rgba(75, 65, 50, 0.55)';
+            c.fillRect(cx - 12, cy - 4, 24, 12);
+            // 砖缝
+            c.strokeStyle = 'rgba(55, 45, 35, 0.4)';
+            c.lineWidth = 1;
+            for (let row = 0; row < 3; row++) {
+              const by = cy - 4 + row * 4;
+              c.beginPath();
+              c.moveTo(cx - 12, by);
+              c.lineTo(cx + 12, by);
+              c.stroke();
+              const offset = row % 2 === 0 ? 0 : 6;
+              for (let col = -12 + offset; col < 12; col += 8) {
+                c.beginPath();
+                c.moveTo(cx + col, by);
+                c.lineTo(cx + col, by + 4);
+                c.stroke();
+              }
+            }
+            // 破损边缘（左上角缺口）
+            c.fillStyle = 'rgba(58, 52, 42, 0.3)';
+            c.beginPath();
+            c.moveTo(cx - 12, cy - 4);
+            c.lineTo(cx - 6, cy - 4);
+            c.lineTo(cx - 8, cy);
+            c.lineTo(cx - 12, cy - 1);
+            c.closePath();
+            c.fill();
+            break;
+          }
+          case 'FENCE': {
+            // 栅栏纹理：木质栅栏
+            c.strokeStyle = 'rgba(100, 80, 45, 0.5)';
+            c.lineWidth = 2;
+            // 横杆
+            c.beginPath();
+            c.moveTo(cx - 14, cy - 2);
+            c.lineTo(cx + 14, cy - 2);
+            c.moveTo(cx - 14, cy + 4);
+            c.lineTo(cx + 14, cy + 4);
+            c.stroke();
+            // 竖桩
+            c.lineWidth = 2.5;
+            for (let i = -2; i <= 2; i++) {
+              const fx = cx + i * 7;
+              c.beginPath();
+              c.moveTo(fx, cy + 8);
+              c.lineTo(fx, cy - 6);
+              c.stroke();
+              // 尖头
+              c.fillStyle = 'rgba(100, 80, 45, 0.5)';
+              c.beginPath();
+              c.moveTo(fx - 1.5, cy - 6);
+              c.lineTo(fx, cy - 9);
+              c.lineTo(fx + 1.5, cy - 6);
+              c.closePath();
+              c.fill();
+            }
             break;
           }
         }
@@ -1996,7 +2132,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const heightOffset = targetHeight * HEIGHT_MULTIPLIER;
           const atkHeightDiff = attackerHeight - targetHeight;
           const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, enemy.combatPos, terrainData));
+          const isRangedAtk = dist > 1 && (activeUnit.equipment.mainHand?.range ?? 1) > 1;
+          const coverPen = isRangedAtk ? calculateCoverPenalty(activeUnit.combatPos, enemy.combatPos, terrainData, state.units, enemy.id) : 0;
+          const breakdown = calculateHitChance(activeUnit, enemy, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, enemy.combatPos, terrainData), coverPen);
           const hitChance = breakdown.final;
 
           const { x, y: baseY } = getPixelPos(enemy.combatPos.q, enemy.combatPos.r);
@@ -3273,7 +3411,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const aiHeightDiff = (aiAttackerTerrain?.height || 0) - (aiTargetTerrain?.height || 0);
             const aiDist = getHexDistance(currentPos, target.combatPos);
             const aiPolearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, action.ability, aiDist);
-            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod, getTerrainCombatMods(currentPos, target.combatPos, terrainData));
+            const aiIsRangedAtk = aiDist > 1 && (activeUnit.equipment.mainHand?.range ?? 1) > 1;
+            const aiCoverPen = aiIsRangedAtk ? calculateCoverPenalty(currentPos, target.combatPos, terrainData, state.units, target.id) : 0;
+            const aiHitInfo = calculateHitChance(activeUnit, target, state, aiHeightDiff, action.ability, aiPolearmHitMod, getTerrainCombatMods(currentPos, target.combatPos, terrainData), aiCoverPen);
             const aiIsHit = rollHitCheck(aiHitInfo.final);
             const aiFatigueCost = getEffectiveFatigueCost(activeUnit, action.ability);
             const aiApCost = getEffectiveApCost(activeUnit, action.ability);
@@ -3573,7 +3713,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           const targetHeight = terrainData.get(`${q},${r}`)?.height || 0;
           const atkHeightDiff = attackerHeight - targetHeight;
           const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData));
+          const pIsRangedAtk = dist > 1 && (activeUnit.equipment.mainHand?.range ?? 1) > 1;
+          const pCoverPen = pIsRangedAtk ? calculateCoverPenalty(activeUnit.combatPos, targetUnit.combatPos, terrainData, state.units, targetUnit.id) : 0;
+          const hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData), pCoverPen);
           setMobileAttackTarget({ unit: targetUnit, hitBreakdown, ability: selectedAbility });
           return;
         }
@@ -4208,7 +4350,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const targetTerrain = terrainData.get(`${target.combatPos.q},${target.combatPos.r}`);
             const heightDiff = (attackerTerrain?.height || 0) - (targetTerrain?.height || 0);
             const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, ability, dist);
-            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, target.combatPos, terrainData));
+            const skillIsRangedAtk = dist > 1 && (activeUnit.equipment.mainHand?.range ?? 1) > 1;
+            const skillCoverPen = skillIsRangedAtk ? calculateCoverPenalty(activeUnit.combatPos, target.combatPos, terrainData, state.units, target.id) : 0;
+            const hitInfo = calculateHitChance(activeUnit, target, state, heightDiff, ability, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, target.combatPos, terrainData), skillCoverPen);
             const isHit = rollHitCheck(hitInfo.final);
             
             // 先扣除 AP 和疲劳（无论命中与否）
@@ -5550,7 +5694,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             const targetHeight = terrainAtHover?.height || 0;
             const atkHeightDiff = attackerHeight - targetHeight;
             const polearmHitMod = getPolearmAdjacentHitPenalty(activeUnit, selectedAbility, dist);
-            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData));
+            const dIsRangedAtk = dist > 1 && (activeUnit.equipment.mainHand?.range ?? 1) > 1;
+            const dCoverPen = dIsRangedAtk ? calculateCoverPenalty(activeUnit.combatPos, targetUnit.combatPos, terrainData, state.units, targetUnit.id) : 0;
+            hitBreakdown = calculateHitChance(activeUnit, targetUnit, state, atkHeightDiff, selectedAbility, polearmHitMod, getTerrainCombatMods(activeUnit.combatPos, targetUnit.combatPos, terrainData), dCoverPen);
             hitChance = hitBreakdown.final;
           }
 
@@ -5590,6 +5736,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                       + 合围 +{hitBreakdown.surroundBonus}%
                     </div>
                   )}
+                  {hitBreakdown.coverPenalty > 0 && (
+                    <div className="text-[8px] text-cyan-400 mt-0.5 font-bold">
+                      - 掩体 -{hitBreakdown.coverPenalty}%
+                    </div>
+                  )}
                   {activeUnit.currentAP < getEffectiveApCost(activeUnit, selectedAbility!) && (
                     <div className="text-red-500 text-[9px] mt-1 font-bold">行动点不足!</div>
                   )}
@@ -5610,6 +5761,9 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   </div>
                   {terrainInfo.description && terrainInfo.passable && (
                     <div className="text-amber-400 text-[8px] mt-0.5">{terrainInfo.description}</div>
+                  )}
+                  {terrainInfo.coverValue > 0 && (
+                    <div className="text-cyan-400 text-[8px] mt-0.5">掩体 {terrainInfo.coverValue}%</div>
                   )}
                 </div>
               )}
