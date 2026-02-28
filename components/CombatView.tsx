@@ -733,19 +733,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     const t = initialState.terrainType;
     switch (t) {
       case 'FOREST':
-        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['LARGE_TREE', 'BOULDER'], obstacleChance: 0.06 };
+        return { primary: 'FOREST', secondary: 'PLAINS', tertiary: 'HILLS', rare: 'HILLS', thresholds: [0.75, 0.5, 0.2], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['LARGE_TREE', 'BOULDER'], obstacleChance: 0.06 };
       case 'MOUNTAIN':
-        return { primary: 'HILLS', secondary: 'MOUNTAIN', tertiary: 'PLAINS', rare: 'MOUNTAIN', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.06 };
+        return { primary: 'HILLS', secondary: 'HILLS', tertiary: 'PLAINS', rare: 'HILLS', thresholds: [0.55, 0.25, -0.1], lowTerrain: 'FOREST', lowThreshold: -0.5, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.06 };
       case 'SWAMP':
         return { primary: 'SWAMP', secondary: 'PLAINS', tertiary: 'FOREST', rare: 'HILLS', thresholds: [0.7, 0.4, 0.1], lowTerrain: 'SWAMP', lowThreshold: -0.3, obstacles: ['LARGE_TREE'], obstacleChance: 0.04 };
       case 'SNOW':
-        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'MOUNTAIN', rare: 'MOUNTAIN', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3, obstacles: ['BOULDER'], obstacleChance: 0.04 };
+        return { primary: 'SNOW', secondary: 'HILLS', tertiary: 'HILLS', rare: 'HILLS', thresholds: [0.7, 0.4, 0.15], lowTerrain: 'SNOW', lowThreshold: -0.3, obstacles: ['BOULDER'], obstacleChance: 0.04 };
       case 'DESERT':
-        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'MOUNTAIN', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.05 };
+        return { primary: 'DESERT', secondary: 'HILLS', tertiary: 'DESERT', rare: 'HILLS', thresholds: [0.75, 0.45, 0.15], lowTerrain: 'PLAINS', lowThreshold: -0.6, obstacles: ['BOULDER', 'RUINS_WALL'], obstacleChance: 0.05 };
       case 'ROAD':
       case 'PLAINS':
       default:
-        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'MOUNTAIN', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['BOULDER', 'FENCE'], obstacleChance: 0.05 };
+        return { primary: 'PLAINS', secondary: 'FOREST', tertiary: 'HILLS', rare: 'HILLS', thresholds: [0.7, 0.45, 0.15], lowTerrain: 'SWAMP', lowThreshold: -0.55, obstacles: ['BOULDER', 'FENCE'], obstacleChance: 0.05 };
     }
   }, [initialState.terrainType]);
 
@@ -784,6 +784,14 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
 
     const [t1, t2, t3] = biomeConfig.thresholds;
 
+    // 收集所有单位实际出生坐标，确保不会出生在障碍物上
+    const unitSpawnHexes = new Set<string>();
+    initialState.units.forEach(u => {
+      if (!u.isDead && !u.hasEscaped) {
+        unitSpawnHexes.add(`${u.combatPos.q},${u.combatPos.r}`);
+      }
+    });
+
     for (let q = -gridRange; q <= gridRange; q++) {
       for (let r = Math.max(-gridRange, -q - gridRange); r <= Math.min(gridRange, -q + gridRange); r++) {
         const n = combinedNoise(q, r);
@@ -804,94 +812,19 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           }
         }
 
-        // 部署区域保护：部署区域内不生成不可通行地形
-        if (!TERRAIN_TYPES[type].passable) {
-          const inPlayerZone = q >= -6 && q <= -1 && r >= -5 && r <= 5;
+        // 部署区域保护：部署区域内及单位出生点不生成不可通行地形
+        if (!TERRAIN_TYPES[type]?.passable) {
+          const inPlayerZone = q >= -7 && q <= 0 && r >= -5 && r <= 5;
           const inEnemyZone = q >= 3 && q <= 8 && r >= -5 && r <= 5;
-          if (inPlayerZone || inEnemyZone) {
+          if (inPlayerZone || inEnemyZone || unitSpawnHexes.has(`${q},${r}`)) {
             type = biomeConfig.primary;
           }
         }
 
         data.set(`${q},${r}`, {
           type,
-          height: TERRAIN_TYPES[type].height
+          height: TERRAIN_TYPES[type]?.height ?? 0
         });
-      }
-    }
-
-    // 连通性检查：确保玩家部署区和敌方部署区之间有通路
-    // 使用BFS从玩家区域中心检查是否能到达敌方区域
-    const getNeighbors = (q: number, r: number) => [
-      { q: q + 1, r: r }, { q: q + 1, r: r - 1 }, { q: q, r: r - 1 },
-      { q: q - 1, r: r }, { q: q - 1, r: r + 1 }, { q: q, r: r + 1 }
-    ];
-
-    const playerCenter = { q: -3, r: 0 };
-    const enemyCenter = { q: 5, r: 0 };
-
-    // BFS：仅通过可通行地形，检查两区域是否连通
-    const reachable = new Set<string>();
-    const bfsQueue: Array<{ q: number; r: number }> = [playerCenter];
-    reachable.add(`${playerCenter.q},${playerCenter.r}`);
-
-    while (bfsQueue.length > 0) {
-      const cur = bfsQueue.shift()!;
-      for (const n of getNeighbors(cur.q, cur.r)) {
-        const key = `${n.q},${n.r}`;
-        if (reachable.has(key)) continue;
-        const tile = data.get(key);
-        if (!tile) continue;
-        if (!TERRAIN_TYPES[tile.type].passable) continue;
-        reachable.add(key);
-        bfsQueue.push(n);
-      }
-    }
-
-    const enemyReached = reachable.has(`${enemyCenter.q},${enemyCenter.r}`);
-
-    if (!enemyReached) {
-      // 用Dijkstra找穿越最少山脉的路径（可通行地形代价0，山地代价1）
-      const dist = new Map<string, number>();
-      const prev = new Map<string, string>();
-      const startKey = `${playerCenter.q},${playerCenter.r}`;
-      const targetKey = `${enemyCenter.q},${enemyCenter.r}`;
-      dist.set(startKey, 0);
-
-      const pq: Array<{ q: number; r: number; cost: number }> = [{ ...playerCenter, cost: 0 }];
-
-      while (pq.length > 0) {
-        pq.sort((a, b) => a.cost - b.cost);
-        const cur = pq.shift()!;
-        const curKey = `${cur.q},${cur.r}`;
-
-        if (curKey === targetKey) break;
-        if (cur.cost > (dist.get(curKey) ?? Infinity)) continue;
-
-        for (const n of getNeighbors(cur.q, cur.r)) {
-          const key = `${n.q},${n.r}`;
-          const tile = data.get(key);
-          if (!tile) continue;
-
-          const tileCost = TERRAIN_TYPES[tile.type].passable ? 0 : 1;
-          const newCost = cur.cost + tileCost;
-
-          if (newCost < (dist.get(key) ?? Infinity)) {
-            dist.set(key, newCost);
-            prev.set(key, curKey);
-            pq.push({ ...n, cost: newCost });
-          }
-        }
-      }
-
-      // 回溯路径，将不可通行地形转为丘陵（山间小路）
-      let traceKey: string | undefined = targetKey;
-      while (traceKey && traceKey !== startKey) {
-        const tile = data.get(traceKey);
-        if (tile && !TERRAIN_TYPES[tile.type].passable) {
-          data.set(traceKey, { type: 'HILLS', height: TERRAIN_TYPES['HILLS'].height });
-        }
-        traceKey = prev.get(traceKey);
       }
     }
 
@@ -1747,66 +1680,85 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
             break;
           }
           case 'BOULDER': {
-            // 巨石纹理：圆润的大石头
-            c.fillStyle = 'rgba(90, 90, 100, 0.55)';
+            // 巨石纹理：大块岩石，高对比度
+            // 暗色底座阴影
+            c.fillStyle = 'rgba(30, 30, 38, 0.5)';
             c.beginPath();
-            c.ellipse(cx, cy + 2, 14, 11, 0, 0, Math.PI * 2);
+            c.ellipse(cx + 1, cy + 4, 16, 12, 0, 0, Math.PI * 2);
             c.fill();
-            // 高光
-            c.fillStyle = 'rgba(130, 130, 145, 0.35)';
+            // 主体
+            c.fillStyle = 'rgba(100, 100, 115, 0.85)';
             c.beginPath();
-            c.ellipse(cx - 3, cy - 2, 8, 6, -0.3, 0, Math.PI * 2);
+            c.ellipse(cx, cy + 1, 15, 12, 0, 0, Math.PI * 2);
+            c.fill();
+            // 高光面
+            c.fillStyle = 'rgba(145, 145, 165, 0.6)';
+            c.beginPath();
+            c.ellipse(cx - 3, cy - 3, 9, 7, -0.3, 0, Math.PI * 2);
             c.fill();
             // 暗面
-            c.fillStyle = 'rgba(50, 50, 60, 0.3)';
+            c.fillStyle = 'rgba(55, 55, 65, 0.5)';
             c.beginPath();
-            c.ellipse(cx + 4, cy + 5, 7, 4, 0.2, 0, Math.PI * 2);
+            c.ellipse(cx + 5, cy + 6, 8, 5, 0.2, 0, Math.PI * 2);
             c.fill();
             // 裂纹
-            c.strokeStyle = 'rgba(60, 60, 70, 0.4)';
-            c.lineWidth = 1;
+            c.strokeStyle = 'rgba(45, 45, 55, 0.7)';
+            c.lineWidth = 1.2;
             c.beginPath();
-            c.moveTo(cx - 5, cy - 3);
-            c.lineTo(cx + 2, cy + 1);
-            c.lineTo(cx + 6, cy - 1);
+            c.moveTo(cx - 6, cy - 4);
+            c.lineTo(cx + 1, cy);
+            c.lineTo(cx + 7, cy - 2);
+            c.stroke();
+            c.beginPath();
+            c.moveTo(cx - 2, cy + 2);
+            c.lineTo(cx + 4, cy + 5);
             c.stroke();
             break;
           }
           case 'LARGE_TREE': {
-            // 古木纹理：粗壮树干 + 大树冠
+            // 古木纹理：粗壮树干 + 巨大深色树冠
             // 树干
-            c.fillStyle = 'rgba(70, 50, 25, 0.6)';
-            c.fillRect(cx - 3, cy - 2, 6, 14);
+            c.fillStyle = 'rgba(55, 35, 15, 0.85)';
+            c.fillRect(cx - 4, cy, 8, 14);
             // 树根
-            c.strokeStyle = 'rgba(60, 40, 20, 0.5)';
-            c.lineWidth = 2;
+            c.strokeStyle = 'rgba(50, 30, 10, 0.7)';
+            c.lineWidth = 2.5;
             c.beginPath();
-            c.moveTo(cx - 3, cy + 12);
-            c.lineTo(cx - 8, cy + 14);
-            c.moveTo(cx + 3, cy + 12);
-            c.lineTo(cx + 7, cy + 14);
+            c.moveTo(cx - 4, cy + 13);
+            c.lineTo(cx - 10, cy + 16);
+            c.moveTo(cx + 4, cy + 13);
+            c.lineTo(cx + 9, cy + 16);
             c.stroke();
-            // 树冠（大圆形）
-            c.fillStyle = 'rgba(20, 80, 30, 0.55)';
+            // 树冠阴影
+            c.fillStyle = 'rgba(5, 30, 10, 0.5)';
             c.beginPath();
-            c.arc(cx, cy - 6, 14, 0, Math.PI * 2);
+            c.arc(cx + 1, cy - 4, 17, 0, Math.PI * 2);
+            c.fill();
+            // 树冠主体
+            c.fillStyle = 'rgba(15, 65, 25, 0.85)';
+            c.beginPath();
+            c.arc(cx, cy - 5, 16, 0, Math.PI * 2);
             c.fill();
             // 树冠高光
-            c.fillStyle = 'rgba(40, 110, 50, 0.3)';
+            c.fillStyle = 'rgba(35, 100, 45, 0.45)';
             c.beginPath();
-            c.arc(cx - 3, cy - 8, 8, 0, Math.PI * 2);
+            c.arc(cx - 4, cy - 8, 9, 0, Math.PI * 2);
             c.fill();
             break;
           }
           case 'RUINS_WALL': {
-            // 残墙纹理：破损的砖墙
-            c.fillStyle = 'rgba(75, 65, 50, 0.55)';
-            c.fillRect(cx - 12, cy - 4, 24, 12);
+            // 残墙纹理：厚实的破损砖墙
+            // 阴影
+            c.fillStyle = 'rgba(30, 25, 18, 0.4)';
+            c.fillRect(cx - 13, cy - 3, 26, 14);
+            // 墙体主体
+            c.fillStyle = 'rgba(90, 78, 60, 0.85)';
+            c.fillRect(cx - 12, cy - 4, 24, 13);
             // 砖缝
-            c.strokeStyle = 'rgba(55, 45, 35, 0.4)';
+            c.strokeStyle = 'rgba(50, 42, 30, 0.6)';
             c.lineWidth = 1;
             for (let row = 0; row < 3; row++) {
-              const by = cy - 4 + row * 4;
+              const by = cy - 4 + row * 4.5;
               c.beginPath();
               c.moveTo(cx - 12, by);
               c.lineTo(cx + 12, by);
@@ -1815,34 +1767,45 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               for (let col = -12 + offset; col < 12; col += 8) {
                 c.beginPath();
                 c.moveTo(cx + col, by);
-                c.lineTo(cx + col, by + 4);
+                c.lineTo(cx + col, by + 4.5);
                 c.stroke();
               }
             }
-            // 破损边缘（左上角缺口）
-            c.fillStyle = 'rgba(58, 52, 42, 0.3)';
+            // 破损边缘（锯齿状顶部）
+            c.fillStyle = 'rgba(90, 78, 60, 0.85)';
             c.beginPath();
             c.moveTo(cx - 12, cy - 4);
-            c.lineTo(cx - 6, cy - 4);
-            c.lineTo(cx - 8, cy);
-            c.lineTo(cx - 12, cy - 1);
+            c.lineTo(cx - 10, cy - 8);
+            c.lineTo(cx - 6, cy - 5);
+            c.lineTo(cx - 2, cy - 10);
+            c.lineTo(cx + 2, cy - 6);
+            c.lineTo(cx + 6, cy - 9);
+            c.lineTo(cx + 10, cy - 5);
+            c.lineTo(cx + 12, cy - 4);
             c.closePath();
             c.fill();
+            // 顶部砖缝
+            c.strokeStyle = 'rgba(50, 42, 30, 0.5)';
+            c.beginPath();
+            c.moveTo(cx - 10, cy - 7);
+            c.lineTo(cx - 6, cy - 5);
+            c.lineTo(cx - 2, cy - 9);
+            c.stroke();
             break;
           }
           case 'FENCE': {
             // 栅栏纹理：木质栅栏
-            c.strokeStyle = 'rgba(100, 80, 45, 0.5)';
+            c.strokeStyle = 'rgba(110, 88, 50, 0.75)';
             c.lineWidth = 2;
             // 横杆
             c.beginPath();
-            c.moveTo(cx - 14, cy - 2);
-            c.lineTo(cx + 14, cy - 2);
-            c.moveTo(cx - 14, cy + 4);
-            c.lineTo(cx + 14, cy + 4);
+            c.moveTo(cx - 15, cy - 2);
+            c.lineTo(cx + 15, cy - 2);
+            c.moveTo(cx - 15, cy + 4);
+            c.lineTo(cx + 15, cy + 4);
             c.stroke();
             // 竖桩
-            c.lineWidth = 2.5;
+            c.lineWidth = 3;
             for (let i = -2; i <= 2; i++) {
               const fx = cx + i * 7;
               c.beginPath();
@@ -1850,11 +1813,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
               c.lineTo(fx, cy - 6);
               c.stroke();
               // 尖头
-              c.fillStyle = 'rgba(100, 80, 45, 0.5)';
+              c.fillStyle = 'rgba(110, 88, 50, 0.75)';
               c.beginPath();
-              c.moveTo(fx - 1.5, cy - 6);
-              c.lineTo(fx, cy - 9);
-              c.lineTo(fx + 1.5, cy - 6);
+              c.moveTo(fx - 2, cy - 6);
+              c.lineTo(fx, cy - 10);
+              c.lineTo(fx + 2, cy - 6);
               c.closePath();
               c.fill();
             }
@@ -2017,8 +1980,8 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
           if (texture) {
             ctx.drawImage(texture, x - texture.width / 2, topY - texture.height / 2);
           }
-          // MOUNTAIN 不可通行标记
-          if (data.type === 'MOUNTAIN') {
+          // 不可通行地形标记
+          if (!terrain.passable) {
             ctx.fillStyle = 'rgba(0,0,0,0.15)';
             drawHex(x, topY, HEX_SIZE - HEX_GAP - 2);
             ctx.fill();
@@ -5460,6 +5423,11 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
                   {bd.surroundBonus > 0 && (
                     <div className="text-[8px] text-amber-400 mt-0.5 font-bold">
                       + 合围 +{bd.surroundBonus}%
+                    </div>
+                  )}
+                  {bd.coverPenalty > 0 && (
+                    <div className="text-[8px] text-cyan-400 mt-0.5 font-bold">
+                      - 掩体 -{bd.coverPenalty}%
                     </div>
                   )}
                   {activeUnit.currentAP < getEffectiveApCost(activeUnit, mobileAttackTarget.ability) && (

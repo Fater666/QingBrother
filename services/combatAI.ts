@@ -11,7 +11,7 @@
  */
 
 import { CombatState, CombatUnit, AIType, Ability, MoraleStatus } from '../types';
-import { getHexDistance, getUnitAbilities, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus } from '../constants';
+import { getHexDistance, getUnitAbilities, isInEnemyZoC, getThreateningEnemies, getSurroundingBonus, COMBAT_TERRAIN_DATA } from '../constants';
 import { MORALE_ORDER } from './moraleService';
 import { isPolearmBacklineAttack } from './combatUtils';
 
@@ -126,7 +126,11 @@ const isHexOccupied = (pos: { q: number; r: number }, state: CombatState): boole
   state.units.some(u => !u.isDead && u.combatPos.q === pos.q && u.combatPos.r === pos.r);
 
 // 检查格子是否被阻挡（单位占用或不可通行地形）
-const IMPASSABLE_TERRAIN = new Set(['MOUNTAIN']);
+const IMPASSABLE_TERRAIN = new Set(
+  Object.entries(COMBAT_TERRAIN_DATA)
+    .filter(([, t]: [string, any]) => t.passable === false)
+    .map(([id]) => id)
+);
 const isHexBlocked = (pos: { q: number; r: number }, state: CombatState): boolean => {
   if (isHexOccupied(pos, state)) return true;
   if (state.terrainGrid) {
