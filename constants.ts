@@ -37,7 +37,7 @@ import QUEST_CITY_COUNT_CSV from './csv/quest_city_count.csv?raw';
 import QUEST_DIFFICULTY_POOLS_CSV from './csv/quest_difficulty_pools.csv?raw';
 import QUEST_REWARD_RULES_CSV from './csv/quest_reward_rules.csv?raw';
 import QUEST_GENERATION_RULES_CSV from './csv/quest_generation_rules.csv?raw';
-import BACKGROUND_TRAIT_WEIGHTS_CSV from './csv/background_trait_weights.csv?raw';
+// background_trait_weights 已合并到 backgrounds.csv 的 preferredTraits 列
 import GAME_DIFFICULTY_CONFIG_CSV from './csv/game_difficulty_config.csv?raw';
 import COMBAT_TERRAIN_CSV from './csv/combat_terrain.csv?raw';
 
@@ -159,11 +159,12 @@ export const NEGATIVE_TRAITS = Object.values(TRAIT_TEMPLATES).filter(t => t.type
  * 偏好特质的权重为普通特质的 3 倍
  */
 export const BG_TRAIT_WEIGHTS: Record<string, string[]> = {};
-parseCSV(BACKGROUND_TRAIT_WEIGHTS_CSV).forEach(row => {
-    const traitIds = Array.isArray(row.traitIds)
-        ? row.traitIds
-        : (typeof row.traitIds === 'string' && row.traitIds ? [row.traitIds] : []);
-    BG_TRAIT_WEIGHTS[row.bgId] = traitIds;
+Object.entries(BACKGROUNDS).forEach(([id, bg]) => {
+    const pt = (bg as any).preferredTraits;
+    const traitIds = Array.isArray(pt)
+        ? pt
+        : (typeof pt === 'string' && pt ? pt.split(',') : []);
+    BG_TRAIT_WEIGHTS[id] = traitIds;
 });
 
 /**

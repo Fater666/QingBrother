@@ -3,7 +3,7 @@ name|bgKey|traits|meleeSkill|rangedSkill|meleeDefense|rangedDefense|resolve|init
 盖聂|SWORDSMAN|natural_fighter|3|0|2|0|0|1|0|0|沉默寡言的剑客，据说从未在比剑中落败。
 聂政|BUTCHER|strong,brave|2|0|0|0|1|0|2|1|以杀猪为业的壮汉，为报知遇之恩可以粉身碎骨。
 毛遂|MERCHANT|eloquent|0|0|0|0|3|1|0|0|碌碌无名的门客，关键时刻挺身而出自荐其才。
-孙膑|CRIPPLE|enduring|0|0|0|0|3|2|0|0|受膑刑而残，以残躯写就兵法奇书，智谋冠绝天下。
+孙膑|CRIPPLE|enduring,eagle_eyes|0|0|0|0|3|3|1|1|受膑刑而残，以残躯写就兵法奇书，智谋冠绝天下。
 樊於期|DESERTER|iron_jaw|2|0|1|0|1|0|1|0|从秦国叛逃的将领，甘愿以首级报恩。
 鲁仲连|MONK|brave,eagle_eyes|0|0|0|0|3|2|0|0|好为人排忧解难却从不受赏赐的奇人，义不帝秦。
 田光|MILITIAMAN|tough,enduring|0|0|1|0|3|0|0|0|燕国老义士，为保守秘密宁肯以死明志。

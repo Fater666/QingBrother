@@ -1866,7 +1866,10 @@ export const App: React.FC = () => {
                   ...city,
                   market: generateCityMarket(c.type),
                   recruits: (() => {
-                    const usedNames: string[] = [];
+                    const recruitedLegendaryNames = party.mercenaries
+                      .filter(m => m.isLegendary)
+                      .map(m => m.name);
+                    const usedNames: string[] = [...recruitedLegendaryNames];
                     return Array.from({ length: 4 }).map((_, j) => {
                       const hero = rollLegendaryHero(usedNames);
                       if (hero) {
