@@ -2500,13 +2500,22 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       u.combatPos.r === pos.r
     );
 
+    // 检查地形是否可通行
+    const isPassableTerrain = (pos: { q: number; r: number }) => {
+      const td = terrainData.get(`${pos.q},${pos.r}`);
+      if (!td) return true;
+      const terrainDef = COMBAT_TERRAIN_DATA[td.type];
+      return !terrainDef || terrainDef.passable !== false;
+    };
+
     const emptyInBoundsNeighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r)
       .filter(isHexInBounds)
-      .filter(pos => !isOccupied(pos));
+      .filter(pos => !isOccupied(pos))
+      .filter(isPassableTerrain);
 
-    // 确定最终逃跑目标：优先 fleeTarget，不合法/被占用则选择最接近 fleeTarget 的可用邻格
+    // 确定最终逃跑目标：优先 fleeTarget，不合法/被占用/不可通行则选择最接近 fleeTarget 的可用邻格
     let finalTarget = fleeTarget;
-    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget)) {
+    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget) || !isPassableTerrain(finalTarget)) {
       const fallback = emptyInBoundsNeighbors.sort(
         (a, b) => getHexDistance(a, fleeTarget) - getHexDistance(b, fleeTarget)
       )[0];
@@ -2642,7 +2651,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     } else {
       addToLog(`${unit.name} 惊慌逃窜！`, 'flee');
     }
-  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex]);
+  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex, terrainData]);
 
   /**
    * 处理主动撤退单位的自动行动
@@ -2658,12 +2667,21 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
       u.combatPos.r === pos.r
     );
 
+    // 检查地形是否可通行
+    const isPassableTerrain = (pos: { q: number; r: number }) => {
+      const td = terrainData.get(`${pos.q},${pos.r}`);
+      if (!td) return true;
+      const terrainDef = COMBAT_TERRAIN_DATA[td.type];
+      return !terrainDef || terrainDef.passable !== false;
+    };
+
     const emptyInBoundsNeighbors = getHexNeighbors(unit.combatPos.q, unit.combatPos.r)
       .filter(isHexInBounds)
-      .filter(pos => !isOccupied(pos));
+      .filter(pos => !isOccupied(pos))
+      .filter(isPassableTerrain);
 
     let finalTarget = retreatTarget;
-    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget)) {
+    if (!isHexInBounds(finalTarget) || isOccupied(finalTarget) || !isPassableTerrain(finalTarget)) {
       const fallback = emptyInBoundsNeighbors.sort(
         (a, b) => getHexDistance(a, retreatTarget) - getHexDistance(b, retreatTarget)
       )[0];
@@ -2796,7 +2814,7 @@ export const CombatView: React.FC<CombatViewProps> = ({ initialState, onCombatEn
     } else {
       addToLog(`${unit.name} 正在向边缘撤退。`, 'flee');
     }
-  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex]);
+  }, [state, processDamageWithMorale, isHexInBounds, isEdgeHex, terrainData]);
 
   /**
    * 回合开始时的士气恢复检定

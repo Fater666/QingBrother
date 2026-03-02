@@ -246,10 +246,14 @@ export const CityView: React.FC<CityViewProps> = ({ city, party, onLeave, onUpda
       const difficultyMult = getIncomeMultiplierByDifficulty(party.difficulty);
       return Math.floor(baseRewardGold * reputationMult * difficultyMult);
   };
-  const getBuyPrice = (item: Item): number =>
-      Math.floor(item.value * 1.5 * (city.priceModifier || 1) * (party.marketBuyPriceMultiplier ?? 1));
-  const getSellPrice = (item: Item): number =>
-      Math.floor(item.value * 0.5 * (city.priceModifier || 1));
+  const getBuyPrice = (item: Item): number => {
+      const durMod = item.maxDurability > 0 ? item.durability / item.maxDurability : 1;
+      return Math.floor(item.value * 1.5 * durMod * (city.priceModifier || 1) * (party.marketBuyPriceMultiplier ?? 1));
+  };
+  const getSellPrice = (item: Item): number => {
+      const durMod = item.maxDurability > 0 ? item.durability / item.maxDurability : 1;
+      return Math.floor(item.value * 0.5 * durMod * (city.priceModifier || 1));
+  };
   const getRecruitCost = (merc: Character): number =>
       Math.max(
           1,
